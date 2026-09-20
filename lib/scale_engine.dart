@@ -38,11 +38,11 @@ class ScaleEngine {
     List<int> scalePcs = (scaleFormulas[scale] ?? []).map((step) => (rootPc + step) % 12).toList();
     Map<int, List<int>> boxDict = {};
 
-    for (int stringNum in targetStrings..sort((a, b) => b.compareTo(a))) {
+    for (int stringNum in targetStrings) {
       int openMidi = openStrings[stringNum]!;
       List<int> stringFrets = [];
       for (int fret = startFret; fret < startFret + 4; fret++) {
-        if (scalePcs.contains((openMidi + fret) % 12)) stringFrets.add(fret);
+        if (fret <= 24 && scalePcs.contains((openMidi + fret) % 12)) stringFrets.add(fret);
       }
       boxDict[stringNum] = stringFrets;
     }
@@ -69,7 +69,7 @@ class ScaleEngine {
       int fret = (lastMinPitch != -1) ? max(0, lastMinPitch + 1 - openMidi) : startFret;
       int targetNotes = npsProfile.length == 6 ? npsProfile[stringNum - 1] : 3;
 
-      while (stringFrets.length < targetNotes && fret < 24) {
+      while (stringFrets.length < targetNotes && fret <= 24) {
         int pitch = openMidi + fret;
         if (scalePcs.contains(pitch % 12) && pitch > lastMinPitch) {
           stringFrets.add(fret);
@@ -88,23 +88,41 @@ class ScaleEngine {
     int openMidi = openStrings[targetString]!;
     List<int> stringFrets = [];
 
-    for (int fret = startFret; fret < min(startFret + 12, 24); fret++) {
+    int upperFretLimit = min(startFret + 15, 24);
+    for (int fret = startFret; fret <= upperFretLimit; fret++) {
       if (scalePcs.contains((openMidi + fret) % 12)) stringFrets.add(fret);
     }
     return {targetString: stringFrets};
   }
 
-  List<List<int>> flattenBoxDict(Map<int, List<int>> boxDict) {
+  // UPDATED: Now strictly follows the exact start/end string numbers passed by the UI
+  List<List<int>> flattenBoxDict(Map<int, List<int>> boxDict, int startStr, int endStr) {
     List<List<int>> flatNotes = [];
-    int lastPitch = -1;
-    List<int> sortedStrings = boxDict.keys.toList()..sort((a, b) => b.compareTo(a));
-
-    for (int s in sortedStrings) {
-      for (int f in (boxDict[s] ?? [])) {
-        int pitch = openStrings[s]! + f;
-        if (pitch > lastPitch) {
-          flatNotes.add([s, f]);
-          lastPitch = pitch;
+    
+    if (startStr >= endStr) { 
+      // Ascending pitch (e.g. 6 down to 1)
+      int lastPitch = -1;
+      for (int s = startStr; s >= endStr; s--) {
+        List<int> frets = (boxDict[s] ?? []).toList()..sort();
+        for (int f in frets) {
+          int pitch = openStrings[s]! + f;
+          if (pitch > lastPitch) {
+            flatNotes.add([s, f]);
+            lastPitch = pitch;
+          }
+        }
+      }
+    } else { 
+      // Descending pitch (e.g. 1 up to 6)
+      int lastPitch = 999;
+      for (int s = startStr; s <= endStr; s++) {
+        List<int> frets = (boxDict[s] ?? []).toList()..sort((a, b) => b.compareTo(a));
+        for (int f in frets) {
+          int pitch = openStrings[s]! + f;
+          if (pitch < lastPitch) {
+            flatNotes.add([s, f]);
+            lastPitch = pitch;
+          }
         }
       }
     }
@@ -136,22 +154,20 @@ class ScaleEngine {
     List<String> tokens = sequenceStr.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
     for (String token in tokens) {
       int? idx = int.tryParse(token);
-      if (idx != null && idx > 0 && idx <= baseNotes.length) {
-        result.add(baseNotes[idx - 1]);
-      }
+      if (idx != null && idx > 0 && idx <= baseNotes.length) result.add(baseNotes[idx - 1]);
     }
     return result;
   }
 
-  List<List<int>> buildCustomMotif(Map<int, List<int>> boxDict, String rawMotif, String pairDirection) {
-    List<int> availableStrings = boxDict.keys.toList()..sort();
-    if (availableStrings.length < 2) return [];
-
+  // UPDATED: Now sweeps string pairs precisely in the direction dictated by startStr and endStr
+  List<List<int>> buildCustomMotif(Map<int, List<int>> boxDict, String rawMotif, int startStr, int endStr) {
+    if (startStr == endStr) return [];
+    
     List<List<int>> pairs = [];
-    if (pairDirection == "Descend (High -> Low)") { 
-      for (int i = 1; i < availableStrings.length; i++) pairs.add([availableStrings[i], availableStrings[i - 1]]);
-    } else { 
-      for (int i = availableStrings.length - 1; i > 0; i--) pairs.add([availableStrings[i], availableStrings[i - 1]]);
+    if (startStr > endStr) { // Ascending sweep (e.g. 6 to 4)
+      for (int i = startStr; i > endStr; i--) pairs.add([i, i - 1]);
+    } else { // Descending sweep (e.g. 4 to 6)
+      for (int i = startStr; i < endStr; i++) pairs.add([i + 1, i]);
     }
 
     List<Map<String, dynamic>> tokens = [];
@@ -161,15 +177,13 @@ class ScaleEngine {
       if (p.length < 2) continue;
       String side = p[0];
       int? idx = int.tryParse(p.substring(1));
-      if (idx != null && idx > 0 && (side == 'L' || side == 'H')) {
-        tokens.add({'side': side, 'idx': idx - 1});
-      }
+      if (idx != null && idx > 0 && (side == 'L' || side == 'H')) tokens.add({'side': side, 'idx': idx - 1});
     }
 
     List<List<int>> sequence = [];
     for (var pair in pairs) {
-      int lowStr = pair[0];
-      int highStr = pair[1];
+      int lowStr = pair[0]; 
+      int highStr = pair[1]; 
       for (var t in tokens) {
         int targetStr = (t['side'] == 'L') ? lowStr : highStr;
         List<int>? frets = boxDict[targetStr];
@@ -187,9 +201,7 @@ class ScaleEngine {
     List<List<int>> result = [];
     for (int i = 0; i < sequence.length; i++) {
       result.add(sequence[i]);
-      if ((i + 1) % interval == 0) {
-        for (int b = 0; b < breakLen; b++) result.add([-1, -1]); 
-      }
+      if ((i + 1) % interval == 0) for (int b = 0; b < breakLen; b++) result.add([-1, -1]);
     }
     return result;
   }
