@@ -145,6 +145,20 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
 
   String get _autoTimeSignature => "$_dynamicBeatsPerMeasure/4";
 
+  String get _currentNps {
+    double maxMultiplier = 1.0;
+    
+    // Find the fastest note in the current rhythm pattern
+    for (String rhythm in _parsedRhythmPattern) {
+      double mult = {"Quarter": 1.0, "8th": 2.0, "16th": 4.0}[rhythm] ?? 4.0;
+      if (mult > maxMultiplier) maxMultiplier = mult;
+    }
+    
+    // (BPM / 60 seconds) * Notes per beat
+    double nps = (_tempo / 60) * maxMultiplier;
+    return nps.toStringAsFixed(1);
+  }
+
   List<String> _parsePatternString(String val) {
     switch (val) {
       case "Straight 8ths": return ["8th"];
@@ -214,7 +228,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
           _selectedDirection = "Ascend -> Descend";
         }
       } else if (_startString < _endString) {
-        if (_selectedDirection.contains("Ascend") && !_selectedDirection.startsWith("Ascend -> Descend")) {
+        if (_selectedDirection.contains("Ascend") && !_selectedDirection.startsWith("Ascend -> Ascend")) {
           _selectedDirection = "One-Way (Descend)";
         } else if (_selectedDirection == "Ascend -> Descend") {
           _selectedDirection = "Descend -> Ascend";
@@ -504,6 +518,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         _currentSequence,
         notesPerMeasure: _calculateNotesPerMeasure(),
         rhythmLabel: _selectedRhythmPattern,
+        nps: _currentNps,
         measuresPerSystem: _measuresPerLine <= 0 ? 999 : _measuresPerLine,
         beatsPerMeasure: _dynamicBeatsPerMeasure,
         tempo: _tempo,
@@ -867,16 +882,39 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
             ),
           ],
         ),
+        
+        // NPS DYNAMIC STRIP
+        Padding(
+          padding: const EdgeInsets.only(top: 12.0, bottom: 8.0),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.blue.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text("Peak Physical Speed:", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                Text(
+                  "$_currentNps NPS", 
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)
+                ),
+              ],
+            ),
+          ),
+        ),
+        
         if (_selectedRhythmPattern == "Custom Pattern")
           Padding(
-            padding: const EdgeInsets.only(top: 8.0),
+            padding: const EdgeInsets.only(bottom: 8.0),
             child: TextField(
               controller: _customRhythmController,
               decoration: const InputDecoration(labelText: "Custom Rhythm Pattern (e.g. 16,16,8,4)", border: OutlineInputBorder(), isDense: true),
               onChanged: (_) => _generateTab(),
             ),
           ),
-        const SizedBox(height: 8),
         Row(
           children: [
             Expanded(

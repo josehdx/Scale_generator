@@ -197,6 +197,7 @@ class ScaleEngine {
     List<List<int>> noteSequence, {
     required int notesPerMeasure,
     required String rhythmLabel,
+    required String nps,
     int measuresPerSystem = 1,
     int beatsPerMeasure = 4,
     int tempo = 120,
@@ -204,7 +205,7 @@ class ScaleEngine {
     int notesPerSystem = notesPerMeasure * (measuresPerSystem <= 0 ? 999 : measuresPerSystem);
     Map<int, String> stringLabels = {1: 'e', 2: 'B', 3: 'G', 4: 'D', 5: 'A', 6: 'E'};
     List<String> outputLines = [
-      "Tempo: $tempo BPM", 
+      "Tempo: $tempo BPM ($nps Notes/Sec)", 
       "Time Signature: $beatsPerMeasure/4", 
       "Rhythm: $rhythmLabel", 
       ""
