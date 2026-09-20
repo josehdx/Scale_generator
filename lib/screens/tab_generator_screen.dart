@@ -247,7 +247,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Saved Preset: '$presetName'")));
   }
 
-  // CORE FIX: State synchronization decoupled from View navigation
   void _applyPresetState(LickPreset preset) {
     setState(() {
       _selectedKey = preset.key; 
@@ -293,13 +292,11 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       _endRests = preset.endRests; 
       _generatedTab = preset.tabOutput;
     });
-    // This updates the Tab View for Main Studio invisibly in the background
     _generateTab();
   }
 
   void _loadPreset(LickPreset preset) {
     _applyPresetState(preset);
-    // Explicit jump when requested directly from the "Load Preset" popup menu
     _pageController.animateToPage(0, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
   }
 
@@ -556,7 +553,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       setState(() {
         _isPlaying = false;
         _isPreviewPlaying = false;
-        _previewPresetId = null;
+        // _previewPresetId is INTENTIONALLY left untouched here to remember the active preset
       });
     }
   }
@@ -595,10 +592,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
             isPreviewPlaying: _isPreviewPlaying,
             isPreviewLooping: _isPreviewLooping,
             onPlayPreview: (preset) {
-              // 1. Sync the Main Studio view instantly in the background without flipping pages
               _applyPresetState(preset);
-              
-              // 2. Play the audio preview securely
               _playLick(
                 overrideSequence: _buildSequenceForPreset(preset),
                 overrideTempo: preset.tempo,
@@ -612,7 +606,11 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
             onLoadPreset: _loadPreset, 
             onDeletePresets: (ids) => setState(() { 
               _savedPresets.removeWhere((p) => ids.contains(p.id)); 
-              if (ids.contains(_previewPresetId)) _stopPlayback();
+              // Clear preview tracking ONLY if the currently active preset is deleted
+              if (ids.contains(_previewPresetId)) {
+                _stopPlayback();
+                _previewPresetId = null;
+              }
               _savePresetsToDisk(); 
             }),
             onRenamePreset: (id, name) => setState(() { var idx = _savedPresets.indexWhere((p) => p.id == id); if (idx != -1) { var o = _savedPresets[idx]; _savedPresets[idx] = LickPreset(id: o.id, name: name, key: o.key, scale: o.scale, tuning: o.tuning, system: o.system, fragment: o.fragment, startFret: o.startFret, pathway: o.pathway, direction: o.direction, motifPairDirection: o.motifPairDirection, motifString: o.motifString, rhythm: o.rhythm, tempo: o.tempo, measuresPerLine: o.measuresPerLine, breakInterval: o.breakInterval, breakLength: o.breakLength, endRests: o.endRests, tabOutput: o.tabOutput, createdAt: o.createdAt); _savePresetsToDisk(); } }),

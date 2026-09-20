@@ -7,12 +7,10 @@ class InteractiveFretboard extends StatelessWidget {
   final String selectedScale;
   final int startFret;
   final String selectedTuning;
-  
   final int? activeString;
   final int? activeFret;
   final int? previewString;
   final int? previewFret;
-  
   final ScrollController? scrollController;
   final Function(String newKey, int fret) onNoteTapped;
 
@@ -54,7 +52,7 @@ class InteractiveFretboard extends StatelessWidget {
               int openPitch = engine.openStrings[stringNum]!;
 
               return Row(
-                children: List.generate(25, (fretNum) { // Increased from 21 to 25 frets
+                children: List.generate(25, (fretNum) { 
                   int notePitch = (openPitch + fretNum) % 12;
                   int interval = (notePitch - rootPitch + 12) % 12;
                   
@@ -68,16 +66,32 @@ class InteractiveFretboard extends StatelessWidget {
                           orElse: () => const MapEntry("", -1))
                       .key;
 
-                  Color noteColor = Colors.blueAccent;
-                  if (isRoot) noteColor = Colors.redAccent;
-                  if (isActive) noteColor = Colors.greenAccent;
-                  if (isPreview) noteColor = Colors.purpleAccent.shade200;
+                  // --- NEW COLOR LOGIC ---
+                  Color noteColor = Colors.grey.shade800; // Base non-scale color
+                  Color textColor = Colors.white38;       // Dimmed text for non-scale
+                  
+                  if (isInScale) {
+                    noteColor = Colors.blueAccent;
+                    textColor = Colors.white;
+                  }
+                  if (isRoot) {
+                    noteColor = Colors.redAccent;
+                    textColor = Colors.white;
+                  }
+                  // Overrides for playback highlighting
+                  if (isActive) {
+                    noteColor = Colors.greenAccent;
+                    textColor = Colors.black;
+                  }
+                  if (isPreview) {
+                    noteColor = Colors.purpleAccent.shade200;
+                    textColor = Colors.white;
+                  }
 
                   return GestureDetector(
                     onTap: () {
-                      if (isInScale) {
-                        onNoteTapped(noteName, fretNum);
-                      }
+                      // Now ANY note can be tapped to shift the root and start fret
+                      onNoteTapped(noteName, fretNum);
                     },
                     child: Container(
                       width: fretNum == 0 ? 36 : 46,
@@ -95,26 +109,27 @@ class InteractiveFretboard extends StatelessWidget {
                         ),
                       ),
                       child: Center(
-                        child: isInScale
-                            ? Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  color: noteColor,
-                                  shape: BoxShape.circle,
-                                  boxShadow: (isActive || isPreview) 
-                                      ? [BoxShadow(color: noteColor, blurRadius: 6)] 
-                                      : [],
-                                ),
-                                child: Text(
-                                  noteName,
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: (isActive || isPreview) ? Colors.black : Colors.white,
-                                  ),
-                                ),
-                              )
-                            : const SizedBox.shrink(),
+                        // We always render the container now, no more `isInScale` check here
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: noteColor,
+                            shape: BoxShape.circle,
+                            boxShadow: (isActive || isPreview)
+                                ? [BoxShadow(color: noteColor, blurRadius: 6)]
+                                : [],
+                          ),
+                          child: Text(
+                            noteName,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: (isInScale || isRoot || isActive || isPreview) 
+                                ? FontWeight.bold 
+                                : FontWeight.normal,
+                              color: textColor,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   );
@@ -127,9 +142,9 @@ class InteractiveFretboard extends StatelessWidget {
               color: Colors.black45,
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(
-                children: List.generate(25, (fretNum) { // Increased from 21 to 25 frets
-                  // Added 21 and 24 to standard fret markers
-                  bool isMarker = [3, 5, 7, 9, 12, 15, 17, 19, 21, 24].contains(fretNum); 
+                children: List.generate(25, (fretNum) { 
+                  bool isMarker = [3, 5, 7, 9, 12, 15, 17, 19, 21, 24].contains(fretNum);
+                  
                   return Container(
                     width: fretNum == 0 ? 36 : 46,
                     alignment: Alignment.center,

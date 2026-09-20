@@ -260,15 +260,24 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
                   buildDefaultDragHandles: false, 
                   itemBuilder: (context, index) {
                     final preset = widget.savedPresets[index];
+                    
                     bool isSelected = _selectedIds.contains(preset.id);
-                    bool isPreviewing = widget.activePreviewId == preset.id;
+                    bool isActive = widget.activePreviewId == preset.id;
+                    bool isPlayingThis = isActive && widget.isPreviewPlaying;
 
                     return Card(
                       key: ValueKey(preset.id), 
                       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        side: BorderSide(
+                          color: isActive ? Colors.green.withOpacity(0.5) : Colors.transparent,
+                          width: 1.0,
+                        ),
+                      ),
                       color: isSelected 
                           ? Colors.blue.withOpacity(0.2) 
-                          : (isPreviewing ? Colors.green.withOpacity(0.15) : Colors.grey.shade900),
+                          : (isPlayingThis ? Colors.green.withOpacity(0.15) : (isActive ? Colors.green.withOpacity(0.05) : Colors.grey.shade900)),
                       child: ListTile(
                         leading: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -278,8 +287,8 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
                               onChanged: (_) => _toggleSelection(preset.id),
                             ),
                             CircleAvatar(
-                              backgroundColor: isPreviewing ? Colors.green : Colors.blueAccent,
-                              child: Icon(isPreviewing ? Icons.play_arrow : Icons.music_note, color: Colors.white),
+                              backgroundColor: isPlayingThis ? Colors.green : (isActive ? Colors.teal : Colors.blueAccent),
+                              child: Icon(isPlayingThis ? Icons.volume_up : (isActive ? Icons.play_arrow : Icons.music_note), color: Colors.white),
                             ),
                           ],
                         ),
@@ -290,10 +299,10 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (isPreviewing && widget.isPreviewPlaying)
+                            if (isPlayingThis)
                               const Padding(
                                 padding: EdgeInsets.only(right: 8.0),
-                                child: Icon(Icons.volume_up, color: Colors.greenAccent, size: 20),
+                                child: Icon(Icons.equalizer, color: Colors.greenAccent, size: 20),
                               ),
                             if (!hasSelection)
                               PopupMenuButton<String>(
