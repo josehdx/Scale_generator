@@ -39,6 +39,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   bool _isTheoryExpanded = true;
   bool _isPathwaysExpanded = false;
   bool _isFormattingExpanded = false;
+  bool _isTabExpanded = true; // NEW: Tab section collapsible state
   
   Timer? _playbackTimer;
   final Set<int> _activeMidiNotes = {}; 
@@ -417,6 +418,38 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     );
   }
 
+  Widget _buildInteractiveTabOutput() {
+    if (_currentSequence.isEmpty) {
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8)),
+        width: double.infinity, 
+        child: Text(_generatedTab, style: const TextStyle(fontFamily: 'monospace', color: Colors.greenAccent))
+      );
+    }
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 350), // Ensures the tab display can scroll internally if needed
+      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade800)),
+      child: ValueListenableBuilder<int>(
+        valueListenable: _currentPlayingNoteIndex,
+        builder: (context, playingIndex, child) => InteractiveTabDisplay(
+          sequence: _currentSequence, rhythmStr: _selectedRhythm, measuresPerLine: _measuresPerLine <= 0 ? 999 : _measuresPerLine, 
+          currentPlayingIndex: playingIndex, selectionStart: _selectionStart, selectionEnd: _selectionEnd, tuningStr: _selectedTuning, 
+          onBeatTapped: (index) => setState(() { 
+            if (_selectionStart == -1 || (_selectionStart != -1 && _selectionEnd != _selectionStart)) { 
+              _selectionStart = index; _selectionEnd = index; _tapAnchorIndex = index; 
+            } else { 
+              _selectionStart = min(_tapAnchorIndex!, index); _selectionEnd = max(_tapAnchorIndex!, index); 
+            } 
+          })
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -425,18 +458,13 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         actions: [ IconButton(icon: const Icon(Icons.bookmark_add_outlined), tooltip: 'Save Lick Preset', onPressed: _saveCurrentLick) ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(48),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ChoiceChip(label: const Text("Form Controls"), selected: _selectedPageIndex == 0, onSelected: (s) { if (s) _pageController.animateToPage(0, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut); }),
-                const SizedBox(width: 8),
-                ChoiceChip(label: const Text("Interactive Fretboard"), selected: _selectedPageIndex == 1, onSelected: (s) { if (s) _pageController.animateToPage(1, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut); }),
-                const SizedBox(width: 8),
-                ChoiceChip(label: const Text("Saved Presets"), selected: _selectedPageIndex == 2, onSelected: (s) { if (s) _pageController.animateToPage(2, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut); }),
-              ],
-            ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ChoiceChip(label: const Text("Main Studio"), selected: _selectedPageIndex == 0, onSelected: (s) { if (s) _pageController.animateToPage(0, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut); }),
+              const SizedBox(width: 16),
+              ChoiceChip(label: const Text("Saved Presets"), selected: _selectedPageIndex == 1, onSelected: (s) { if (s) _pageController.animateToPage(1, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut); }),
+            ],
           ),
         ),
       ),
@@ -444,8 +472,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         controller: _pageController,
         onPageChanged: (index) => setState(() => _selectedPageIndex = index),
         children: [
-          _buildFormScreen(),
-          _buildFretboardScreen(),
+          _buildStudioScreen(),
           SavedPresetsScreen(
             savedPresets: _savedPresets, onLoadPreset: _loadPreset, onDeletePresets: (ids) => setState(() { _savedPresets.removeWhere((p) => ids.contains(p.id)); _savePresetsToDisk(); }),
             onRenamePreset: (id, name) => setState(() { var idx = _savedPresets.indexWhere((p) => p.id == id); if (idx != -1) { var o = _savedPresets[idx]; _savedPresets[idx] = LickPreset(id: o.id, name: name, key: o.key, scale: o.scale, tuning: o.tuning, system: o.system, fragment: o.fragment, startFret: o.startFret, pathway: o.pathway, direction: o.direction, motifPairDirection: o.motifPairDirection, motifString: o.motifString, rhythm: o.rhythm, tempo: o.tempo, measuresPerLine: o.measuresPerLine, breakInterval: o.breakInterval, breakLength: o.breakLength, endRests: o.endRests, tabOutput: o.tabOutput, createdAt: o.createdAt); _savePresetsToDisk(); } }),
@@ -456,27 +483,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     );
   }
 
-  Widget _buildFormScreen() {
-    return Column(
-      children: [
-        Flexible(
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                _buildCollapsibleSection("🎸 1. Theory & Fretboard", _isTheoryExpanded, () => setState(() => _isTheoryExpanded = !_isTheoryExpanded), _buildTheoryContent()),
-                _buildCollapsibleSection("🎼 2. Pathways & Motifs", _isPathwaysExpanded, () => setState(() => _isPathwaysExpanded = !_isPathwaysExpanded), _buildPathwaysContent()),
-                _buildCollapsibleSection("⏱️ 3. Formatting & Rhythm", _isFormattingExpanded, () => setState(() => _isFormattingExpanded = !_isFormattingExpanded), _buildFormattingContent()),
-              ],
-            ),
-          ),
-        ),
-        PlaybackControlBar(isPlaying: _isPlaying, isMidiReady: _isMidiReady, isLooping: _isLooping, hasSequence: _currentSequence.isNotEmpty, hasSelection: _selectionStart != -1 && _selectionEnd != -1, selectionStart: _selectionStart, selectionEnd: _selectionEnd, onPlay: _playLick, onStop: _stopPlayback, onToggleLoop: () => setState(() => _isLooping = !_isLooping), onSave: _saveCurrentLick, onCopy: () => Clipboard.setData(ClipboardData(text: _generatedTab)), onClearSelection: _clearSelection),
-        _buildInteractiveTabOutput(),
-      ],
-    );
-  }
-
-  Widget _buildFretboardScreen() {
+  Widget _buildStudioScreen() {
     return Column(
       children: [
         Padding(
@@ -503,19 +510,22 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
             ),
           ),
         const SizedBox(height: 8),
-        Flexible(
+        // Playback Bar acts as a sticky header above the scrollable sections
+        PlaybackControlBar(isPlaying: _isPlaying, isMidiReady: _isMidiReady, isLooping: _isLooping, hasSequence: _currentSequence.isNotEmpty, hasSelection: _selectionStart != -1 && _selectionEnd != -1, selectionStart: _selectionStart, selectionEnd: _selectionEnd, onPlay: _playLick, onStop: _stopPlayback, onToggleLoop: () => setState(() => _isLooping = !_isLooping), onSave: _saveCurrentLick, onCopy: () => Clipboard.setData(ClipboardData(text: _generatedTab)), onClearSelection: _clearSelection),
+        const SizedBox(height: 4),
+        Expanded(
           child: SingleChildScrollView(
             child: Column(
               children: [
                 _buildCollapsibleSection("🎸 1. Theory & Fretboard", _isTheoryExpanded, () => setState(() => _isTheoryExpanded = !_isTheoryExpanded), _buildTheoryContent()),
                 _buildCollapsibleSection("🎼 2. Pathways & Motifs", _isPathwaysExpanded, () => setState(() => _isPathwaysExpanded = !_isPathwaysExpanded), _buildPathwaysContent()),
                 _buildCollapsibleSection("⏱️ 3. Formatting & Rhythm", _isFormattingExpanded, () => setState(() => _isFormattingExpanded = !_isFormattingExpanded), _buildFormattingContent()),
+                _buildCollapsibleSection("📄 4. Generated Tab", _isTabExpanded, () => setState(() => _isTabExpanded = !_isTabExpanded), _buildInteractiveTabOutput()),
+                const SizedBox(height: 16),
               ],
             ),
           ),
         ),
-        PlaybackControlBar(isPlaying: _isPlaying, isMidiReady: _isMidiReady, isLooping: _isLooping, hasSequence: _currentSequence.isNotEmpty, hasSelection: _selectionStart != -1 && _selectionEnd != -1, selectionStart: _selectionStart, selectionEnd: _selectionEnd, onPlay: _playLick, onStop: _stopPlayback, onToggleLoop: () => setState(() => _isLooping = !_isLooping), onSave: _saveCurrentLick, onCopy: () => Clipboard.setData(ClipboardData(text: _generatedTab)), onClearSelection: _clearSelection),
-        _buildInteractiveTabOutput(),
       ],
     );
   }
@@ -526,15 +536,5 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
 
   Widget _buildNumberField(String label, int value, ValueChanged<int> onChanged) {
     return TextFormField(initialValue: value.toString(), keyboardType: TextInputType.number, textAlign: TextAlign.center, decoration: InputDecoration(labelText: label, labelStyle: const TextStyle(fontSize: 11, height: 1.1), floatingLabelAlignment: FloatingLabelAlignment.center, floatingLabelBehavior: FloatingLabelBehavior.always, alignLabelWithHint: true, isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4), border: const OutlineInputBorder()), onChanged: (val) { int? parsed = int.tryParse(val); if (parsed != null && parsed >= 0) { onChanged(parsed); _generateTab(); } });
-  }
-
-  Widget _buildInteractiveTabOutput() {
-    if (_currentSequence.isEmpty) return Expanded(child: Container(margin: const EdgeInsets.all(12), padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8)), width: double.infinity, child: Text(_generatedTab, style: const TextStyle(fontFamily: 'monospace', color: Colors.greenAccent))));
-    return Expanded(
-      child: ValueListenableBuilder<int>(
-        valueListenable: _currentPlayingNoteIndex,
-        builder: (context, playingIndex, child) => InteractiveTabDisplay(sequence: _currentSequence, rhythmStr: _selectedRhythm, measuresPerLine: _measuresPerLine <= 0 ? 999 : _measuresPerLine, currentPlayingIndex: playingIndex, selectionStart: _selectionStart, selectionEnd: _selectionEnd, tuningStr: _selectedTuning, onBeatTapped: (index) => setState(() { if (_selectionStart == -1 || (_selectionStart != -1 && _selectionEnd != _selectionStart)) { _selectionStart = index; _selectionEnd = index; _tapAnchorIndex = index; } else { _selectionStart = min(_tapAnchorIndex!, index); _selectionEnd = max(_tapAnchorIndex!, index); } })),
-      ),
-    );
   }
 }
