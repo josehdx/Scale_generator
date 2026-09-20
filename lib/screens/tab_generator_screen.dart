@@ -58,7 +58,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   String _selectedSystem = "Custom Notes-Per-String";
   String _selectedFragment = "Full 6 Strings";
   int _singleStringTarget = 1;
-  String _customNpsProfile = "3,4,3,4,3,3"; // Default: shred diagonal format
+  String _customNpsProfile = "3,4,3,4,3,3"; 
 
   // MOTIF STATE
   String _selectedPathway = "Straight Linear";
@@ -170,7 +170,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       String loadedDir = preset.direction;
       if (loadedDir == "One-Way") loadedDir = "One-Way (Ascend)";
       _selectedDirection = loadedDir; 
-      _customNpsProfile = preset.motifPairDirection; // Reused field for backward compatibility
+      _customNpsProfile = preset.motifPairDirection; 
       _customSequence = preset.motifString;
       _selectedRhythm = preset.rhythm; _tempo = preset.tempo; _measuresPerLine = preset.measuresPerLine; _breakInterval = preset.breakInterval;
       _breakLength = preset.breakLength; _endRests = preset.endRests; _generatedTab = preset.tabOutput;
@@ -181,7 +181,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
 
   List<int> _parseNpsProfile(String npsStr) {
     List<int> parsed = npsStr.split(',').map((e) => int.tryParse(e.trim()) ?? 3).toList();
-    while (parsed.length < 6) parsed.add(3); // Pad to 6 strings
+    while (parsed.length < 6) parsed.add(3); 
     return parsed.take(6).toList();
   }
 
@@ -210,7 +210,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
 
     List<List<int>> baseNotes = _engine.flattenBoxDict(boxDict);
     
-    // Reverse base notes natively if the user just wants a standard descending run
     if (_selectedDirection == "Descend -> Ascend" || _selectedDirection == "One-Way (Descend)") {
       baseNotes = baseNotes.reversed.toList();
     }
@@ -508,6 +507,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
           child: SingleChildScrollView(
             child: Column(
               children: [
+                _buildCollapsibleSection("🎸 1. Theory & Fretboard", _isTheoryExpanded, () => setState(() => _isTheoryExpanded = !_isTheoryExpanded), _buildTheoryContent()),
                 _buildCollapsibleSection("🎼 2. Pathways & Motifs", _isPathwaysExpanded, () => setState(() => _isPathwaysExpanded = !_isPathwaysExpanded), _buildPathwaysContent()),
                 _buildCollapsibleSection("⏱️ 3. Formatting & Rhythm", _isFormattingExpanded, () => setState(() => _isFormattingExpanded = !_isFormattingExpanded), _buildFormattingContent()),
               ],
