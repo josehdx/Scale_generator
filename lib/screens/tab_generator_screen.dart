@@ -136,7 +136,23 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     super.dispose();
   }
 
-  String get _autoTimeSignature => _selectedPathway == "3-Step Triplet" ? "3/4" : "4/4";
+  int get _dynamicBeatsPerMeasure {
+    if (_selectedPathway == "3-Step Triplet") return 3;
+    
+    if (_selectedPathway == "Custom Motif Builder") {
+      int count = _motifController.text.split(',').where((e) => e.trim().isNotEmpty).length;
+      return count > 0 ? count : 4;
+    }
+    
+    if (_selectedPathway == "Custom Sequence (Indices)") {
+      int count = _customSequenceController.text.split(',').where((e) => e.trim().isNotEmpty).length;
+      return count > 0 ? count : 4;
+    }
+    
+    return 4; // Default fallback
+  }
+
+  String get _autoTimeSignature => "$_dynamicBeatsPerMeasure/4";
 
   List<String> _parsePatternString(String val) {
     switch (val) {
@@ -325,6 +341,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       _endRests = preset.endRests;
       _generatedTab = preset.tabOutput;
     });
+
+    setState(() {}); // Force UI refresh for the dynamic time signature calculation
+    
     _generateTab();
   }
 
@@ -433,7 +452,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     }
 
     _currentSequence = [];
-    int beatsPerMeasure = _selectedPathway == "3-Step Triplet" ? 3 : 4;
+    int beatsPerMeasure = _dynamicBeatsPerMeasure;
 
     if (_selectedPathway == "Custom Motif Builder") {
       if (_selectedSystem == "Single String Horizontal" || targetStrings.length < 2) {
@@ -448,7 +467,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         _currentSequence = _engine.buildCustomSequence(baseNotes, _customSequenceController.text);
       } else {
         List<List<int>> patternNotes;
-        if (_selectedPathway == "3-Step Triplet") { patternNotes = _engine.apply3StepSequence(baseNotes); beatsPerMeasure = 3; }
+        if (_selectedPathway == "3-Step Triplet") { patternNotes = _engine.apply3StepSequence(baseNotes); }
         else if (_selectedPathway == "4-Step 16th") patternNotes = _engine.apply4StepSequence(baseNotes);
         else if (_selectedPathway == "Note Skipping") patternNotes = _engine.applyNoteSkipping(baseNotes);
         else patternNotes = baseNotes;
