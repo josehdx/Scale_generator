@@ -46,7 +46,6 @@ class InteractiveFretboard extends StatelessWidget {
               int stringNum = stringIndex + 1;
               int openPitch = engine.openStrings[stringNum]!;
               return Row(
-                // INCREASED: Generates frets 0 through 24
                 children: List.generate(25, (fretNum) { 
                   int notePitch = (openPitch + fretNum) % 12;
                   int interval = (notePitch - rootPitch + 12) % 12;
@@ -125,11 +124,8 @@ class InteractiveFretboard extends StatelessWidget {
               color: Colors.black45,
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(
-                // INCREASED: Generates markers for frets 0 through 24
                 children: List.generate(25, (fretNum) { 
-                  // Added 21 and 24 to standard fret markers array
                   bool isMarker = [3, 5, 7, 9, 12, 15, 17, 19, 21, 24].contains(fretNum);
-                  
                   return Container(
                     width: fretNum == 0 ? 36 : 46,
                     alignment: Alignment.center,

@@ -379,8 +379,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         _midiPro.playMidiNote(midi: pitch, velocity: 127);
         _activeMidiNotes.add(pitch);
         notesToStop.add(pitch); 
-        
-        // FRETBOARD AUTO-SCROLL REMOVED HERE
       }
 
       _currentPlayingNoteIndex.value = currentIndex;
@@ -561,8 +559,8 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                         child: Slider(
                           value: _startFret.toDouble(),
                           min: 0,
-                          max: 20,
-                          divisions: 20,
+                          max: 24,
+                          divisions: 24,
                           label: _startFret.toString(),
                           onChanged: (val) {
                             setState(() => _startFret = val.toInt());
@@ -980,12 +978,12 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     return TextFormField(
       initialValue: value.toString(),
       keyboardType: TextInputType.number,
-      textAlign: TextAlign.center, // Centers the actual numeric value in the box
+      textAlign: TextAlign.center,
       decoration: InputDecoration(
-          labelText: label, // Passes the multiline string directly
+          labelText: label,
           labelStyle: const TextStyle(fontSize: 11, height: 1.1),
-          floatingLabelAlignment: FloatingLabelAlignment.center, // Centers the label
-          floatingLabelBehavior: FloatingLabelBehavior.always, // Pops it up cleanly
+          floatingLabelAlignment: FloatingLabelAlignment.center,
+          floatingLabelBehavior: FloatingLabelBehavior.always,
           alignLabelWithHint: true,
           isDense: true,
           contentPadding:

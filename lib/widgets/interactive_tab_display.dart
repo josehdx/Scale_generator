@@ -44,7 +44,6 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
   void didUpdateWidget(covariant InteractiveTabDisplay oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // Dynamic Memory Safety: Prune unused controllers if sequence shrinks
     int notesPerMeasure = {"Quarter": 4, "8th": 8}[widget.rhythmStr] ?? 16;
     int notesPerSystem = notesPerMeasure * widget.measuresPerLine;
     int totalSystems = (widget.sequence.length / notesPerSystem).ceil();

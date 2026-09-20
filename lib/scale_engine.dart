@@ -45,6 +45,7 @@ class ScaleEngine {
       int openMidi = openStrings[stringNum]!;
       List<int> stringFrets = [];
       for (int fret = startFret; fret < startFret + 4; fret++) {
+        if (fret > 24) break;
         int pitch = openMidi + fret;
         if (scalePcs.contains(pitch % 12)) {
           stringFrets.add(fret);
@@ -66,7 +67,7 @@ class ScaleEngine {
       int openMidi = openStrings[stringNum]!;
       List<int> stringFrets = [];
       int fret = (lastMinPitch != -1) ? max(0, lastMinPitch + 1 - openMidi) : startFret;
-      while (stringFrets.length < 3 && fret < 24) {
+      while (stringFrets.length < 3 && fret <= 24) {
         int pitch = openMidi + fret;
         if (scalePcs.contains(pitch % 12) && pitch > lastMinPitch) {
           stringFrets.add(fret);
@@ -86,7 +87,7 @@ class ScaleEngine {
     List<int> scalePcs = formula.map((step) => (rootPc + step) % 12).toList();
     int openMidi = openStrings[targetString]!;
     List<int> stringFrets = [];
-    for (int fret = startFret; fret < min(startFret + 12, 24); fret++) {
+    for (int fret = startFret; fret <= min(startFret + 12, 24); fret++) {
       int pitch = openMidi + fret;
       if (scalePcs.contains(pitch % 12)) {
         stringFrets.add(fret);
