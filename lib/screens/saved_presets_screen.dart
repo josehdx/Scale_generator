@@ -3,19 +3,33 @@ import '../models/lick_preset.dart';
 
 class SavedPresetsScreen extends StatefulWidget {
   final List<LickPreset> savedPresets;
+  final String? activePreviewId;
+  final bool isPreviewPlaying;
+  final bool isPreviewLooping;
+  final Function(LickPreset) onPlayPreview;
+  final VoidCallback onStopPreview;
+  final VoidCallback onTogglePreviewLoop;
   final Function(LickPreset) onLoadPreset;
   final Function(List<String>) onDeletePresets;
   final Function(String, String) onRenamePreset;
   final Function(List<LickPreset>) onExportPresets;
+  final Function(int, int) onReorderPresets;
   final VoidCallback onImport;
 
   const SavedPresetsScreen({
     super.key,
     required this.savedPresets,
+    this.activePreviewId,
+    required this.isPreviewPlaying,
+    required this.isPreviewLooping,
+    required this.onPlayPreview,
+    required this.onStopPreview,
+    required this.onTogglePreviewLoop,
     required this.onLoadPreset,
     required this.onDeletePresets,
     required this.onRenamePreset,
     required this.onExportPresets,
+    required this.onReorderPresets,
     required this.onImport,
   });
 
@@ -42,9 +56,44 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
     });
   }
 
+  void _handlePlayStop() {
+    if (widget.isPreviewPlaying) {
+      widget.onStopPreview();
+    } else {
+      if (widget.activePreviewId != null) {
+        final preset = widget.savedPresets.firstWhere(
+            (p) => p.id == widget.activePreviewId,
+            orElse: () => widget.savedPresets.first);
+        widget.onPlayPreview(preset);
+      } else if (widget.savedPresets.isNotEmpty) {
+        widget.onPlayPreview(widget.savedPresets.first);
+      }
+    }
+  }
+
+  void _handleNext() {
+    if (widget.savedPresets.isEmpty) return;
+    int idx = widget.savedPresets.indexWhere((p) => p.id == widget.activePreviewId);
+    if (idx == -1 || idx == widget.savedPresets.length - 1) {
+      widget.onPlayPreview(widget.savedPresets.first);
+    } else {
+      widget.onPlayPreview(widget.savedPresets[idx + 1]);
+    }
+  }
+
+  void _handlePrev() {
+    if (widget.savedPresets.isEmpty) return;
+    int idx = widget.savedPresets.indexWhere((p) => p.id == widget.activePreviewId);
+    if (idx == -1 || idx == 0) {
+      widget.onPlayPreview(widget.savedPresets.last);
+    } else {
+      widget.onPlayPreview(widget.savedPresets[idx - 1]);
+    }
+  }
+
   void _showRenameDialog(BuildContext context, LickPreset preset) {
     TextEditingController controller = TextEditingController(text: preset.name);
-    
+
     showDialog(
       context: context,
       builder: (context) {
@@ -84,7 +133,7 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
 
     return Column(
       children: [
-        // DYNAMIC TOP BAR (Switches context if items are selected)
+        // DYNAMIC TOP BAR
         Container(
           padding: const EdgeInsets.all(8.0),
           color: hasSelection ? Colors.blue.withOpacity(0.15) : Colors.transparent,
@@ -103,7 +152,7 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
                         });
                       },
                     ),
-                    Text("${_selectedIds.length} Selected", 
+                    Text("${_selectedIds.length} Selected",
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const Spacer(),
                     IconButton(
@@ -130,7 +179,7 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
               : Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text("Saved Licks (${widget.savedPresets.length})", 
+                    Text("Saved Licks (${widget.savedPresets.length})",
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     Row(
                       children: [
@@ -150,8 +199,52 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
                   ],
                 ),
         ),
-        
-        // LIST OF PRESETS
+
+        // GLOBAL PLAYBACK STRIP
+        if (!hasSelection && widget.savedPresets.isNotEmpty)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 16.0),
+            color: Colors.black26,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.skip_previous, size: 28),
+                  tooltip: 'Previous Preset',
+                  onPressed: _handlePrev,
+                ),
+                const SizedBox(width: 16),
+                ElevatedButton.icon(
+                  icon: Icon(widget.isPreviewPlaying ? Icons.stop : Icons.play_arrow),
+                  label: Text(widget.isPreviewPlaying ? "Stop Preview" : "Play Preview"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: widget.isPreviewPlaying ? Colors.redAccent : Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                  onPressed: _handlePlayStop,
+                ),
+                const SizedBox(width: 16),
+                IconButton(
+                  icon: const Icon(Icons.skip_next, size: 28),
+                  tooltip: 'Next Preset',
+                  onPressed: _handleNext,
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: Icon(
+                    Icons.repeat,
+                    size: 24,
+                    color: widget.isPreviewLooping ? Colors.amberAccent : Colors.white38,
+                  ),
+                  tooltip: 'Toggle Loop',
+                  onPressed: widget.onTogglePreviewLoop,
+                ),
+              ],
+            ),
+          ),
+
+        // REORDERABLE LIST OF PRESETS
         Expanded(
           child: widget.savedPresets.isEmpty
               ? const Center(
@@ -161,15 +254,21 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
                     style: TextStyle(color: Colors.grey),
                   ),
                 )
-              : ListView.builder(
+              : ReorderableListView.builder(
                   itemCount: widget.savedPresets.length,
+                  onReorder: widget.onReorderPresets,
+                  buildDefaultDragHandles: false, 
                   itemBuilder: (context, index) {
                     final preset = widget.savedPresets[index];
                     bool isSelected = _selectedIds.contains(preset.id);
-                    
+                    bool isPreviewing = widget.activePreviewId == preset.id;
+
                     return Card(
+                      key: ValueKey(preset.id), 
                       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      color: isSelected ? Colors.blue.withOpacity(0.2) : Colors.grey.shade900,
+                      color: isSelected 
+                          ? Colors.blue.withOpacity(0.2) 
+                          : (isPreviewing ? Colors.green.withOpacity(0.15) : Colors.grey.shade900),
                       child: ListTile(
                         leading: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -178,9 +277,9 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
                               value: isSelected,
                               onChanged: (_) => _toggleSelection(preset.id),
                             ),
-                            const CircleAvatar(
-                              backgroundColor: Colors.blueAccent,
-                              child: Icon(Icons.music_note, color: Colors.white),
+                            CircleAvatar(
+                              backgroundColor: isPreviewing ? Colors.green : Colors.blueAccent,
+                              child: Icon(isPreviewing ? Icons.play_arrow : Icons.music_note, color: Colors.white),
                             ),
                           ],
                         ),
@@ -188,54 +287,63 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
                         subtitle: Text("Tempo: ${preset.tempo} BPM | System: ${preset.system}\nGenerated: ${preset.createdAt.toString().split('.')[0]}"),
                         isThreeLine: true,
                         
-                        // If selecting mode is active, disable standard popup actions to avoid confusion
-                        trailing: hasSelection 
-                          ? null 
-                          : PopupMenuButton<String>(
-                              onSelected: (value) {
-                                if (value == 'load') widget.onLoadPreset(preset);
-                                if (value == 'rename') _showRenameDialog(context, preset);
-                                if (value == 'delete') widget.onDeletePresets([preset.id]);
-                              },
-                              itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                                const PopupMenuItem<String>(
-                                  value: 'load',
-                                  child: ListTile(
-                                    leading: Icon(Icons.open_in_new, color: Colors.greenAccent),
-                                    title: Text('Load Preset'),
-                                    contentPadding: EdgeInsets.zero,
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (isPreviewing && widget.isPreviewPlaying)
+                              const Padding(
+                                padding: EdgeInsets.only(right: 8.0),
+                                child: Icon(Icons.volume_up, color: Colors.greenAccent, size: 20),
+                              ),
+                            if (!hasSelection)
+                              PopupMenuButton<String>(
+                                onSelected: (value) {
+                                  if (value == 'load') widget.onLoadPreset(preset);
+                                  if (value == 'rename') _showRenameDialog(context, preset);
+                                  if (value == 'delete') widget.onDeletePresets([preset.id]);
+                                },
+                                itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                                  const PopupMenuItem<String>(
+                                    value: 'load',
+                                    child: ListTile(
+                                      leading: Icon(Icons.open_in_new, color: Colors.greenAccent),
+                                      title: Text('Load Preset'),
+                                      contentPadding: EdgeInsets.zero,
+                                    ),
                                   ),
-                                ),
-                                const PopupMenuItem<String>(
-                                  value: 'rename',
-                                  child: ListTile(
-                                    leading: Icon(Icons.edit, color: Colors.amberAccent),
-                                    title: Text('Rename'),
-                                    contentPadding: EdgeInsets.zero,
+                                  const PopupMenuItem<String>(
+                                    value: 'rename',
+                                    child: ListTile(
+                                      leading: Icon(Icons.edit, color: Colors.amberAccent),
+                                      title: Text('Rename'),
+                                      contentPadding: EdgeInsets.zero,
+                                    ),
                                   ),
-                                ),
-                                const PopupMenuDivider(),
-                                const PopupMenuItem<String>(
-                                  value: 'delete',
-                                  child: ListTile(
-                                    leading: Icon(Icons.delete, color: Colors.redAccent),
-                                    title: Text('Delete'),
-                                    contentPadding: EdgeInsets.zero,
+                                  const PopupMenuDivider(),
+                                  const PopupMenuItem<String>(
+                                    value: 'delete',
+                                    child: ListTile(
+                                      leading: Icon(Icons.delete, color: Colors.redAccent),
+                                      title: Text('Delete'),
+                                      contentPadding: EdgeInsets.zero,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
+                            const SizedBox(width: 8),
+                            ReorderableDragStartListener(
+                              index: index,
+                              child: const Icon(Icons.drag_handle, color: Colors.white54, size: 28),
                             ),
-                            
-                        // Tapping tile selects it if selection mode is active, otherwise loads it
+                          ],
+                        ),
                         onTap: () {
                           if (hasSelection) {
                             _toggleSelection(preset.id);
                           } else {
-                            widget.onLoadPreset(preset);
+                            widget.onPlayPreview(preset);
                           }
                         },
-                        
-                        // Long press to quickly start a selection
                         onLongPress: () {
                           _toggleSelection(preset.id);
                         },

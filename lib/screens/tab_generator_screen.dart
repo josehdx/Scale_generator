@@ -13,6 +13,9 @@ import '../widgets/interactive_tab_display.dart';
 import '../widgets/playback_control_bar.dart';
 import 'saved_presets_screen.dart';
 
+// UI Extracted to a separate file to prevent density
+part 'tab_generator_studio_ui.dart';
+
 class TabGeneratorScreen extends StatefulWidget {
   const TabGeneratorScreen({super.key});
 
@@ -29,6 +32,10 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
 
   int _selectedPageIndex = 0;
   bool _isPlaying = false;
+  bool _isPreviewPlaying = false; 
+  bool _isPreviewLooping = false; 
+  String? _previewPresetId;
+  
   bool _isMidiReady = false;
   bool _isLooping = false;
   bool _isFretboardVisible = true; 
@@ -151,27 +158,23 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   void _syncDirectionWithStrings() {
-    if (_startString > _endString) { // 6 to 1 is Ascending Pitch
-      // Sync Motif Direction unconditionally
+    if (_startString > _endString) { 
       if (_motifPairDirection != "Ascend (Low -> High)") {
         _motifPairDirection = "Ascend (Low -> High)";
         _customMotif = _invertMotifTokens(_customMotif);
         _selectedMotifTemplate = "Custom (Build Below)";
       }
-      // Sync Standard Direction unconditionally
       if (_selectedDirection.contains("Descend") && !_selectedDirection.startsWith("Descend -> Ascend")) {
         _selectedDirection = "One-Way (Ascend)";
       } else if (_selectedDirection == "Descend -> Ascend") {
         _selectedDirection = "Ascend -> Descend";
       }
-    } else if (_startString < _endString) { // 1 to 6 is Descending Pitch
-      // Sync Motif Direction unconditionally
+    } else if (_startString < _endString) { 
       if (_motifPairDirection != "Descend (High -> Low)") {
         _motifPairDirection = "Descend (High -> Low)";
         _customMotif = _invertMotifTokens(_customMotif);
         _selectedMotifTemplate = "Custom (Build Below)";
       }
-      // Sync Standard Direction unconditionally
       if (_selectedDirection.contains("Ascend") && !_selectedDirection.startsWith("Ascend -> Descend")) {
         _selectedDirection = "One-Way (Descend)";
       } else if (_selectedDirection == "Ascend -> Descend") {
@@ -320,8 +323,78 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     });
   }
 
+  List<List<int>> _buildSequenceForPreset(LickPreset preset) {
+    _engine.setTuning(preset.tuning);
+    
+    int stStr = 6, enStr = 1;
+    String frag = preset.fragment;
+    if (frag.contains('-') && !frag.contains('Strings')) {
+      var parts = frag.split('-');
+      stStr = int.tryParse(parts[0]) ?? 6;
+      enStr = int.tryParse(parts[1]) ?? 1;
+    } else {
+      if (frag.contains("High")) { stStr = 3; enStr = 1; }
+      else if (frag.contains("Middle")) { stStr = 4; enStr = 2; }
+      else if (frag.contains("Low")) { stStr = 6; enStr = 4; }
+      else if (frag.startsWith("Strings ")) {
+        var s = frag.replaceAll("Strings ", "").split("-");
+        stStr = int.tryParse(s[0]) ?? 6;
+        enStr = int.tryParse(s[1]) ?? 1;
+      } else { stStr = 6; enStr = 1; }
+    }
+
+    List<int> targetStrings = [];
+    if (preset.system != "Single String Horizontal") {
+      int minStr = min(stStr, enStr);
+      int maxStr = max(stStr, enStr);
+      targetStrings = [for (int i = minStr; i <= maxStr; i++) i];
+    }
+
+    Map<int, List<int>> boxDict;
+    if (preset.system == "Box Position / CAGED") {
+      boxDict = _engine.getScaleNotesBox(preset.key, preset.scale, preset.startFret, targetStrings);
+    } else if (preset.system == "3-Note-Per-String (3NPS)") {
+      boxDict = _engine.getScaleNotes3NPS(preset.key, preset.scale, preset.startFret, targetStrings);
+    } else if (preset.system == "Custom Notes-Per-String") {
+      boxDict = _engine.getScaleNotesCustomNPS(preset.key, preset.scale, preset.startFret, targetStrings, [3,3,3,3,3,3]); 
+    } else {
+      boxDict = _engine.getScaleNotesSingleString(preset.key, preset.scale, preset.startFret, 1);
+    }
+
+    List<List<int>> sequence = [];
+    if (preset.pathway == "Custom Motif Builder") {
+      if (preset.system != "Single String Horizontal" && targetStrings.length >= 2) {
+        sequence = _engine.buildCustomMotif(boxDict, preset.motifString, stStr, enStr);
+      }
+    } else {
+      List<List<int>> baseNotes = _engine.flattenBoxDict(boxDict, stStr, enStr);
+      
+      if (preset.pathway == "Custom Sequence (Indices)") {
+        sequence = _engine.buildCustomSequence(baseNotes, preset.motifString);
+      } else {
+        List<List<int>> patternNotes;
+        if (preset.pathway == "3-Step Triplet") { patternNotes = _engine.apply3StepSequence(baseNotes); }
+        else if (preset.pathway == "4-Step 16th") { patternNotes = _engine.apply4StepSequence(baseNotes); }
+        else if (preset.pathway == "Note Skipping") { patternNotes = _engine.applyNoteSkipping(baseNotes); }
+        else { patternNotes = baseNotes; }
+
+        if (preset.direction.startsWith("One-Way")) {
+          sequence = patternNotes;
+        } else {
+          sequence = [...patternNotes, ...patternNotes.reversed.skip(1).toList()];
+        }
+      }
+    }
+
+    sequence = _engine.applyIntervalBreaks(sequence, preset.breakInterval, preset.breakLength);
+    for (int i = 0; i < preset.endRests; i++) sequence.add([-1, -1]);
+
+    _engine.setTuning(_selectedTuning);
+    return sequence;
+  }
+
   void _generateTab() {
-    _stopPlayback(); // Critical constraint fix: Kill active read-loop before mutating base data
+    _stopPlayback(); 
     _engine.setTuning(_selectedTuning);
     _clearSelection();
     _currentPlayingNoteIndex.value = -1;
@@ -388,27 +461,56 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     });
   }
 
-  void _playLick() {
-    if (!_isMidiReady || _currentSequence.isEmpty || _isPlaying) return;
-    setState(() => _isPlaying = true);
+  void _playLick({List<List<int>>? overrideSequence, int? overrideTempo, String? overrideRhythm, String? overrideTuning, String? presetId}) {
+    if (!_isMidiReady) return;
     
-    double beatMultiplier = {"Quarter": 1.0, "8th": 0.5, "16th": 0.25}[_selectedRhythm] ?? 0.25;
-    int msPerNote = ((60000 / _tempo) * beatMultiplier).round();
-    if (msPerNote < 20) msPerNote = 20; // Hard fallback limit to mathematically prevent event loop flooding
+    List<List<int>> seqToPlay = overrideSequence ?? _currentSequence;
+    if (seqToPlay.isEmpty) return;
+
+    _stopPlayback(); 
+    bool isPreview = presetId != null;
     
-    int startIdx = _selectionStart != -1 ? _selectionStart.clamp(0, _currentSequence.length - 1) : 0;
-    int endIdx = _selectionEnd != -1 ? _selectionEnd.clamp(startIdx, _currentSequence.length - 1) : _currentSequence.length - 1;
+    setState(() {
+      if (isPreview) {
+        _isPreviewPlaying = true;
+        _previewPresetId = presetId;
+      } else {
+        _isPlaying = true;
+      }
+    });
+    
+    String rhythm = overrideRhythm ?? _selectedRhythm;
+    int tempo = overrideTempo ?? _tempo;
+    
+    String tuning = overrideTuning ?? _selectedTuning;
+    Map<int, int> activeOpenStrings = _engine.tunings[tuning] ?? _engine.openStrings;
+
+    double beatMultiplier = {"Quarter": 1.0, "8th": 0.5, "16th": 0.25}[rhythm] ?? 0.25;
+    int msPerNote = ((60000 / tempo) * beatMultiplier).round();
+    if (msPerNote < 20) msPerNote = 20; 
+    
+    int startIdx = 0;
+    int endIdx = seqToPlay.length - 1;
+    
+    if (!isPreview && _selectionStart != -1 && _selectionEnd != -1) {
+      startIdx = _selectionStart.clamp(0, seqToPlay.length - 1);
+      endIdx = _selectionEnd.clamp(startIdx, seqToPlay.length - 1);
+    }
     
     int currentIndex = startIdx;
     List<int> notesToStop = [];
 
-    _playbackTimer?.cancel();
     _playbackTimer = Timer.periodic(Duration(milliseconds: msPerNote), (timer) {
-      if (!mounted || !_isPlaying) { timer.cancel(); _stopPlayback(); return; }
+      if (!mounted || (isPreview && !_isPreviewPlaying) || (!isPreview && !_isPlaying)) { 
+        timer.cancel(); _stopPlayback(); return; 
+      }
 
       if (currentIndex > endIdx) {
-        if (_isLooping) currentIndex = startIdx; 
-        else { timer.cancel(); _stopPlayback(); return; }
+        if (isPreview ? _isPreviewLooping : _isLooping) {
+          currentIndex = startIdx; 
+        } else { 
+          timer.cancel(); _stopPlayback(); return; 
+        }
       }
 
       for (var pitch in notesToStop) {
@@ -417,14 +519,14 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       }
       notesToStop.clear();
 
-      var note = _currentSequence[currentIndex];
+      var note = seqToPlay[currentIndex];
       if (note[0] != -1) {
-        int pitch = _engine.openStrings[note[0]]! + note[1];
+        int pitch = activeOpenStrings[note[0]]! + note[1];
         _midiPro.playMidiNote(midi: pitch, velocity: 127);
         _activeMidiNotes.add(pitch);
         notesToStop.add(pitch); 
       }
-      _currentPlayingNoteIndex.value = currentIndex;
+      if (!isPreview) _currentPlayingNoteIndex.value = currentIndex;
       currentIndex++;
     });
   }
@@ -434,380 +536,13 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     for (int pitch in _activeMidiNotes) _midiPro.stopMidiNote(midi: pitch);
     _activeMidiNotes.clear();
     _currentPlayingNoteIndex.value = -1;
-    if (mounted) setState(() => _isPlaying = false);
-  }
-
-  Widget _buildCollapsibleSection(String title, bool isExpanded, VoidCallback onToggle, Widget child) {
-    return Column(
-      children: [
-        ListTile(
-          title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-          trailing: Icon(isExpanded ? Icons.expand_less : Icons.expand_more, color: Colors.grey),
-          onTap: onToggle, dense: true,
-        ),
-        AnimatedCrossFade(
-          firstChild: Padding(padding: const EdgeInsets.only(left: 12.0, right: 12.0, bottom: 12.0), child: child),
-          secondChild: const SizedBox.shrink(),
-          crossFadeState: isExpanded ? CrossFadeState.showFirst : CrossFadeState.showSecond,
-          duration: const Duration(milliseconds: 200),
-        ),
-        const Divider(height: 1, thickness: 1, color: Colors.black26),
-      ],
-    );
-  }
-
-  Widget _buildTheoryContent() {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(child: _buildDropdown('Key', _selectedKey, _engine.noteMap.keys.toList(), (v) => setState(() { _selectedKey = v!; _generateTab(); }))),
-            const SizedBox(width: 8),
-            Expanded(flex: 2, child: _buildDropdown('Scale', _selectedScale, _engine.scaleFormulas.keys.toList(), (v) => setState(() { _selectedScale = v!; _generateTab(); }))),
-            const SizedBox(width: 8),
-            Expanded(flex: 2, child: _buildDropdown('Tuning', _selectedTuning, _engine.tunings.keys.toList(), (v) => setState(() { _selectedTuning = v!; _generateTab(); }))),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(flex: 2, child: _buildDropdown('System', _selectedSystem, _systems, (v) => setState(() { _selectedSystem = v!; _generateTab(); }))),
-            const SizedBox(width: 8),
-            if (_selectedSystem == "Single String Horizontal")
-              Expanded(
-                flex: 2,
-                child: _buildDropdown('String Target', _singleStringTarget.toString(), ["1", "2", "3", "4", "5", "6"], (v) => setState(() { _singleStringTarget = int.parse(v!); _generateTab(); }))
-              )
-            else ...[
-              Expanded(child: _buildDropdown('Start Str', _startString.toString(), ["1", "2", "3", "4", "5", "6"], (v) => setState(() { 
-                _startString = int.parse(v!); 
-                _syncDirectionWithStrings();
-                _generateTab(); 
-              }))),
-              const SizedBox(width: 8),
-              Expanded(child: _buildDropdown('End Str', _endString.toString(), ["1", "2", "3", "4", "5", "6"], (v) => setState(() { 
-                _endString = int.parse(v!); 
-                _syncDirectionWithStrings();
-                _generateTab(); 
-              }))),
-            ],
-          ],
-        ),
-        if (_selectedSystem == "Custom Notes-Per-String")
-          Padding(
-            padding: const EdgeInsets.only(top: 8.0),
-            child: TextFormField(
-              initialValue: _customNpsProfile,
-              decoration: const InputDecoration(labelText: "NPS Profile (e, B, G, D, A, E)", hintText: "e.g., 3, 4, 3, 4, 3, 3", border: OutlineInputBorder(), isDense: true),
-              onChanged: (val) { _customNpsProfile = val; _generateTab(); },
-            ),
-          ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Text("Start Fret: $_startFret"),
-            Expanded(
-              child: Slider(
-                value: _startFret.toDouble(), min: 0, max: 20, divisions: 20, label: _startFret.toString(),
-                onChanged: (val) => setState(() { _startFret = val.toInt(); _generateTab(); }),
-              ),
-            ),
-          ],
-        )
-      ],
-    );
-  }
-
-  Widget _buildTemplateDropdown(String label, String value, List<String> items, ValueChanged<String?> onChanged) {
-    return PopupMenuButton<String>(
-      initialValue: value,
-      position: PopupMenuPosition.under,
-      onSelected: onChanged,
-      itemBuilder: (BuildContext context) {
-        return items.map((String item) {
-          return PopupMenuItem<String>(
-            value: item,
-            child: Text(item, style: const TextStyle(fontSize: 14)),
-          );
-        }).toList();
-      },
-      child: InputDecorator(
-        decoration: InputDecoration(
-          labelText: label,
-          isDense: true,
-          contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-          border: const OutlineInputBorder(),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(child: Text(value, overflow: TextOverflow.ellipsis)),
-            const Icon(Icons.arrow_drop_down),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInteractiveMotifBuilder() {
-    List<String> tokens = _customMotif.split(',').where((e) => e.trim().isNotEmpty).toList();
-
-    int maxNPS = 3; 
-    if (_selectedSystem == "Box Position / CAGED") {
-      maxNPS = 2; 
-    } else if (_selectedSystem == "3-Note-Per-String (3NPS)") {
-      maxNPS = 3; 
-    } else if (_selectedSystem == "Custom Notes-Per-String") {
-      List<int> profile = _parseNpsProfile(_customNpsProfile);
-      maxNPS = profile.isNotEmpty ? profile.reduce(max) : 3;
-      maxNPS = maxNPS.clamp(2, 6); 
+    if (mounted) {
+      setState(() {
+        _isPlaying = false;
+        _isPreviewPlaying = false;
+        _previewPresetId = null;
+      });
     }
-
-    List<Widget> lowButtons = List.generate(maxNPS, (i) => _buildMotifAddButton("L${i+1}", Colors.teal));
-    List<Widget> highButtons = List.generate(maxNPS, (i) => _buildMotifAddButton("H${i+1}", Colors.deepPurpleAccent));
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const SizedBox(height: 8),
-        _buildTemplateDropdown(
-          'Motif Template',
-          _selectedMotifTemplate,
-          _motifTemplates.keys.toList(),
-          (v) {
-            if (v != null) {
-              setState(() {
-                _selectedMotifTemplate = v;
-                if (_motifTemplates[v]!.isNotEmpty) {
-                  _customMotif = _motifTemplates[v]!;
-                }
-                _generateTab();
-              });
-            }
-          },
-        ),
-        const SizedBox(height: 12),
-        const Text("Tap Notes to Build Motif Pattern:", style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 6),
-        
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ...lowButtons,
-            const SizedBox(width: 8),
-            ...highButtons,
-          ],
-        ),
-        
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(8.0),
-          decoration: BoxDecoration(
-            color: Colors.black45,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text("Motif Timeline (${tokens.length} notes):", style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.backspace, size: 16, color: Colors.amberAccent),
-                        tooltip: "Remove Last Note",
-                        onPressed: tokens.isEmpty ? null : _removeLastMotifChip,
-                        padding: EdgeInsets.zero, constraints: const BoxConstraints(), 
-                      ),
-                      const SizedBox(width: 12),
-                      IconButton(
-                        icon: const Icon(Icons.clear_all, size: 18, color: Colors.redAccent),
-                        tooltip: "Clear All",
-                        onPressed: tokens.isEmpty ? null : _clearMotifChips,
-                        padding: EdgeInsets.zero, constraints: const BoxConstraints(), 
-                      ),
-                    ],
-                  )
-                ],
-              ),
-              const SizedBox(height: 6),
-              if (tokens.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8.0),
-                  child: Text("Tap buttons above or select a Template.", style: TextStyle(fontSize: 12, color: Colors.white38, fontStyle: FontStyle.italic)),
-                )
-              else
-                Wrap(
-                  spacing: 4,
-                  runSpacing: 4,
-                  children: tokens.map((token) {
-                    bool isLow = token.startsWith('L');
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: isLow ? Colors.teal.shade800 : Colors.deepPurple.shade700,
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: isLow ? Colors.tealAccent : Colors.purpleAccent, width: 0.8),
-                      ),
-                      child: Text(
-                        token,
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
-                      ),
-                    );
-                  }).toList(),
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMotifAddButton(String token, Color color) {
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 1.0),
-        child: InkWell(
-          onTap: () => _addMotifChip(token),
-          borderRadius: BorderRadius.circular(4),
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            decoration: BoxDecoration(
-              color: color.withAlpha(40),
-              border: Border.all(color: color, width: 1.2),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(
-              token,
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white.withAlpha(230)),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPathwaysContent() {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(flex: 2, child: _buildDropdown('Pathway', _selectedPathway, _pathways, (v) => setState(() { _selectedPathway = v!; _generateTab(); }))),
-            const SizedBox(width: 8),
-            Expanded(
-              flex: 2, 
-              child: _selectedPathway == "Custom Motif Builder" 
-                  ? _buildDropdown('Pair Direction', _motifPairDirection, ["Descend (High -> Low)", "Ascend (Low -> High)"], (v) => setState(() { 
-                      if (_motifPairDirection != v) {
-                        _customMotif = _invertMotifTokens(_customMotif);
-                        _selectedMotifTemplate = "Custom (Build Below)";
-                      }
-                      _motifPairDirection = v!; 
-                      _syncStringsWithDirection(v);
-                      _generateTab(); 
-                    }))
-                  : _buildDropdown('Loop Direction', _selectedDirection, _directions, (v) => setState(() { 
-                      _selectedDirection = v!; 
-                      _syncStringsWithDirection(v);
-                      _generateTab(); 
-                    }))
-            ),
-          ],
-        ),
-        
-        if (_selectedPathway == "Custom Motif Builder")
-          _buildInteractiveMotifBuilder()
-        else if (_selectedPathway == "Custom Sequence (Indices)")
-          Padding(
-            padding: const EdgeInsets.only(top: 8.0),
-            child: TextFormField(
-              initialValue: _customSequence,
-              decoration: const InputDecoration(labelText: "Note Sequence (1-based index)", hintText: "e.g., 1, 2, 3, 2, 3, 4", border: OutlineInputBorder(), isDense: true),
-              onChanged: (val) { _customSequence = val; _generateTab(); },
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildFormattingContent() {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(flex: 2, child: _buildDropdown('Rhythm', _selectedRhythm, _rhythms, (v) { 
-              bool wasPlaying = _isPlaying;
-              setState(() => _selectedRhythm = v!); 
-              _generateTab();
-              if (wasPlaying) _playLick();
-            })),
-            const SizedBox(width: 8),
-            Expanded(flex: 2, child: _buildNumberField('Tempo\nBPM', _tempo, (v) { 
-              bool wasPlaying = _isPlaying;
-              setState(() => _tempo = v.clamp(40, 300)); 
-              _generateTab();
-              if (wasPlaying) _playLick();
-            })),
-            const SizedBox(width: 8),
-            Expanded(child: _buildNumberField('Wrap\nLines', _measuresPerLine, (v) { setState(() => _measuresPerLine = v); _generateTab(); })),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: _buildDropdown(
-                'Guitar Sound', _guitarSounds.keys.firstWhere((k) => _guitarSounds[k] == _selectedInstrumentIndex), _guitarSounds.keys.toList(),
-                (v) { if (v != null) _changeGuitarSound(_guitarSounds[v]!); },
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(child: _buildNumberField('Break\nInterval', _breakInterval, (v) { setState(() => _breakInterval = v); _generateTab(); })),
-            const SizedBox(width: 8),
-            Expanded(child: _buildNumberField('Break\nLength', _breakLength, (v) { setState(() => _breakLength = v); _generateTab(); })),
-            const SizedBox(width: 8),
-            Expanded(child: _buildNumberField('End\nRests', _endRests, (v) { setState(() => _endRests = v); _generateTab(); })),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildInteractiveTabOutput() {
-    if (_currentSequence.isEmpty) {
-      return Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8)),
-        width: double.infinity, 
-        child: Text(_generatedTab, style: const TextStyle(fontFamily: 'monospace', color: Colors.greenAccent))
-      );
-    }
-    return Container(
-      constraints: const BoxConstraints(maxHeight: 350), 
-      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade800)),
-      child: ValueListenableBuilder<int>(
-        valueListenable: _currentPlayingNoteIndex,
-        builder: (context, playingIndex, child) => InteractiveTabDisplay(
-          sequence: _currentSequence, rhythmStr: _selectedRhythm, measuresPerLine: _measuresPerLine <= 0 ? 999 : _measuresPerLine, 
-          currentPlayingIndex: playingIndex, selectionStart: _selectionStart, selectionEnd: _selectionEnd, tuningStr: _selectedTuning, 
-          onBeatTapped: (index) => setState(() { 
-            if (_selectionStart == -1 || (_selectionStart != -1 && _selectionEnd != _selectionStart)) { 
-              _selectionStart = index; _selectionEnd = index; _tapAnchorIndex = index; 
-            } else { 
-              _selectionStart = min(_tapAnchorIndex!, index); _selectionEnd = max(_tapAnchorIndex!, index); 
-            } 
-          })
-        ),
-      ),
-    );
   }
 
   @override
@@ -830,70 +565,50 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       ),
       body: PageView(
         controller: _pageController,
-        onPageChanged: (index) => setState(() => _selectedPageIndex = index),
+        onPageChanged: (index) {
+          setState(() => _selectedPageIndex = index);
+          if (index != 1 && _isPreviewPlaying) {
+             _stopPlayback(); 
+          }
+        },
         children: [
           _buildStudioScreen(),
           SavedPresetsScreen(
-            savedPresets: _savedPresets, onLoadPreset: _loadPreset, onDeletePresets: (ids) => setState(() { _savedPresets.removeWhere((p) => ids.contains(p.id)); _savePresetsToDisk(); }),
+            savedPresets: _savedPresets, 
+            activePreviewId: _previewPresetId,
+            isPreviewPlaying: _isPreviewPlaying,
+            isPreviewLooping: _isPreviewLooping,
+            onPlayPreview: (preset) {
+              _playLick(
+                overrideSequence: _buildSequenceForPreset(preset),
+                overrideTempo: preset.tempo,
+                overrideRhythm: preset.rhythm,
+                overrideTuning: preset.tuning,
+                presetId: preset.id,
+              );
+            },
+            onStopPreview: _stopPlayback,
+            onTogglePreviewLoop: () => setState(() => _isPreviewLooping = !_isPreviewLooping),
+            onLoadPreset: _loadPreset, 
+            onDeletePresets: (ids) => setState(() { 
+              _savedPresets.removeWhere((p) => ids.contains(p.id)); 
+              if (ids.contains(_previewPresetId)) _stopPlayback();
+              _savePresetsToDisk(); 
+            }),
             onRenamePreset: (id, name) => setState(() { var idx = _savedPresets.indexWhere((p) => p.id == id); if (idx != -1) { var o = _savedPresets[idx]; _savedPresets[idx] = LickPreset(id: o.id, name: name, key: o.key, scale: o.scale, tuning: o.tuning, system: o.system, fragment: o.fragment, startFret: o.startFret, pathway: o.pathway, direction: o.direction, motifPairDirection: o.motifPairDirection, motifString: o.motifString, rhythm: o.rhythm, tempo: o.tempo, measuresPerLine: o.measuresPerLine, breakInterval: o.breakInterval, breakLength: o.breakLength, endRests: o.endRests, tabOutput: o.tabOutput, createdAt: o.createdAt); _savePresetsToDisk(); } }),
-            onExportPresets: (p) {}, onImport: () {},
+            onExportPresets: (p) {}, 
+            onReorderPresets: (oldIndex, newIndex) {
+              setState(() {
+                if (newIndex > oldIndex) newIndex -= 1;
+                final item = _savedPresets.removeAt(oldIndex);
+                _savedPresets.insert(newIndex, item);
+                _savePresetsToDisk();
+              });
+            },
+            onImport: () {},
           ),
         ],
       ),
     );
-  }
-
-  Widget _buildStudioScreen() {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Row(
-            children: [
-              Expanded(child: _buildDropdown('Scale', _selectedScale, _engine.scaleFormulas.keys.toList(), (v) => setState(() { _selectedScale = v!; _generateTab(); }))),
-              const SizedBox(width: 8),
-              Chip(avatar: const Icon(Icons.music_note, color: Colors.redAccent, size: 16), label: Text('Root: $_selectedKey | Fret: $_startFret')),
-              IconButton(icon: Icon(_isFretboardVisible ? Icons.visibility : Icons.visibility_off, color: Colors.grey), tooltip: _isFretboardVisible ? 'Hide Fretboard' : 'Show Fretboard', onPressed: () => setState(() => _isFretboardVisible = !_isFretboardVisible))
-            ],
-          ),
-        ),
-        if (_isFretboardVisible)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0),
-            child: ValueListenableBuilder<int>(
-              valueListenable: _currentPlayingNoteIndex,
-              builder: (context, playingIndex, child) {
-                int? actStr, actFret;
-                if (playingIndex != -1 && playingIndex < _currentSequence.length && _currentSequence[playingIndex][0] != -1) { actStr = _currentSequence[playingIndex][0]; actFret = _currentSequence[playingIndex][1]; }
-                return InteractiveFretboard(engine: _engine, selectedKey: _selectedKey, selectedScale: _selectedScale, startFret: _startFret, selectedTuning: _selectedTuning, activeString: actStr, activeFret: actFret, scrollController: _fretboardScrollController, onNoteTapped: (k, f) => setState(() { _selectedKey = k; _startFret = f; _generateTab(); }));
-              },
-            ),
-          ),
-        const SizedBox(height: 8),
-        PlaybackControlBar(isPlaying: _isPlaying, isMidiReady: _isMidiReady, isLooping: _isLooping, hasSequence: _currentSequence.isNotEmpty, hasSelection: _selectionStart != -1 && _selectionEnd != -1, selectionStart: _selectionStart, selectionEnd: _selectionEnd, onPlay: _playLick, onStop: _stopPlayback, onToggleLoop: () => setState(() => _isLooping = !_isLooping), onSave: _saveCurrentLick, onCopy: () => Clipboard.setData(ClipboardData(text: _generatedTab)), onClearSelection: _clearSelection),
-        const SizedBox(height: 4),
-        Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                _buildCollapsibleSection("🎸 1. Theory & Fretboard", _isTheoryExpanded, () => setState(() => _isTheoryExpanded = !_isTheoryExpanded), _buildTheoryContent()),
-                _buildCollapsibleSection("🎼 2. Pathways & Motifs", _isPathwaysExpanded, () => setState(() => _isPathwaysExpanded = !_isPathwaysExpanded), _buildPathwaysContent()),
-                _buildCollapsibleSection("⏱️ 3. Formatting & Rhythm", _isFormattingExpanded, () => setState(() => _isFormattingExpanded = !_isFormattingExpanded), _buildFormattingContent()),
-                _buildCollapsibleSection("📄 4. Generated Tab", _isTabExpanded, () => setState(() => _isTabExpanded = !_isTabExpanded), _buildInteractiveTabOutput()),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDropdown(String label, String value, List<String> items, ValueChanged<String?> onChanged) {
-    return DropdownButtonFormField<String>(isExpanded: true, decoration: InputDecoration(labelText: label, isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12)), value: value, items: items.map((e) => DropdownMenuItem(value: e, child: Text(e, overflow: TextOverflow.ellipsis))).toList(), onChanged: onChanged);
-  }
-
-  Widget _buildNumberField(String label, int value, ValueChanged<int> onChanged) {
-    return TextFormField(initialValue: value.toString(), keyboardType: TextInputType.number, textAlign: TextAlign.center, decoration: InputDecoration(labelText: label, labelStyle: const TextStyle(fontSize: 11, height: 1.1), floatingLabelAlignment: FloatingLabelAlignment.center, floatingLabelBehavior: FloatingLabelBehavior.always, alignLabelWithHint: true, isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4), border: const OutlineInputBorder()), onChanged: (val) { int? parsed = int.tryParse(val); if (parsed != null && parsed >= 0) { onChanged(parsed); } });
   }
 }
