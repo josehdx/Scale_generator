@@ -143,7 +143,6 @@ class ScaleEngine {
     return result;
   }
 
-  // RESTORED: String Pair Motif Builder (L/H logic)
   List<List<int>> buildCustomMotif(Map<int, List<int>> boxDict, String rawMotif, String pairDirection) {
     List<int> availableStrings = boxDict.keys.toList()..sort();
     if (availableStrings.length < 2) return [];

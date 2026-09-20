@@ -34,7 +34,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   bool _isFretboardVisible = true; 
   
   bool _isTheoryExpanded = true;
-  bool _isPathwaysExpanded = false;
+  bool _isPathwaysExpanded = true;
   bool _isFormattingExpanded = false;
   bool _isTabExpanded = true; 
   
@@ -59,12 +59,25 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   String _customNpsProfile = "3,4,3,4,3,3"; 
 
   // MOTIF & PATHWAY STATE
-  // Added BOTH Custom Motif Builder and Custom Sequence back to the dropdowns
   String _selectedPathway = "Custom Motif Builder";
   String _selectedDirection = "One-Way (Ascend)";
   String _motifPairDirection = "Descend (High -> Low)";
-  String _customMotif = "L2,L1,L2,H1,H2,H1,L2,L1,L2,L1"; // The L/H syntax
-  String _customSequence = "1, 2, 3, 4, 5, 6, 7, 8";     // The integer syntax
+  String _customMotif = "L2,L1,L2,H1,H2,H1,L2,L1,L2,L1";
+  String _customSequence = "1, 2, 3, 4, 5, 6, 7, 8";
+
+  // PRESET MOTIF TEMPLATES
+  String _selectedMotifTemplate = "Default Pentatonic Roll";
+  final Map<String, String> _motifTemplates = {
+    "Default Pentatonic Roll": "L2,L1,L2,H1,H2,H1,L2,L1,L2,L1",
+    "Low Pedal Point": "L1,H1,L1,H2,L1,H3",
+    "High Pedal Point": "H1,L1,H1,L2,H1,L3",
+    "Zig-Zag / Cross-Pick": "L1,H2,L2,H1,L3,H2",
+    "Blues Pentatonic Roll": "H2,H1,L2,H1,L2,L1",
+    "Ascending 3-Note Run": "L1,L2,H1,L2,H1,H2",
+    "Descending 4-Note Run": "H3,H2,H1,L3",
+    "Pivot Arpeggio": "L1,H1,H3,L3",
+    "Custom (Build Below)": "",
+  };
 
   // RHYTHM STATE
   int _breakInterval = 0;
@@ -85,8 +98,8 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     "3-Step Triplet", 
     "4-Step 16th", 
     "Note Skipping", 
-    "Custom Motif Builder",      // Uses L1/H1 Pair syntax
-    "Custom Sequence (Indices)"  // Uses 1,2,3... index syntax
+    "Custom Motif Builder",      
+    "Custom Sequence (Indices)"  
   ];
   final List<String> _directions = ["Ascend -> Descend", "Descend -> Ascend", "One-Way (Ascend)", "One-Way (Descend)"];
   final List<String> _rhythms = ["Quarter", "8th", "16th"];
@@ -158,8 +171,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     if (_currentSequence.isEmpty || _generatedTab.startsWith("❌")) return;
     String patternLabel = _selectedPathway.contains("Custom") ? "Custom Pattern" : _selectedPathway;
     String presetName = "$_selectedKey $_selectedScale - $patternLabel (Fret $_startFret)";
-    
-    // Save depending on which custom builder was used
     String stringToSave = _selectedPathway == "Custom Motif Builder" ? _customMotif : _customSequence;
 
     final preset = LickPreset(
@@ -185,6 +196,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       
       if (_selectedPathway == "Custom Motif Builder") {
         _customMotif = preset.motifString;
+        _selectedMotifTemplate = "Custom (Build Below)";
       } else {
         _customSequence = preset.motifString;
       }
@@ -200,6 +212,36 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     List<int> parsed = npsStr.split(',').map((e) => int.tryParse(e.trim()) ?? 3).toList();
     while (parsed.length < 6) parsed.add(3); 
     return parsed.take(6).toList();
+  }
+
+  void _addMotifChip(String token) {
+    setState(() {
+      _selectedMotifTemplate = "Custom (Build Below)";
+      List<String> currentTokens = _customMotif.split(',').where((e) => e.trim().isNotEmpty).toList();
+      currentTokens.add(token);
+      _customMotif = currentTokens.join(',');
+      _generateTab();
+    });
+  }
+
+  void _removeLastMotifChip() {
+    setState(() {
+      List<String> currentTokens = _customMotif.split(',').where((e) => e.trim().isNotEmpty).toList();
+      if (currentTokens.isNotEmpty) {
+        currentTokens.removeLast();
+        _customMotif = currentTokens.join(',');
+        _selectedMotifTemplate = "Custom (Build Below)";
+        _generateTab();
+      }
+    });
+  }
+
+  void _clearMotifChips() {
+    setState(() {
+      _customMotif = "";
+      _selectedMotifTemplate = "Custom (Build Below)";
+      _generateTab();
+    });
   }
 
   void _generateTab() {
@@ -228,7 +270,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     _currentSequence = [];
     int beatsPerMeasure = 4;
 
-    // Routing Logic to the correct builder
     if (_selectedPathway == "Custom Motif Builder") {
       if (_selectedSystem == "Single String Horizontal") {
         setState(() => _generatedTab = "⚠️ Custom Motif Builder requires at least 2 strings for pairs.");
@@ -386,6 +427,136 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     );
   }
 
+  Widget _buildInteractiveMotifBuilder() {
+    List<String> tokens = _customMotif.split(',').where((e) => e.trim().isNotEmpty).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 8),
+        _buildDropdown(
+          'Motif Template',
+          _selectedMotifTemplate,
+          _motifTemplates.keys.toList(),
+          (v) {
+            if (v != null) {
+              setState(() {
+                _selectedMotifTemplate = v;
+                if (_motifTemplates[v]!.isNotEmpty) {
+                  _customMotif = _motifTemplates[v]!;
+                }
+                _generateTab();
+              });
+            }
+          },
+        ),
+        const SizedBox(height: 12),
+        const Text("Tap Notes to Build Motif Pattern:", style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 6),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _buildMotifAddButton("Low 1", "L1", Colors.teal),
+            _buildMotifAddButton("Low 2", "L2", Colors.teal),
+            _buildMotifAddButton("Low 3", "L3", Colors.teal),
+            const SizedBox(width: 8),
+            _buildMotifAddButton("High 1", "H1", Colors.deepPurpleAccent),
+            _buildMotifAddButton("High 2", "H2", Colors.deepPurpleAccent),
+            _buildMotifAddButton("High 3", "H3", Colors.deepPurpleAccent),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(8.0),
+          decoration: BoxDecoration(
+            color: Colors.black45,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text("Motif Timeline (${tokens.length} notes):", style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.backspace, size: 16, color: Colors.amberAccent),
+                        tooltip: "Remove Last Note",
+                        onPressed: tokens.isEmpty ? null : _removeLastMotifChip,
+                        padding: EdgeInsets.zero, constraints: const BoxConstraints(), 
+                      ),
+                      const SizedBox(width: 12),
+                      IconButton(
+                        icon: const Icon(Icons.clear_all, size: 18, color: Colors.redAccent),
+                        tooltip: "Clear All",
+                        onPressed: tokens.isEmpty ? null : _clearMotifChips,
+                        padding: EdgeInsets.zero, constraints: const BoxConstraints(), 
+                      ),
+                    ],
+                  )
+                ],
+              ),
+              const SizedBox(height: 6),
+              if (tokens.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8.0),
+                  child: Text("Tap buttons above or select a Template.", style: TextStyle(fontSize: 12, color: Colors.white38, fontStyle: FontStyle.italic)),
+                )
+              else
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: tokens.map((token) {
+                    bool isLow = token.startsWith('L');
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isLow ? Colors.teal.shade800 : Colors.deepPurple.shade700,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: isLow ? Colors.tealAccent : Colors.purpleAccent, width: 0.8),
+                      ),
+                      child: Text(
+                        token,
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                    );
+                  }).toList(),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMotifAddButton(String label, String token, Color color) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2.0),
+        child: InkWell(
+          onTap: () => _addMotifChip(token),
+          borderRadius: BorderRadius.circular(6),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: color.withAlpha(40),
+              border: Border.all(color: color, width: 1.2),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white.withAlpha(230)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildPathwaysContent() {
     return Column(
       children: [
@@ -402,16 +573,8 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
           ],
         ),
         
-        // Conditionally render the correct input field based on the selected pathway
         if (_selectedPathway == "Custom Motif Builder")
-          Padding(
-            padding: const EdgeInsets.only(top: 8.0),
-            child: TextFormField(
-              initialValue: _customMotif,
-              decoration: const InputDecoration(labelText: "String Pair Motif (L1, H1 syntax)", hintText: "e.g., L2,L1,H1,H2", border: OutlineInputBorder(), isDense: true),
-              onChanged: (val) { _customMotif = val; _generateTab(); },
-            ),
-          )
+          _buildInteractiveMotifBuilder()
         else if (_selectedPathway == "Custom Sequence (Indices)")
           Padding(
             padding: const EdgeInsets.only(top: 8.0),
