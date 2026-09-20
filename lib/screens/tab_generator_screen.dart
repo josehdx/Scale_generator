@@ -38,6 +38,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   bool _isMidiReady = false;
   bool _isLooping = false;
   bool _isChangingSound = false;
+  bool _isFretboardVisible = true; // NEW: Toggle for Fretboard Visibility
   
   Timer? _playbackTimer;
   final Set<int> _activeMidiNotes = {}; 
@@ -473,123 +474,125 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   Widget _buildFormScreen() {
     return Column(
       children: [
-        Expanded(
-          flex: 4,
-          child: ListView(
-            children: [
-              ExpansionTile(
-                title: const Text("🎸 1. Theory & Fretboard", style: TextStyle(fontWeight: FontWeight.bold)),
-                initiallyExpanded: true,
-                childrenPadding: const EdgeInsets.all(12.0),
-                children: [
-                  Row(
-                    children: [
-                      Expanded(child: _buildDropdown('Key', _selectedKey, _engine.noteMap.keys.toList(), (v) => setState(() { _selectedKey = v!; _generateTab(); }))),
-                      const SizedBox(width: 8),
-                      Expanded(flex: 2, child: _buildDropdown('Scale', _selectedScale, _engine.scaleFormulas.keys.toList(), (v) => setState(() { _selectedScale = v!; _generateTab(); }))),
-                      const SizedBox(width: 8),
-                      Expanded(flex: 2, child: _buildDropdown('Tuning', _selectedTuning, _engine.tunings.keys.toList(), (v) => setState(() { _selectedTuning = v!; _generateTab(); }))),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(flex: 2, child: _buildDropdown('System', _selectedSystem, _systems, (v) => setState(() { _selectedSystem = v!; _generateTab(); }))),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _selectedSystem == "Single String Horizontal"
-                            ? _buildDropdown('String', _singleStringTarget.toString(), ["1", "2", "3", "4", "5", "6"], (v) => setState(() { _singleStringTarget = int.parse(v!); _generateTab(); }))
-                            : _buildDropdown('Fragment', _selectedFragment, _fragments, (v) => setState(() { _selectedFragment = v!; _generateTab(); })),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Text("Start Fret: $_startFret"),
-                      Expanded(
-                        child: Slider(
-                          value: _startFret.toDouble(), min: 0, max: 20, divisions: 20, label: _startFret.toString(),
-                          onChanged: (val) => setState(() { _startFret = val.toInt(); _generateTab(); }),
-                        ),
-                      ),
-                    ],
-                  )
-                ],
-              ),
-              ExpansionTile(
-                title: const Text("🎼 2. Pathways & Motifs", style: TextStyle(fontWeight: FontWeight.bold)),
-                childrenPadding: const EdgeInsets.all(12.0),
-                children: [
-                  Row(
-                    children: [
-                      Expanded(flex: 2, child: _buildDropdown('Pathway', _selectedPathway, _pathways, (v) => setState(() { _selectedPathway = v!; _generateTab(); }))),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        flex: 2,
-                        child: _selectedPathway == "Custom Motif Builder"
-                            ? _buildDropdown('Pair Direction', _motifPairDirection, const ["Descend (High -> Low)", "Ascend (Low -> High)"], (v) => setState(() { _motifPairDirection = v!; _generateTab(); }))
-                            : _buildDropdown('Loop Direction', _selectedDirection, _directions, (v) => setState(() { _selectedDirection = v!; _generateTab(); })),
-                      ),
-                    ],
-                  ),
-                  if (_selectedPathway == "Custom Motif Builder")
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8.0),
-                      child: MotifChipBuilder(
-                        tokens: _motifTokens,
-                        onDeleteToken: (index) => setState(() { _activeTemplateName = null; _motifTokens.removeAt(index); _generateTab(); }),
-                        onAddToken: (note) => setState(() { _activeTemplateName = null; _previewString = null; _previewFret = null; _motifTokens.add(MotifToken(UniqueKey().toString(), note)); _generateTab(); }),
-                        onReorder: (oldIndex, newIndex) => setState(() { _activeTemplateName = null; if (oldIndex < newIndex) newIndex -= 1; final item = _motifTokens.removeAt(oldIndex); _motifTokens.insert(newIndex, item); _generateTab(); }),
-                        onAuditionNote: (note) {
-                          var data = _getNoteDataForToken(note);
-                          if (data != null && _isMidiReady) {
-                            _midiPro.playMidiNote(midi: data.$3, velocity: 127);
-                            setState(() { _previewString = data.$1; _previewFret = data.$2; });
-                          }
-                        },
-                        onAuditionCancel: () => setState(() { _previewString = null; _previewFret = null; }),
-                        onClear: () => setState(() { _activeTemplateName = null; _motifTokens.clear(); _generateTab(); }),
-                        onRandomize: _generateRandomMotif,
-                        onInjectTemplate: _injectTemplate,
-                      ),
+        // FIX: Replaced Expanded with Flexible so it shrinks when collapsed
+        Flexible(
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                ExpansionTile(
+                  title: const Text("🎸 1. Theory & Fretboard", style: TextStyle(fontWeight: FontWeight.bold)),
+                  initiallyExpanded: true,
+                  childrenPadding: const EdgeInsets.all(12.0),
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(child: _buildDropdown('Key', _selectedKey, _engine.noteMap.keys.toList(), (v) => setState(() { _selectedKey = v!; _generateTab(); }))),
+                        const SizedBox(width: 8),
+                        Expanded(flex: 2, child: _buildDropdown('Scale', _selectedScale, _engine.scaleFormulas.keys.toList(), (v) => setState(() { _selectedScale = v!; _generateTab(); }))),
+                        const SizedBox(width: 8),
+                        Expanded(flex: 2, child: _buildDropdown('Tuning', _selectedTuning, _engine.tunings.keys.toList(), (v) => setState(() { _selectedTuning = v!; _generateTab(); }))),
+                      ],
                     ),
-                ],
-              ),
-              ExpansionTile(
-                title: const Text("⏱️ 3. Formatting & Rhythm", style: TextStyle(fontWeight: FontWeight.bold)),
-                childrenPadding: const EdgeInsets.all(12.0),
-                children: [
-                  Row(
-                    children: [
-                      Expanded(flex: 2, child: _buildDropdown('Rhythm', _selectedRhythm, _rhythms, (v) => setState(() { _selectedRhythm = v!; _generateTab(); }))),
-                      const SizedBox(width: 8),
-                      Expanded(flex: 2, child: _buildNumberField('Tempo\nBPM', _tempo, (v) => setState(() => _tempo = v))),
-                      const SizedBox(width: 8),
-                      Expanded(child: _buildNumberField('Wrap\nLines', _measuresPerLine, (v) => setState(() => _measuresPerLine = v))),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        flex: 2,
-                        child: _buildDropdown(
-                          'Guitar Sound', _guitarSounds.keys.firstWhere((k) => _guitarSounds[k] == _selectedInstrumentIndex), _guitarSounds.keys.toList(),
-                          (v) { if (v != null) _changeGuitarSound(_guitarSounds[v]!); },
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(flex: 2, child: _buildDropdown('System', _selectedSystem, _systems, (v) => setState(() { _selectedSystem = v!; _generateTab(); }))),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _selectedSystem == "Single String Horizontal"
+                              ? _buildDropdown('String', _singleStringTarget.toString(), ["1", "2", "3", "4", "5", "6"], (v) => setState(() { _singleStringTarget = int.parse(v!); _generateTab(); }))
+                              : _buildDropdown('Fragment', _selectedFragment, _fragments, (v) => setState(() { _selectedFragment = v!; _generateTab(); })),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Text("Start Fret: $_startFret"),
+                        Expanded(
+                          child: Slider(
+                            value: _startFret.toDouble(), min: 0, max: 20, divisions: 20, label: _startFret.toString(),
+                            onChanged: (val) => setState(() { _startFret = val.toInt(); _generateTab(); }),
+                          ),
+                        ),
+                      ],
+                    )
+                  ],
+                ),
+                ExpansionTile(
+                  title: const Text("🎼 2. Pathways & Motifs", style: TextStyle(fontWeight: FontWeight.bold)),
+                  childrenPadding: const EdgeInsets.all(12.0),
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(flex: 2, child: _buildDropdown('Pathway', _selectedPathway, _pathways, (v) => setState(() { _selectedPathway = v!; _generateTab(); }))),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          flex: 2,
+                          child: _selectedPathway == "Custom Motif Builder"
+                              ? _buildDropdown('Pair Direction', _motifPairDirection, const ["Descend (High -> Low)", "Ascend (Low -> High)"], (v) => setState(() { _motifPairDirection = v!; _generateTab(); }))
+                              : _buildDropdown('Loop Direction', _selectedDirection, _directions, (v) => setState(() { _selectedDirection = v!; _generateTab(); })),
+                        ),
+                      ],
+                    ),
+                    if (_selectedPathway == "Custom Motif Builder")
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: MotifChipBuilder(
+                          tokens: _motifTokens,
+                          onDeleteToken: (index) => setState(() { _activeTemplateName = null; _motifTokens.removeAt(index); _generateTab(); }),
+                          onAddToken: (note) => setState(() { _activeTemplateName = null; _previewString = null; _previewFret = null; _motifTokens.add(MotifToken(UniqueKey().toString(), note)); _generateTab(); }),
+                          onReorder: (oldIndex, newIndex) => setState(() { _activeTemplateName = null; if (oldIndex < newIndex) newIndex -= 1; final item = _motifTokens.removeAt(oldIndex); _motifTokens.insert(newIndex, item); _generateTab(); }),
+                          onAuditionNote: (note) {
+                            var data = _getNoteDataForToken(note);
+                            if (data != null && _isMidiReady) {
+                              _midiPro.playMidiNote(midi: data.$3, velocity: 127);
+                              setState(() { _previewString = data.$1; _previewFret = data.$2; });
+                            }
+                          },
+                          onAuditionCancel: () => setState(() { _previewString = null; _previewFret = null; }),
+                          onClear: () => setState(() { _activeTemplateName = null; _motifTokens.clear(); _generateTab(); }),
+                          onRandomize: _generateRandomMotif,
+                          onInjectTemplate: _injectTemplate,
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(child: _buildNumberField('Break\nInterval', _breakInterval, (v) => setState(() => _breakInterval = v))),
-                      const SizedBox(width: 8),
-                      Expanded(child: _buildNumberField('Break\nLength', _breakLength, (v) => setState(() => _breakLength = v))),
-                      const SizedBox(width: 8),
-                      Expanded(child: _buildNumberField('End\nRests', _endRests, (v) => setState(() => _endRests = v))),
-                    ],
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+                ExpansionTile(
+                  title: const Text("⏱️ 3. Formatting & Rhythm", style: TextStyle(fontWeight: FontWeight.bold)),
+                  childrenPadding: const EdgeInsets.all(12.0),
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(flex: 2, child: _buildDropdown('Rhythm', _selectedRhythm, _rhythms, (v) => setState(() { _selectedRhythm = v!; _generateTab(); }))),
+                        const SizedBox(width: 8),
+                        Expanded(flex: 2, child: _buildNumberField('Tempo\nBPM', _tempo, (v) => setState(() => _tempo = v))),
+                        const SizedBox(width: 8),
+                        Expanded(child: _buildNumberField('Wrap\nLines', _measuresPerLine, (v) => setState(() => _measuresPerLine = v))),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: _buildDropdown(
+                            'Guitar Sound', _guitarSounds.keys.firstWhere((k) => _guitarSounds[k] == _selectedInstrumentIndex), _guitarSounds.keys.toList(),
+                            (v) { if (v != null) _changeGuitarSound(_guitarSounds[v]!); },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(child: _buildNumberField('Break\nInterval', _breakInterval, (v) => setState(() => _breakInterval = v))),
+                        const SizedBox(width: 8),
+                        Expanded(child: _buildNumberField('Break\nLength', _breakLength, (v) => setState(() => _breakLength = v))),
+                        const SizedBox(width: 8),
+                        Expanded(child: _buildNumberField('End\nRests', _endRests, (v) => setState(() => _endRests = v))),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
         PlaybackControlBar(
@@ -613,30 +616,37 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
             children: [
               Expanded(child: _buildDropdown('Scale', _selectedScale, _engine.scaleFormulas.keys.toList(), (v) => setState(() { _selectedScale = v!; _generateTab(); }))),
               const SizedBox(width: 8),
-              Chip(avatar: const Icon(Icons.music_note, color: Colors.redAccent, size: 16), label: Text('Root: $_selectedKey | Fret: $_startFret'))
+              Chip(avatar: const Icon(Icons.music_note, color: Colors.redAccent, size: 16), label: Text('Root: $_selectedKey | Fret: $_startFret')),
+              IconButton(
+                icon: Icon(_isFretboardVisible ? Icons.visibility : Icons.visibility_off, color: Colors.grey),
+                tooltip: _isFretboardVisible ? 'Hide Fretboard' : 'Show Fretboard',
+                onPressed: () => setState(() => _isFretboardVisible = !_isFretboardVisible),
+              )
             ],
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8.0),
-          child: ValueListenableBuilder<int>(
-            valueListenable: _currentPlayingNoteIndex,
-            builder: (context, playingIndex, child) {
-              int? actStr, actFret;
-              if (playingIndex != -1 && playingIndex < _currentSequence.length) {
-                var activeNote = _currentSequence[playingIndex];
-                if (activeNote[0] != -1) { actStr = activeNote[0]; actFret = activeNote[1]; }
-              }
-              return InteractiveFretboard(
-                engine: _engine, selectedKey: _selectedKey, selectedScale: _selectedScale, startFret: _startFret, selectedTuning: _selectedTuning,
-                activeString: actStr, activeFret: actFret, previewString: _previewString, previewFret: _previewFret, scrollController: _fretboardScrollController, 
-                onNoteTapped: (k, f) => setState(() { _selectedKey = k; _startFret = f; _generateTab(); }),
-              );
-            },
+        if (_isFretboardVisible)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: ValueListenableBuilder<int>(
+              valueListenable: _currentPlayingNoteIndex,
+              builder: (context, playingIndex, child) {
+                int? actStr, actFret;
+                if (playingIndex != -1 && playingIndex < _currentSequence.length) {
+                  var activeNote = _currentSequence[playingIndex];
+                  if (activeNote[0] != -1) { actStr = activeNote[0]; actFret = activeNote[1]; }
+                }
+                return InteractiveFretboard(
+                  engine: _engine, selectedKey: _selectedKey, selectedScale: _selectedScale, startFret: _startFret, selectedTuning: _selectedTuning,
+                  activeString: actStr, activeFret: actFret, previewString: _previewString, previewFret: _previewFret, scrollController: _fretboardScrollController, 
+                  onNoteTapped: (k, f) => setState(() { _selectedKey = k; _startFret = f; _generateTab(); }),
+                );
+              },
+            ),
           ),
-        ),
         const SizedBox(height: 8),
-        Expanded(
+        // FIX: Replaced Expanded with Flexible so it shrinks when motif builder is hidden/empty
+        Flexible(
           child: SingleChildScrollView(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8.0),
@@ -717,10 +727,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
 
   Widget _buildInteractiveTabOutput() {
     if (_currentSequence.isEmpty) {
-      return Expanded(flex: 3, child: Container(margin: const EdgeInsets.all(12), padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8)), width: double.infinity, child: Text(_generatedTab, style: const TextStyle(fontFamily: 'monospace', color: Colors.greenAccent))));
+      return Expanded(child: Container(margin: const EdgeInsets.all(12), padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8)), width: double.infinity, child: Text(_generatedTab, style: const TextStyle(fontFamily: 'monospace', color: Colors.greenAccent))));
     }
     return Expanded(
-      flex: 3,
       child: ValueListenableBuilder<int>(
         valueListenable: _currentPlayingNoteIndex,
         builder: (context, playingIndex, child) {
