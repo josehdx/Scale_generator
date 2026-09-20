@@ -247,10 +247,15 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Saved Preset: '$presetName'")));
   }
 
-  void _loadPreset(LickPreset preset) {
+  // CORE FIX: State synchronization decoupled from View navigation
+  void _applyPresetState(LickPreset preset) {
     setState(() {
-      _selectedKey = preset.key; _selectedScale = preset.scale; _selectedTuning = preset.tuning; _selectedSystem = preset.system; 
-      _startFret = preset.startFret; _selectedPathway = preset.pathway;
+      _selectedKey = preset.key; 
+      _selectedScale = preset.scale; 
+      _selectedTuning = preset.tuning; 
+      _selectedSystem = preset.system; 
+      _startFret = preset.startFret; 
+      _selectedPathway = preset.pathway;
       
       String frag = preset.fragment;
       if (frag.contains('-') && !frag.contains('Strings')) {
@@ -280,10 +285,21 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         _customSequence = preset.motifString;
       }
 
-      _selectedRhythm = preset.rhythm; _tempo = preset.tempo; _measuresPerLine = preset.measuresPerLine; _breakInterval = preset.breakInterval;
-      _breakLength = preset.breakLength; _endRests = preset.endRests; _generatedTab = preset.tabOutput;
+      _selectedRhythm = preset.rhythm; 
+      _tempo = preset.tempo; 
+      _measuresPerLine = preset.measuresPerLine; 
+      _breakInterval = preset.breakInterval;
+      _breakLength = preset.breakLength; 
+      _endRests = preset.endRests; 
+      _generatedTab = preset.tabOutput;
     });
+    // This updates the Tab View for Main Studio invisibly in the background
     _generateTab();
+  }
+
+  void _loadPreset(LickPreset preset) {
+    _applyPresetState(preset);
+    // Explicit jump when requested directly from the "Load Preset" popup menu
     _pageController.animateToPage(0, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
   }
 
@@ -579,6 +595,10 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
             isPreviewPlaying: _isPreviewPlaying,
             isPreviewLooping: _isPreviewLooping,
             onPlayPreview: (preset) {
+              // 1. Sync the Main Studio view instantly in the background without flipping pages
+              _applyPresetState(preset);
+              
+              // 2. Play the audio preview securely
               _playLick(
                 overrideSequence: _buildSequenceForPreset(preset),
                 overrideTempo: preset.tempo,
