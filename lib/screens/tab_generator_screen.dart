@@ -38,7 +38,12 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   bool _isMidiReady = false;
   bool _isLooping = false;
   bool _isChangingSound = false;
-  bool _isFretboardVisible = true; // NEW: Toggle for Fretboard Visibility
+  bool _isFretboardVisible = true; 
+  
+  // Persistent Expansion States
+  bool _isTheoryExpanded = true;
+  bool _isPathwaysExpanded = false;
+  bool _isFormattingExpanded = false;
   
   Timer? _playbackTimer;
   final Set<int> _activeMidiNotes = {}; 
@@ -426,6 +431,145 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     if (mounted) setState(() => _isPlaying = false);
   }
 
+  // --- REUSABLE COLLAPSIBLE SECTIONS & CONTENT WIDGETS ---
+
+  Widget _buildCollapsibleSection(String title, bool isExpanded, VoidCallback onToggle, Widget child) {
+    return Column(
+      children: [
+        ListTile(
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+          trailing: Icon(isExpanded ? Icons.expand_less : Icons.expand_more, color: Colors.grey),
+          onTap: onToggle,
+          dense: true,
+        ),
+        AnimatedCrossFade(
+          firstChild: Padding(
+            padding: const EdgeInsets.only(left: 12.0, right: 12.0, bottom: 12.0),
+            child: child,
+          ),
+          secondChild: const SizedBox.shrink(),
+          crossFadeState: isExpanded ? CrossFadeState.showFirst : CrossFadeState.showSecond,
+          duration: const Duration(milliseconds: 200),
+        ),
+        const Divider(height: 1, thickness: 1, color: Colors.black26),
+      ],
+    );
+  }
+
+  Widget _buildTheoryContent() {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(child: _buildDropdown('Key', _selectedKey, _engine.noteMap.keys.toList(), (v) => setState(() { _selectedKey = v!; _generateTab(); }))),
+            const SizedBox(width: 8),
+            Expanded(flex: 2, child: _buildDropdown('Scale', _selectedScale, _engine.scaleFormulas.keys.toList(), (v) => setState(() { _selectedScale = v!; _generateTab(); }))),
+            const SizedBox(width: 8),
+            Expanded(flex: 2, child: _buildDropdown('Tuning', _selectedTuning, _engine.tunings.keys.toList(), (v) => setState(() { _selectedTuning = v!; _generateTab(); }))),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(flex: 2, child: _buildDropdown('System', _selectedSystem, _systems, (v) => setState(() { _selectedSystem = v!; _generateTab(); }))),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _selectedSystem == "Single String Horizontal"
+                  ? _buildDropdown('String', _singleStringTarget.toString(), ["1", "2", "3", "4", "5", "6"], (v) => setState(() { _singleStringTarget = int.parse(v!); _generateTab(); }))
+                  : _buildDropdown('Fragment', _selectedFragment, _fragments, (v) => setState(() { _selectedFragment = v!; _generateTab(); })),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Text("Start Fret: $_startFret"),
+            Expanded(
+              child: Slider(
+                value: _startFret.toDouble(), min: 0, max: 20, divisions: 20, label: _startFret.toString(),
+                onChanged: (val) => setState(() { _startFret = val.toInt(); _generateTab(); }),
+              ),
+            ),
+          ],
+        )
+      ],
+    );
+  }
+
+  Widget _buildPathwaysContent() {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(flex: 2, child: _buildDropdown('Pathway', _selectedPathway, _pathways, (v) => setState(() { _selectedPathway = v!; _generateTab(); }))),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 2,
+              child: _selectedPathway == "Custom Motif Builder"
+                  ? _buildDropdown('Pair Direction', _motifPairDirection, const ["Descend (High -> Low)", "Ascend (Low -> High)"], (v) => setState(() { _motifPairDirection = v!; _generateTab(); }))
+                  : _buildDropdown('Loop Direction', _selectedDirection, _directions, (v) => setState(() { _selectedDirection = v!; _generateTab(); })),
+            ),
+          ],
+        ),
+        if (_selectedPathway == "Custom Motif Builder")
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: MotifChipBuilder(
+              tokens: _motifTokens,
+              onDeleteToken: (index) => setState(() { _activeTemplateName = null; _motifTokens.removeAt(index); _generateTab(); }),
+              onAddToken: (note) => setState(() { _activeTemplateName = null; _previewString = null; _previewFret = null; _motifTokens.add(MotifToken(UniqueKey().toString(), note)); _generateTab(); }),
+              onReorder: (oldIndex, newIndex) => setState(() { _activeTemplateName = null; if (oldIndex < newIndex) newIndex -= 1; final item = _motifTokens.removeAt(oldIndex); _motifTokens.insert(newIndex, item); _generateTab(); }),
+              onAuditionNote: (note) {
+                var data = _getNoteDataForToken(note);
+                if (data != null && _isMidiReady) {
+                  _midiPro.playMidiNote(midi: data.$3, velocity: 127);
+                  setState(() { _previewString = data.$1; _previewFret = data.$2; });
+                }
+              },
+              onAuditionCancel: () => setState(() { _previewString = null; _previewFret = null; }),
+              onClear: () => setState(() { _activeTemplateName = null; _motifTokens.clear(); _generateTab(); }),
+              onRandomize: _generateRandomMotif,
+              onInjectTemplate: _injectTemplate,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildFormattingContent() {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(flex: 2, child: _buildDropdown('Rhythm', _selectedRhythm, _rhythms, (v) => setState(() { _selectedRhythm = v!; _generateTab(); }))),
+            const SizedBox(width: 8),
+            Expanded(flex: 2, child: _buildNumberField('Tempo\nBPM', _tempo, (v) => setState(() => _tempo = v))),
+            const SizedBox(width: 8),
+            Expanded(child: _buildNumberField('Wrap\nLines', _measuresPerLine, (v) => setState(() => _measuresPerLine = v))),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: _buildDropdown(
+                'Guitar Sound', _guitarSounds.keys.firstWhere((k) => _guitarSounds[k] == _selectedInstrumentIndex), _guitarSounds.keys.toList(),
+                (v) { if (v != null) _changeGuitarSound(_guitarSounds[v]!); },
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(child: _buildNumberField('Break\nInterval', _breakInterval, (v) => setState(() => _breakInterval = v))),
+            const SizedBox(width: 8),
+            Expanded(child: _buildNumberField('Break\nLength', _breakLength, (v) => setState(() => _breakLength = v))),
+            const SizedBox(width: 8),
+            Expanded(child: _buildNumberField('End\nRests', _endRests, (v) => setState(() => _endRests = v))),
+          ],
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -474,122 +618,27 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   Widget _buildFormScreen() {
     return Column(
       children: [
-        // FIX: Replaced Expanded with Flexible so it shrinks when collapsed
         Flexible(
           child: SingleChildScrollView(
             child: Column(
               children: [
-                ExpansionTile(
-                  title: const Text("🎸 1. Theory & Fretboard", style: TextStyle(fontWeight: FontWeight.bold)),
-                  initiallyExpanded: true,
-                  childrenPadding: const EdgeInsets.all(12.0),
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(child: _buildDropdown('Key', _selectedKey, _engine.noteMap.keys.toList(), (v) => setState(() { _selectedKey = v!; _generateTab(); }))),
-                        const SizedBox(width: 8),
-                        Expanded(flex: 2, child: _buildDropdown('Scale', _selectedScale, _engine.scaleFormulas.keys.toList(), (v) => setState(() { _selectedScale = v!; _generateTab(); }))),
-                        const SizedBox(width: 8),
-                        Expanded(flex: 2, child: _buildDropdown('Tuning', _selectedTuning, _engine.tunings.keys.toList(), (v) => setState(() { _selectedTuning = v!; _generateTab(); }))),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(flex: 2, child: _buildDropdown('System', _selectedSystem, _systems, (v) => setState(() { _selectedSystem = v!; _generateTab(); }))),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _selectedSystem == "Single String Horizontal"
-                              ? _buildDropdown('String', _singleStringTarget.toString(), ["1", "2", "3", "4", "5", "6"], (v) => setState(() { _singleStringTarget = int.parse(v!); _generateTab(); }))
-                              : _buildDropdown('Fragment', _selectedFragment, _fragments, (v) => setState(() { _selectedFragment = v!; _generateTab(); })),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Text("Start Fret: $_startFret"),
-                        Expanded(
-                          child: Slider(
-                            value: _startFret.toDouble(), min: 0, max: 20, divisions: 20, label: _startFret.toString(),
-                            onChanged: (val) => setState(() { _startFret = val.toInt(); _generateTab(); }),
-                          ),
-                        ),
-                      ],
-                    )
-                  ],
+                _buildCollapsibleSection(
+                  "🎸 1. Theory & Fretboard", 
+                  _isTheoryExpanded, 
+                  () => setState(() => _isTheoryExpanded = !_isTheoryExpanded), 
+                  _buildTheoryContent()
                 ),
-                ExpansionTile(
-                  title: const Text("🎼 2. Pathways & Motifs", style: TextStyle(fontWeight: FontWeight.bold)),
-                  childrenPadding: const EdgeInsets.all(12.0),
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(flex: 2, child: _buildDropdown('Pathway', _selectedPathway, _pathways, (v) => setState(() { _selectedPathway = v!; _generateTab(); }))),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          flex: 2,
-                          child: _selectedPathway == "Custom Motif Builder"
-                              ? _buildDropdown('Pair Direction', _motifPairDirection, const ["Descend (High -> Low)", "Ascend (Low -> High)"], (v) => setState(() { _motifPairDirection = v!; _generateTab(); }))
-                              : _buildDropdown('Loop Direction', _selectedDirection, _directions, (v) => setState(() { _selectedDirection = v!; _generateTab(); })),
-                        ),
-                      ],
-                    ),
-                    if (_selectedPathway == "Custom Motif Builder")
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8.0),
-                        child: MotifChipBuilder(
-                          tokens: _motifTokens,
-                          onDeleteToken: (index) => setState(() { _activeTemplateName = null; _motifTokens.removeAt(index); _generateTab(); }),
-                          onAddToken: (note) => setState(() { _activeTemplateName = null; _previewString = null; _previewFret = null; _motifTokens.add(MotifToken(UniqueKey().toString(), note)); _generateTab(); }),
-                          onReorder: (oldIndex, newIndex) => setState(() { _activeTemplateName = null; if (oldIndex < newIndex) newIndex -= 1; final item = _motifTokens.removeAt(oldIndex); _motifTokens.insert(newIndex, item); _generateTab(); }),
-                          onAuditionNote: (note) {
-                            var data = _getNoteDataForToken(note);
-                            if (data != null && _isMidiReady) {
-                              _midiPro.playMidiNote(midi: data.$3, velocity: 127);
-                              setState(() { _previewString = data.$1; _previewFret = data.$2; });
-                            }
-                          },
-                          onAuditionCancel: () => setState(() { _previewString = null; _previewFret = null; }),
-                          onClear: () => setState(() { _activeTemplateName = null; _motifTokens.clear(); _generateTab(); }),
-                          onRandomize: _generateRandomMotif,
-                          onInjectTemplate: _injectTemplate,
-                        ),
-                      ),
-                  ],
+                _buildCollapsibleSection(
+                  "🎼 2. Pathways & Motifs", 
+                  _isPathwaysExpanded, 
+                  () => setState(() => _isPathwaysExpanded = !_isPathwaysExpanded), 
+                  _buildPathwaysContent()
                 ),
-                ExpansionTile(
-                  title: const Text("⏱️ 3. Formatting & Rhythm", style: TextStyle(fontWeight: FontWeight.bold)),
-                  childrenPadding: const EdgeInsets.all(12.0),
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(flex: 2, child: _buildDropdown('Rhythm', _selectedRhythm, _rhythms, (v) => setState(() { _selectedRhythm = v!; _generateTab(); }))),
-                        const SizedBox(width: 8),
-                        Expanded(flex: 2, child: _buildNumberField('Tempo\nBPM', _tempo, (v) => setState(() => _tempo = v))),
-                        const SizedBox(width: 8),
-                        Expanded(child: _buildNumberField('Wrap\nLines', _measuresPerLine, (v) => setState(() => _measuresPerLine = v))),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          flex: 2,
-                          child: _buildDropdown(
-                            'Guitar Sound', _guitarSounds.keys.firstWhere((k) => _guitarSounds[k] == _selectedInstrumentIndex), _guitarSounds.keys.toList(),
-                            (v) { if (v != null) _changeGuitarSound(_guitarSounds[v]!); },
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(child: _buildNumberField('Break\nInterval', _breakInterval, (v) => setState(() => _breakInterval = v))),
-                        const SizedBox(width: 8),
-                        Expanded(child: _buildNumberField('Break\nLength', _breakLength, (v) => setState(() => _breakLength = v))),
-                        const SizedBox(width: 8),
-                        Expanded(child: _buildNumberField('End\nRests', _endRests, (v) => setState(() => _endRests = v))),
-                      ],
-                    ),
-                  ],
+                _buildCollapsibleSection(
+                  "⏱️ 3. Formatting & Rhythm", 
+                  _isFormattingExpanded, 
+                  () => setState(() => _isFormattingExpanded = !_isFormattingExpanded), 
+                  _buildFormattingContent()
                 ),
               ],
             ),
@@ -645,50 +694,23 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
             ),
           ),
         const SizedBox(height: 8),
-        // FIX: Replaced Expanded with Flexible so it shrinks when motif builder is hidden/empty
         Flexible(
           child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(flex: 2, child: _buildDropdown('Pathway', _selectedPathway, _pathways, (v) => setState(() { _selectedPathway = v!; _generateTab(); }))),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        flex: 2,
-                        child: _selectedPathway == "Custom Motif Builder"
-                            ? _buildDropdown('Pair Direction', _motifPairDirection, const ["Descend (High -> Low)", "Ascend (Low -> High)"], (v) => setState(() { _motifPairDirection = v!; _generateTab(); }))
-                            : _buildDropdown('Loop Direction', _selectedDirection, _directions, (v) => setState(() { _selectedDirection = v!; _generateTab(); })),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(child: _buildDropdown('Rhythm', _selectedRhythm, _rhythms, (v) => setState(() { _selectedRhythm = v!; _generateTab(); }))),
-                    ],
-                  ),
-                  if (_selectedPathway == "Custom Motif Builder")
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8.0),
-                      child: MotifChipBuilder(
-                        tokens: _motifTokens,
-                        onDeleteToken: (index) => setState(() { _activeTemplateName = null; _motifTokens.removeAt(index); _generateTab(); }),
-                        onAddToken: (note) => setState(() { _activeTemplateName = null; _previewString = null; _previewFret = null; _motifTokens.add(MotifToken(UniqueKey().toString(), note)); _generateTab(); }),
-                        onReorder: (oldIndex, newIndex) => setState(() { _activeTemplateName = null; if (oldIndex < newIndex) newIndex -= 1; final item = _motifTokens.removeAt(oldIndex); _motifTokens.insert(newIndex, item); _generateTab(); }),
-                        onAuditionNote: (note) {
-                          var data = _getNoteDataForToken(note);
-                          if (data != null && _isMidiReady) {
-                            _midiPro.playMidiNote(midi: data.$3, velocity: 127);
-                            setState(() { _previewString = data.$1; _previewFret = data.$2; });
-                          }
-                        },
-                        onAuditionCancel: () => setState(() { _previewString = null; _previewFret = null; }),
-                        onClear: () => setState(() { _activeTemplateName = null; _motifTokens.clear(); _generateTab(); }),
-                        onRandomize: _generateRandomMotif,
-                        onInjectTemplate: _injectTemplate,
-                      ),
-                    ),
-                ],
-              ),
+            child: Column(
+              children: [
+                _buildCollapsibleSection(
+                  "🎼 2. Pathways & Motifs", 
+                  _isPathwaysExpanded, 
+                  () => setState(() => _isPathwaysExpanded = !_isPathwaysExpanded), 
+                  _buildPathwaysContent()
+                ),
+                _buildCollapsibleSection(
+                  "⏱️ 3. Formatting & Rhythm", 
+                  _isFormattingExpanded, 
+                  () => setState(() => _isFormattingExpanded = !_isFormattingExpanded), 
+                  _buildFormattingContent()
+                ),
+              ],
             ),
           ),
         ),
