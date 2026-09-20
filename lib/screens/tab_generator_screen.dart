@@ -1,9 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_midi_pro/flutter_midi_pro.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/lick_preset.dart';
 import '../scale_engine.dart';
@@ -19,6 +24,8 @@ class TabGeneratorScreen extends StatefulWidget {
 }
 
 class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
+  static const String _storageKey = 'auto_saved_lick_presets';
+
   final ScaleEngine _engine = ScaleEngine();
   final MidiPro _midiPro = MidiPro();
 
@@ -34,7 +41,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   final Set<int> _activeMidiNotes = {}; 
   
   final ScrollController _fretboardScrollController = ScrollController();
-  
   final ValueNotifier<int> _currentPlayingNoteIndex = ValueNotifier<int>(-1);
 
   int _selectionStart = -1;
@@ -68,7 +74,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   String _generatedTab = "Generating tab...";
   List<List<int>> _currentSequence = [];
 
-  final List<LickPreset> _savedPresets = [];
+  List<LickPreset> _savedPresets = [];
 
   final List<String> _systems = [
     "Box Position / CAGED",
@@ -108,6 +114,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     super.initState();
     _pageController = PageController();
     _loadSoundFont();
+    _loadPresetsFromDisk();
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _generateTab();
@@ -122,6 +129,33 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     _fretboardScrollController.dispose();
     _currentPlayingNoteIndex.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadPresetsFromDisk() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? jsonString = prefs.getString(_storageKey);
+      if (jsonString != null && jsonString.isNotEmpty) {
+        final List<dynamic> decodedList = jsonDecode(jsonString);
+        final loaded = decodedList.map((e) => LickPreset.fromJson(e)).toList();
+        setState(() {
+          _savedPresets = loaded;
+        });
+      }
+    } catch (e) {
+      debugPrint("Storage Read Error: $e");
+    }
+  }
+
+  Future<void> _savePresetsToDisk() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonList = _savedPresets.map((e) => e.toJson()).toList();
+      final jsonString = jsonEncode(jsonList);
+      await prefs.setString(_storageKey, jsonString);
+    } catch (e) {
+      debugPrint("Storage Write Error: $e");
+    }
   }
 
   Future<void> _loadSoundFont() async {
@@ -206,10 +240,18 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     setState(() {
       _savedPresets.insert(0, preset);
     });
+    _savePresetsToDisk();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text("Saved Preset: '$presetName'")),
     );
+  }
+
+  void _deletePresetAt(int index) {
+    setState(() {
+      _savedPresets.removeAt(index);
+    });
+    _savePresetsToDisk();
   }
 
   void _loadPreset(LickPreset preset) {
@@ -242,11 +284,100 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
   }
 
-  void _exportAllPresets() {
-    if (_savedPresets.isEmpty) return;
-    final jsonList = _savedPresets.map((e) => e.toJson()).toList();
-    final jsonString = const JsonEncoder.withIndent('  ').convert(jsonList);
-    Clipboard.setData(ClipboardData(text: jsonString));
+  Future<void> _exportPresetsToFile(List<LickPreset> presetsToExport) async {
+    if (presetsToExport.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No presets selected to export.")),
+      );
+      return;
+    }
+
+    try {
+      final jsonList = presetsToExport.map((e) => e.toJson()).toList();
+      final jsonString = const JsonEncoder.withIndent('  ').convert(jsonList);
+      final Uint8List bytes = Uint8List.fromList(utf8.encode(jsonString));
+
+      String? outputFile = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save Presets Backup',
+        fileName: 'tab_generator_backup.json',
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        bytes: bytes, // FIX: Required on mobile platforms
+      );
+
+      if (outputFile != null) {
+        final file = File(outputFile);
+        if (!await file.exists()) {
+          await file.writeAsString(jsonString);
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Exported ${presetsToExport.length} preset(s) successfully!")),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Export failed: $e"),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _importPresetsFromFile() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+
+      if (result == null || result.files.single.path == null) {
+        return;
+      }
+
+      final file = File(result.files.single.path!);
+      final jsonString = await file.readAsString();
+
+      if (jsonString.trim().isEmpty) {
+        throw Exception("Selected JSON file is empty.");
+      }
+
+      final List<dynamic> decodedList = jsonDecode(jsonString);
+      final List<LickPreset> importedPresets =
+          decodedList.map((e) => LickPreset.fromJson(e)).toList();
+
+      setState(() {
+        int addedCount = 0;
+        for (var preset in importedPresets) {
+          if (!_savedPresets.any((existing) => existing.id == preset.id)) {
+            _savedPresets.add(preset);
+            addedCount++;
+          }
+        }
+
+        _savedPresets.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text("Imported $addedCount new preset(s) from file.")),
+        );
+      });
+      _savePresetsToDisk();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                "Import failed. Please select a valid JSON backup file."),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
   }
 
   void _generateTab() {
@@ -475,8 +606,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
           SavedPresetsScreen(
             savedPresets: _savedPresets,
             onLoadPreset: _loadPreset,
-            onDeletePreset: (idx) => setState(() => _savedPresets.removeAt(idx)),
-            onExportAll: _exportAllPresets,
+            onDeletePreset: _deletePresetAt,
+            onExportPresets: _exportPresetsToFile,
+            onImport: _importPresetsFromFile,
           ),
         ],
       ),
