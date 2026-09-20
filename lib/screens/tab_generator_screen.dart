@@ -1,11 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_midi_pro/flutter_midi_pro.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/lick_preset.dart';
@@ -35,11 +33,10 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   bool _isLooping = false;
   bool _isFretboardVisible = true; 
   
-  // Persistent Collapsible State
   bool _isTheoryExpanded = true;
   bool _isPathwaysExpanded = false;
   bool _isFormattingExpanded = false;
-  bool _isTabExpanded = true; // NEW: Tab section collapsible state
+  bool _isTabExpanded = true; 
   
   Timer? _playbackTimer;
   final Set<int> _activeMidiNotes = {}; 
@@ -52,19 +49,22 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   int _selectedInstrumentIndex = 27;
 
   // THEORY STATE
-  String _selectedKey = "E";
-  String _selectedScale = "Harmonic Minor";
+  String _selectedKey = "C";
+  String _selectedScale = "Minor Pentatonic";
   String _selectedTuning = "Standard E";
-  int _startFret = 12;
-  String _selectedSystem = "Custom Notes-Per-String";
+  int _startFret = 10;
+  String _selectedSystem = "Box Position / CAGED";
   String _selectedFragment = "Full 6 Strings";
   int _singleStringTarget = 1;
   String _customNpsProfile = "3,4,3,4,3,3"; 
 
-  // MOTIF STATE
-  String _selectedPathway = "Straight Linear";
-  String _selectedDirection = "One-Way (Descend)";
-  String _customSequence = "1, 2, 3, 4, 5, 6, 7, 8";
+  // MOTIF & PATHWAY STATE
+  // Added BOTH Custom Motif Builder and Custom Sequence back to the dropdowns
+  String _selectedPathway = "Custom Motif Builder";
+  String _selectedDirection = "One-Way (Ascend)";
+  String _motifPairDirection = "Descend (High -> Low)";
+  String _customMotif = "L2,L1,L2,H1,H2,H1,L2,L1,L2,L1"; // The L/H syntax
+  String _customSequence = "1, 2, 3, 4, 5, 6, 7, 8";     // The integer syntax
 
   // RHYTHM STATE
   int _breakInterval = 0;
@@ -80,7 +80,14 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
 
   final List<String> _systems = ["Box Position / CAGED", "3-Note-Per-String (3NPS)", "Custom Notes-Per-String", "Single String Horizontal"];
   final List<String> _fragments = ["Full 6 Strings", "High Strings (1-3)", "Middle Strings (2-4)", "Low Strings (4-6)"];
-  final List<String> _pathways = ["Straight Linear", "3-Step Triplet", "4-Step 16th", "Note Skipping", "Custom Sequence (Indices)"];
+  final List<String> _pathways = [
+    "Straight Linear", 
+    "3-Step Triplet", 
+    "4-Step 16th", 
+    "Note Skipping", 
+    "Custom Motif Builder",      // Uses L1/H1 Pair syntax
+    "Custom Sequence (Indices)"  // Uses 1,2,3... index syntax
+  ];
   final List<String> _directions = ["Ascend -> Descend", "Descend -> Ascend", "One-Way (Ascend)", "One-Way (Descend)"];
   final List<String> _rhythms = ["Quarter", "8th", "16th"];
   final Map<String, int> _guitarSounds = {"Clean Electric": 27, "Steel Acoustic": 25, "Jazz Electric": 26, "Nylon Acoustic": 24};
@@ -149,13 +156,16 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
 
   void _saveCurrentLick() {
     if (_currentSequence.isEmpty || _generatedTab.startsWith("❌")) return;
-    String patternLabel = _selectedPathway == "Custom Sequence (Indices)" ? "Custom Seq" : _selectedPathway;
+    String patternLabel = _selectedPathway.contains("Custom") ? "Custom Pattern" : _selectedPathway;
     String presetName = "$_selectedKey $_selectedScale - $patternLabel (Fret $_startFret)";
     
+    // Save depending on which custom builder was used
+    String stringToSave = _selectedPathway == "Custom Motif Builder" ? _customMotif : _customSequence;
+
     final preset = LickPreset(
       id: DateTime.now().millisecondsSinceEpoch.toString(), name: presetName, key: _selectedKey, scale: _selectedScale,
       tuning: _selectedTuning, system: _selectedSystem, fragment: _selectedFragment, startFret: _startFret, pathway: _selectedPathway,
-      direction: _selectedDirection, motifPairDirection: _customNpsProfile, motifString: _customSequence, rhythm: _selectedRhythm,
+      direction: _selectedDirection, motifPairDirection: _motifPairDirection, motifString: stringToSave, rhythm: _selectedRhythm,
       tempo: _tempo, measuresPerLine: _measuresPerLine, breakInterval: _breakInterval, breakLength: _breakLength, endRests: _endRests,
       tabOutput: _generatedTab, createdAt: DateTime.now(),
     );
@@ -171,8 +181,14 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       String loadedDir = preset.direction;
       if (loadedDir == "One-Way") loadedDir = "One-Way (Ascend)";
       _selectedDirection = loadedDir; 
-      _customNpsProfile = preset.motifPairDirection; 
-      _customSequence = preset.motifString;
+      _motifPairDirection = preset.motifPairDirection; 
+      
+      if (_selectedPathway == "Custom Motif Builder") {
+        _customMotif = preset.motifString;
+      } else {
+        _customSequence = preset.motifString;
+      }
+
       _selectedRhythm = preset.rhythm; _tempo = preset.tempo; _measuresPerLine = preset.measuresPerLine; _breakInterval = preset.breakInterval;
       _breakLength = preset.breakLength; _endRests = preset.endRests; _generatedTab = preset.tabOutput;
     });
@@ -209,26 +225,35 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       boxDict = _engine.getScaleNotesSingleString(_selectedKey, _selectedScale, _startFret, _singleStringTarget);
     }
 
-    List<List<int>> baseNotes = _engine.flattenBoxDict(boxDict);
-    
-    if (_selectedDirection == "Descend -> Ascend" || _selectedDirection == "One-Way (Descend)") {
-      baseNotes = baseNotes.reversed.toList();
-    }
-    
     _currentSequence = [];
     int beatsPerMeasure = 4;
 
-    if (_selectedPathway == "Custom Sequence (Indices)") {
-      _currentSequence = _engine.buildCustomSequence(baseNotes, _customSequence);
+    // Routing Logic to the correct builder
+    if (_selectedPathway == "Custom Motif Builder") {
+      if (_selectedSystem == "Single String Horizontal") {
+        setState(() => _generatedTab = "⚠️ Custom Motif Builder requires at least 2 strings for pairs.");
+        return;
+      }
+      _currentSequence = _engine.buildCustomMotif(boxDict, _customMotif, _motifPairDirection);
     } else {
-      List<List<int>> patternNotes;
-      if (_selectedPathway == "3-Step Triplet") { patternNotes = _engine.apply3StepSequence(baseNotes); beatsPerMeasure = 3; }
-      else if (_selectedPathway == "4-Step 16th") patternNotes = _engine.apply4StepSequence(baseNotes);
-      else if (_selectedPathway == "Note Skipping") patternNotes = _engine.applyNoteSkipping(baseNotes);
-      else patternNotes = baseNotes;
+      List<List<int>> baseNotes = _engine.flattenBoxDict(boxDict);
+      
+      if (_selectedDirection == "Descend -> Ascend" || _selectedDirection == "One-Way (Descend)") {
+        baseNotes = baseNotes.reversed.toList();
+      }
+      
+      if (_selectedPathway == "Custom Sequence (Indices)") {
+        _currentSequence = _engine.buildCustomSequence(baseNotes, _customSequence);
+      } else {
+        List<List<int>> patternNotes;
+        if (_selectedPathway == "3-Step Triplet") { patternNotes = _engine.apply3StepSequence(baseNotes); beatsPerMeasure = 3; }
+        else if (_selectedPathway == "4-Step 16th") patternNotes = _engine.apply4StepSequence(baseNotes);
+        else if (_selectedPathway == "Note Skipping") patternNotes = _engine.applyNoteSkipping(baseNotes);
+        else patternNotes = baseNotes;
 
-      if (_selectedDirection.startsWith("One-Way")) _currentSequence = patternNotes;
-      else _currentSequence = [...patternNotes, ...patternNotes.reversed.skip(1).toList()];
+        if (_selectedDirection.startsWith("One-Way")) _currentSequence = patternNotes;
+        else _currentSequence = [...patternNotes, ...patternNotes.reversed.skip(1).toList()];
+      }
     }
 
     if (_currentSequence.isEmpty) {
@@ -368,10 +393,26 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
           children: [
             Expanded(flex: 2, child: _buildDropdown('Pathway', _selectedPathway, _pathways, (v) => setState(() { _selectedPathway = v!; _generateTab(); }))),
             const SizedBox(width: 8),
-            Expanded(flex: 2, child: _buildDropdown('Loop Direction', _selectedDirection, _directions, (v) => setState(() { _selectedDirection = v!; _generateTab(); }))),
+            Expanded(
+              flex: 2, 
+              child: _selectedPathway == "Custom Motif Builder" 
+                  ? _buildDropdown('Pair Direction', _motifPairDirection, ["Descend (High -> Low)", "Ascend (Low -> High)"], (v) => setState(() { _motifPairDirection = v!; _generateTab(); }))
+                  : _buildDropdown('Loop Direction', _selectedDirection, _directions, (v) => setState(() { _selectedDirection = v!; _generateTab(); }))
+            ),
           ],
         ),
-        if (_selectedPathway == "Custom Sequence (Indices)")
+        
+        // Conditionally render the correct input field based on the selected pathway
+        if (_selectedPathway == "Custom Motif Builder")
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: TextFormField(
+              initialValue: _customMotif,
+              decoration: const InputDecoration(labelText: "String Pair Motif (L1, H1 syntax)", hintText: "e.g., L2,L1,H1,H2", border: OutlineInputBorder(), isDense: true),
+              onChanged: (val) { _customMotif = val; _generateTab(); },
+            ),
+          )
+        else if (_selectedPathway == "Custom Sequence (Indices)")
           Padding(
             padding: const EdgeInsets.only(top: 8.0),
             child: TextFormField(
@@ -429,7 +470,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       );
     }
     return Container(
-      constraints: const BoxConstraints(maxHeight: 350), // Ensures the tab display can scroll internally if needed
+      constraints: const BoxConstraints(maxHeight: 350), 
       margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade800)),
@@ -510,7 +551,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
             ),
           ),
         const SizedBox(height: 8),
-        // Playback Bar acts as a sticky header above the scrollable sections
         PlaybackControlBar(isPlaying: _isPlaying, isMidiReady: _isMidiReady, isLooping: _isLooping, hasSequence: _currentSequence.isNotEmpty, hasSelection: _selectionStart != -1 && _selectionEnd != -1, selectionStart: _selectionStart, selectionEnd: _selectionEnd, onPlay: _playLick, onStop: _stopPlayback, onToggleLoop: () => setState(() => _isLooping = !_isLooping), onSave: _saveCurrentLick, onCopy: () => Clipboard.setData(ClipboardData(text: _generatedTab)), onClearSelection: _clearSelection),
         const SizedBox(height: 4),
         Expanded(

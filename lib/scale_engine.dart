@@ -33,7 +33,6 @@ class ScaleEngine {
     if (tunings.containsKey(tuningName)) openStrings = tunings[tuningName]!;
   }
 
-  // 1. Box Position
   Map<int, List<int>> getScaleNotesBox(String key, String scale, int startFret, List<int> targetStrings) {
     int rootPc = noteMap[key] ?? 0;
     List<int> scalePcs = (scaleFormulas[scale] ?? []).map((step) => (rootPc + step) % 12).toList();
@@ -50,12 +49,10 @@ class ScaleEngine {
     return boxDict;
   }
 
-  // 2. Strict 3NPS
   Map<int, List<int>> getScaleNotes3NPS(String key, String scale, int startFret, List<int> targetStrings) {
     return _buildAscendingNPSBox(key, scale, startFret, targetStrings, List.filled(6, 3));
   }
 
-  // 3. Custom Variable NPS (Allows 3,4,3,4,3,3 stretched diagonal runs)
   Map<int, List<int>> getScaleNotesCustomNPS(String key, String scale, int startFret, List<int> targetStrings, List<int> npsProfile) {
     return _buildAscendingNPSBox(key, scale, startFret, targetStrings, npsProfile);
   }
@@ -70,8 +67,6 @@ class ScaleEngine {
       int openMidi = openStrings[stringNum]!;
       List<int> stringFrets = [];
       int fret = (lastMinPitch != -1) ? max(0, lastMinPitch + 1 - openMidi) : startFret;
-
-      // Extract target note count for this specific string (index 0 = e string, index 5 = E string)
       int targetNotes = npsProfile.length == 6 ? npsProfile[stringNum - 1] : 3;
 
       while (stringFrets.length < targetNotes && fret < 24) {
@@ -87,7 +82,6 @@ class ScaleEngine {
     return boxDict;
   }
 
-  // 4. Single String Horizontal
   Map<int, List<int>> getScaleNotesSingleString(String key, String scale, int startFret, int targetString) {
     int rootPc = noteMap[key] ?? 0;
     List<int> scalePcs = (scaleFormulas[scale] ?? []).map((step) => (rootPc + step) % 12).toList();
@@ -100,7 +94,6 @@ class ScaleEngine {
     return {targetString: stringFrets};
   }
 
-  // Flattens box into a strict ascending 1D list
   List<List<int>> flattenBoxDict(Map<int, List<int>> boxDict) {
     List<List<int>> flatNotes = [];
     int lastPitch = -1;
@@ -118,7 +111,6 @@ class ScaleEngine {
     return flatNotes;
   }
 
-  // PATHWAYS
   List<List<int>> apply3StepSequence(List<List<int>> baseNotes) {
     List<List<int>> result = [];
     for (int i = 0; i < baseNotes.length - 2; i++) result.addAll([baseNotes[i], baseNotes[i + 1], baseNotes[i + 2]]);
@@ -137,7 +129,6 @@ class ScaleEngine {
     return result;
   }
 
-  // NEW: Absolute Sequence Indexing
   List<List<int>> buildCustomSequence(List<List<int>> baseNotes, String sequenceStr) {
     List<List<int>> result = [];
     if (baseNotes.isEmpty) return result;
@@ -145,14 +136,51 @@ class ScaleEngine {
     List<String> tokens = sequenceStr.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
     for (String token in tokens) {
       int? idx = int.tryParse(token);
-      if (idx != null) {
-        // 1-based indexing. E.g., 1 = first note, 2 = second note.
-        if (idx > 0 && idx <= baseNotes.length) {
-          result.add(baseNotes[idx - 1]);
-        }
+      if (idx != null && idx > 0 && idx <= baseNotes.length) {
+        result.add(baseNotes[idx - 1]);
       }
     }
     return result;
+  }
+
+  // RESTORED: String Pair Motif Builder (L/H logic)
+  List<List<int>> buildCustomMotif(Map<int, List<int>> boxDict, String rawMotif, String pairDirection) {
+    List<int> availableStrings = boxDict.keys.toList()..sort();
+    if (availableStrings.length < 2) return [];
+
+    List<List<int>> pairs = [];
+    if (pairDirection == "Descend (High -> Low)") { 
+      for (int i = 1; i < availableStrings.length; i++) pairs.add([availableStrings[i], availableStrings[i - 1]]);
+    } else { 
+      for (int i = availableStrings.length - 1; i > 0; i--) pairs.add([availableStrings[i], availableStrings[i - 1]]);
+    }
+
+    List<Map<String, dynamic>> tokens = [];
+    List<String> parts = rawMotif.split(',').where((p) => p.trim().isNotEmpty).toList();
+    for (String p in parts) {
+      p = p.trim().toUpperCase();
+      if (p.length < 2) continue;
+      String side = p[0];
+      int? idx = int.tryParse(p.substring(1));
+      if (idx != null && idx > 0 && (side == 'L' || side == 'H')) {
+        tokens.add({'side': side, 'idx': idx - 1});
+      }
+    }
+
+    List<List<int>> sequence = [];
+    for (var pair in pairs) {
+      int lowStr = pair[0];
+      int highStr = pair[1];
+      for (var t in tokens) {
+        int targetStr = (t['side'] == 'L') ? lowStr : highStr;
+        List<int>? frets = boxDict[targetStr];
+        if (frets != null && frets.isNotEmpty) {
+          int safeIdx = t['idx'].clamp(0, frets.length - 1);
+          sequence.add([targetStr, frets[safeIdx]]);
+        }
+      }
+    }
+    return sequence;
   }
 
   List<List<int>> applyIntervalBreaks(List<List<int>> sequence, int interval, int breakLen) {
