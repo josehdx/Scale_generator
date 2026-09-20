@@ -16,7 +16,7 @@ subprojects {
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
 
-// Inject fallback namespace and force compileSdkVersion 34 for third-party plugins
+// Inject fallback namespace and force compileSdkVersion 36 for third-party plugins
 subprojects {
     fun fixSubproject() {
         if (project.hasProperty("android")) {
@@ -25,7 +25,7 @@ subprojects {
                 if (android.namespace == null) {
                     android.namespace = project.group.toString()
                 }
-                android.compileSdkVersion(34)
+                android.compileSdkVersion(36)
             }
         }
     }

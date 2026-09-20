@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.example.tab_generator"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
