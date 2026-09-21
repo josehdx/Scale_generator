@@ -11,6 +11,9 @@ class InteractiveFretboard extends StatelessWidget {
   final int? activeFret;
   final int? previewString;
   final int? previewFret;
+  final String? previewKey;
+  final String? previewScale;
+  final String? previewTuning;
   final ScrollController? scrollController;
   final Function(String newKey, int fret) onNoteTapped;
 
@@ -25,15 +28,20 @@ class InteractiveFretboard extends StatelessWidget {
     this.activeFret,
     this.previewString,
     this.previewFret,
+    this.previewKey,
+    this.previewScale,
+    this.previewTuning,
     this.scrollController,
     required this.onNoteTapped,
   });
 
   @override
   Widget build(BuildContext context) {
-    engine.setTuning(selectedTuning);
-    List<int> scaleFormula = engine.scaleFormulas[selectedScale] ?? [];
-    int rootPitch = engine.noteMap[selectedKey] ?? 0;
+    engine.setTuning(previewTuning ?? selectedTuning);
+    String effectiveKey = previewKey ?? selectedKey;
+    String effectiveScale = previewScale ?? selectedScale;
+    List<int> scaleFormula = engine.scaleFormulas[effectiveScale] ?? [];
+    int rootPitch = engine.noteMap[effectiveKey] ?? 0;
 
     return Container(
       decoration: BoxDecoration(
@@ -78,6 +86,7 @@ class InteractiveFretboard extends StatelessWidget {
                     noteColor = Colors.redAccent;
                     textColor = Colors.white;
                   }
+
                   // Overrides for playback highlighting
                   if (isActive) {
                     noteColor = Colors.greenAccent;
@@ -123,9 +132,9 @@ class InteractiveFretboard extends StatelessWidget {
                             noteName,
                             style: TextStyle(
                               fontSize: 10,
-                              fontWeight: (isInScale || isRoot || isActive || isPreview) 
-                                ? FontWeight.bold 
-                                : FontWeight.normal,
+                              fontWeight: (isInScale || isRoot || isActive || isPreview)
+                                 ? FontWeight.bold
+                                 : FontWeight.normal,
                               color: textColor,
                             ),
                           ),
@@ -136,7 +145,6 @@ class InteractiveFretboard extends StatelessWidget {
                 }),
               );
             }),
-
             // FRET NUMBER REFERENCE ROW (0 to 24)
             Container(
               color: Colors.black45,

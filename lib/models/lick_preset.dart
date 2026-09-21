@@ -1,20 +1,20 @@
 class LickPreset {
-  final String id, name, key, scale, tuning, system, fragment, customNps, pathway, direction, motifPairDirection, motifString, rhythm, tabOutput;
+  final String id, name, key, scale, tuning, system, fragment, customNps, pathway, direction, motifString, rhythm, customRhythmString, tabOutput;
   final int startFret, tempo, measuresPerLine, breakInterval, breakLength, endRests;
   final DateTime createdAt;
 
   LickPreset({
     required this.id, required this.name, required this.key, required this.scale, required this.tuning,
     required this.system, required this.fragment, required this.customNps, required this.startFret, required this.pathway,
-    required this.direction, required this.motifPairDirection, required this.motifString,
-    required this.rhythm, required this.tempo, required this.measuresPerLine, required this.breakInterval,
+    required this.direction, required this.motifString, required this.rhythm, required this.customRhythmString,
+    required this.tempo, required this.measuresPerLine, required this.breakInterval,
     required this.breakLength, required this.endRests, required this.tabOutput, required this.createdAt
   });
 
   Map<String, dynamic> toJson() => {
     'id': id, 'name': name, 'key': key, 'scale': scale, 'tuning': tuning, 'system': system,
     'fragment': fragment, 'customNps': customNps, 'startFret': startFret, 'pathway': pathway, 'direction': direction,
-    'motifPairDirection': motifPairDirection, 'motifString': motifString, 'rhythm': rhythm,
+    'motifString': motifString, 'rhythm': rhythm, 'customRhythmString': customRhythmString,
     'tempo': tempo, 'measuresPerLine': measuresPerLine, 'breakInterval': breakInterval,
     'breakLength': breakLength, 'endRests': endRests, 'tabOutput': tabOutput, 'createdAt': createdAt.toIso8601String()
   };
@@ -31,9 +31,9 @@ class LickPreset {
     startFret: json['startFret'] ?? 5,
     pathway: json['pathway'] ?? 'Straight Linear',
     direction: json['direction'] ?? 'Ascend -> Descend',
-    motifPairDirection: json['motifPairDirection'] ?? 'Descend (High -> Low)',
     motifString: json['motifString'] ?? '',
     rhythm: json['rhythm'] ?? '16th',
+    customRhythmString: json['customRhythmString'] ?? '16,16,8',
     tempo: json['tempo'] ?? 120,
     measuresPerLine: json['measuresPerLine'] ?? 1,
     breakInterval: json['breakInterval'] ?? 0,

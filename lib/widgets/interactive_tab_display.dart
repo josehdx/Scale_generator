@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 
 class InteractiveTabDisplay extends StatefulWidget {
   final List<List<int>> sequence;
-  final String rhythmStr;
+  final int notesPerMeasure;
   final int measuresPerLine;
   final int currentPlayingIndex;
   final int selectionStart;
@@ -14,7 +14,7 @@ class InteractiveTabDisplay extends StatefulWidget {
   const InteractiveTabDisplay({
     super.key,
     required this.sequence,
-    required this.rhythmStr,
+    required this.notesPerMeasure,
     required this.measuresPerLine,
     required this.currentPlayingIndex,
     required this.selectionStart,
@@ -43,9 +43,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
   @override
   void didUpdateWidget(covariant InteractiveTabDisplay oldWidget) {
     super.didUpdateWidget(oldWidget);
-
-    int notesPerMeasure = {"Quarter": 4, "8th": 8}[widget.rhythmStr] ?? 16;
-    int notesPerSystem = notesPerMeasure * widget.measuresPerLine;
+    int notesPerSystem = widget.notesPerMeasure * widget.measuresPerLine;
     int totalSystems = (widget.sequence.length / notesPerSystem).ceil();
 
     while (_horizontalControllers.length > totalSystems) {
@@ -60,14 +58,12 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
   }
 
   void _scrollToActiveNote() {
-    int notesPerMeasure = {"Quarter": 4, "8th": 8}[widget.rhythmStr] ?? 16;
-    int notesPerSystem = notesPerMeasure * widget.measuresPerLine;
-
+    int notesPerSystem = widget.notesPerMeasure * widget.measuresPerLine;
     int sysIndex = widget.currentPlayingIndex ~/ notesPerSystem;
     int noteIndexInSys = widget.currentPlayingIndex % notesPerSystem;
 
     if (_verticalController.hasClients) {
-      double vertOffset = sysIndex * 110.0; 
+      double vertOffset = sysIndex * 110.0;
       _verticalController.animateTo(
         vertOffset,
         duration: const Duration(milliseconds: 150),
@@ -88,11 +84,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
   @override
   Widget build(BuildContext context) {
-    int notesPerMeasure = 16;
-    if (widget.rhythmStr == "Quarter") notesPerMeasure = 4;
-    else if (widget.rhythmStr == "8th") notesPerMeasure = 8;
-    
-    int notesPerSystem = notesPerMeasure * widget.measuresPerLine;
+    int notesPerSystem = widget.notesPerMeasure * widget.measuresPerLine;
     int totalSystems = (widget.sequence.length / notesPerSystem).ceil();
 
     while (_horizontalControllers.length < totalSystems) {
@@ -119,8 +111,8 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
             widget.selectionEnd != -1 &&
             noteIndex >= widget.selectionStart &&
             noteIndex <= widget.selectionEnd);
-        bool isMeasureEnd = (noteIndex + 1) % notesPerMeasure == 0;
 
+        bool isMeasureEnd = (noteIndex + 1) % widget.notesPerMeasure == 0;
         int colWidth = (targetStr != -1 && fret >= 10) ? 4 : 3;
 
         rowChildren.add(
@@ -145,13 +137,13 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                       int strNum = strIdx + 1;
                       String text = "-" * colWidth;
                       if (targetStr == strNum) text = "-$fret-";
-                      
+
                       return Text(
                         text,
                         style: TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 12,
-                          fontWeight: FontWeight.bold, 
+                          fontWeight: FontWeight.bold,
                           color: isPlaying
                               ? Colors.black
                               : (isSelected
@@ -165,8 +157,8 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
               ),
               if (isMeasureEnd)
                 Column(
-                  children: List.generate(6, (_) => const Text("|", 
-                    style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.white54))),
+                  children: List.generate(6, (_) => const Text("|",
+                      style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.white54))),
                 ),
             ],
           ),
@@ -175,11 +167,11 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
       rowChildren.add(
         Column(
-          children: List.generate(6, (_) => const Text("|", 
-            style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.white54))),
+          children: List.generate(6, (_) => const Text("|",
+              style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.white54))),
         ),
       );
-      
+
       rowChildren.add(const SizedBox(width: 48.0));
 
       systemWidgets.add(
@@ -191,13 +183,13 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
               Column(
                 children: stringLabels
                     .map((lbl) => Text("$lbl|",
-                          style: const TextStyle(
+                        style: const TextStyle(
                             fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amberAccent)))
                     .toList(),
               ),
               Expanded(
                 child: SingleChildScrollView(
-                  controller: _horizontalControllers[currentSysIndex], 
+                  controller: _horizontalControllers[currentSysIndex],
                   scrollDirection: Axis.horizontal,
                   child: Row(children: rowChildren),
                 ),
@@ -217,7 +209,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
         border: Border.all(color: Colors.grey.shade800),
       ),
       child: SingleChildScrollView(
-        controller: _verticalController, 
+        controller: _verticalController,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: systemWidgets,

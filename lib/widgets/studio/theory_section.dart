@@ -1,0 +1,111 @@
+import 'package:flutter/material.dart';
+import 'studio_components.dart';
+
+class TheorySection extends StatelessWidget {
+  final String selectedKey;
+  final List<String> availableKeys;
+  final String selectedScale;
+  final List<String> availableScales;
+  final String selectedTuning;
+  final List<String> availableTunings;
+  final String selectedSystem;
+  final List<String> availableSystems;
+  final int singleStringTarget;
+  final int startString;
+  final int endString;
+  final int startFret;
+  final TextEditingController customNpsController;
+
+  final ValueChanged<String?> onKeyChanged;
+  final ValueChanged<String?> onScaleChanged;
+  final ValueChanged<String?> onTuningChanged;
+  final ValueChanged<String?> onSystemChanged;
+  final ValueChanged<String?> onSingleStringTargetChanged;
+  final ValueChanged<String?> onStartStringChanged;
+  final ValueChanged<String?> onEndStringChanged;
+  final VoidCallback onSwapStrings;
+  final ValueChanged<String> onCustomNpsChanged;
+  final ValueChanged<int> onStartFretChanged;
+
+  const TheorySection({
+    super.key,
+    required this.selectedKey,
+    required this.availableKeys,
+    required this.selectedScale,
+    required this.availableScales,
+    required this.selectedTuning,
+    required this.availableTunings,
+    required this.selectedSystem,
+    required this.availableSystems,
+    required this.singleStringTarget,
+    required this.startString,
+    required this.endString,
+    required this.startFret,
+    required this.customNpsController,
+    required this.onKeyChanged,
+    required this.onScaleChanged,
+    required this.onTuningChanged,
+    required this.onSystemChanged,
+    required this.onSingleStringTargetChanged,
+    required this.onStartStringChanged,
+    required this.onEndStringChanged,
+    required this.onSwapStrings,
+    required this.onCustomNpsChanged,
+    required this.onStartFretChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(child: StudioDropdown(label: 'Key', value: selectedKey, items: availableKeys, onChanged: onKeyChanged)),
+            const SizedBox(width: 8),
+            Expanded(flex: 2, child: StudioDropdown(label: 'Scale', value: selectedScale, items: availableScales, onChanged: onScaleChanged)),
+            const SizedBox(width: 8),
+            Expanded(flex: 2, child: StudioDropdown(label: 'Tuning', value: selectedTuning, items: availableTunings, onChanged: onTuningChanged)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(flex: 2, child: StudioDropdown(label: 'System', value: selectedSystem, items: availableSystems, onChanged: onSystemChanged)),
+            const SizedBox(width: 8),
+            if (selectedSystem == "Single String Horizontal")
+              Expanded(
+                flex: 2,
+                child: StudioDropdown(label: 'String Target', value: singleStringTarget.toString(), items: const ["1", "2", "3", "4", "5", "6"], onChanged: onSingleStringTargetChanged),
+              )
+            else ...[
+              Expanded(child: StudioDropdown(label: 'Start Str', value: startString.toString(), items: const ["1", "2", "3", "4", "5", "6"], onChanged: onStartStringChanged)),
+              IconButton(icon: const Icon(Icons.swap_horiz, color: Colors.grey), onPressed: onSwapStrings),
+              Expanded(child: StudioDropdown(label: 'End Str', value: endString.toString(), items: const ["1", "2", "3", "4", "5", "6"], onChanged: onEndStringChanged)),
+            ],
+          ],
+        ),
+        if (selectedSystem == "Custom Notes-Per-String")
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: TextFormField(
+              controller: customNpsController,
+              decoration: const InputDecoration(labelText: "NPS Profile (e, B, G, D, A, E)", hintText: "e.g., 3, 4, 3, 4, 3, 3", border: OutlineInputBorder(), isDense: true),
+              onChanged: onCustomNpsChanged,
+            ),
+          ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Text("Start Fret: $startFret"),
+            Expanded(
+              child: Slider(
+                value: startFret.toDouble(), min: 0, max: 20, divisions: 20, label: startFret.toString(),
+                onChanged: (val) => onStartFretChanged(val.toInt()),
+              ),
+            ),
+          ],
+        )
+      ],
+    );
+  }
+}
