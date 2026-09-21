@@ -42,6 +42,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   int _playbackToken = 0;
   bool _isMidiReady = false;
   bool _isLooping = false;
+  bool _isLoadingPreset = false;
 
   bool _isFretboardVisible = true;
   bool _isTheoryExpanded = false;
@@ -359,6 +360,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   void _applyPresetState(LickPreset preset) {
+    _isLoadingPreset = true;
     setState(() {
       _selectedKey = preset.key;
       _selectedScale = preset.scale;
@@ -411,6 +413,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     });
     _changeGuitarSound(preset.instrumentIndex);
     _generateTab();
+    _isLoadingPreset = false;
   }
 
   void _loadPreset(LickPreset preset) {
@@ -548,12 +551,14 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     
     int calculatedNotesPerMeasure = _calculateNotesPerMeasure();
 
-    List<String> newAccentList = List.generate(calculatedNotesPerMeasure, (i) => i == 0 ? "1" : "0");
-    String newAccentString = newAccentList.join(",");
+    if (!_isLoadingPreset) {
+      List<String> newAccentList = List.generate(_dynamicBeatsPerMeasure, (i) => i == 0 ? "1" : "0");
+      String newAccentString = newAccentList.join(",");
 
-    if (_customAccentController.text == _lastAutoAccentString) {
-      _customAccentController.text = newAccentString;
-      _lastAutoAccentString = newAccentString;
+      if (_customAccentController.text == _lastAutoAccentString) {
+        _customAccentController.text = newAccentString;
+        _lastAutoAccentString = newAccentString;
+      }
     }
 
     setState(() {
