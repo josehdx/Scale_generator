@@ -15,6 +15,7 @@ class TheorySection extends StatelessWidget {
   final int endString;
   final int startFret;
   final TextEditingController customNpsController;
+  final TextEditingController manualTabController;
 
   final ValueChanged<String?> onKeyChanged;
   final ValueChanged<String?> onScaleChanged;
@@ -26,6 +27,7 @@ class TheorySection extends StatelessWidget {
   final VoidCallback onSwapStrings;
   final ValueChanged<String> onCustomNpsChanged;
   final ValueChanged<int> onStartFretChanged;
+  final ValueChanged<String> onManualTabChanged;
 
   const TheorySection({
     super.key,
@@ -42,6 +44,7 @@ class TheorySection extends StatelessWidget {
     required this.endString,
     required this.startFret,
     required this.customNpsController,
+    required this.manualTabController,
     required this.onKeyChanged,
     required this.onScaleChanged,
     required this.onTuningChanged,
@@ -52,6 +55,7 @@ class TheorySection extends StatelessWidget {
     required this.onSwapStrings,
     required this.onCustomNpsChanged,
     required this.onStartFretChanged,
+    required this.onManualTabChanged,
   });
 
   @override
@@ -77,7 +81,7 @@ class TheorySection extends StatelessWidget {
                 flex: 2,
                 child: StudioDropdown(label: 'String Target', value: singleStringTarget.toString(), items: const ["1", "2", "3", "4", "5", "6"], onChanged: onSingleStringTargetChanged),
               )
-            else ...[
+            else if (selectedSystem != "Manual Entry") ...[
               Expanded(child: StudioDropdown(label: 'Start Str', value: startString.toString(), items: const ["1", "2", "3", "4", "5", "6"], onChanged: onStartStringChanged)),
               IconButton(icon: const Icon(Icons.swap_horiz, color: Colors.grey), onPressed: onSwapStrings),
               Expanded(child: StudioDropdown(label: 'End Str', value: endString.toString(), items: const ["1", "2", "3", "4", "5", "6"], onChanged: onEndStringChanged)),
@@ -91,6 +95,15 @@ class TheorySection extends StatelessWidget {
               controller: customNpsController,
               decoration: const InputDecoration(labelText: "NPS Profile (e, B, G, D, A, E)", hintText: "e.g., 3, 4, 3, 4, 3, 3", border: OutlineInputBorder(), isDense: true),
               onChanged: onCustomNpsChanged,
+            ),
+          ),
+        if (selectedSystem == "Manual Entry")
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: TextFormField(
+              controller: manualTabController,
+              decoration: const InputDecoration(labelText: "Manual Sequence (String:Fret)", hintText: "e.g., 6:5, 6:8, 5:5, 5:7", border: OutlineInputBorder(), isDense: true),
+              onChanged: onManualTabChanged,
             ),
           ),
         const SizedBox(height: 8),

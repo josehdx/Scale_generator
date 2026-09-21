@@ -8,6 +8,7 @@ class FormattingSection extends StatelessWidget {
   final int measuresPerLine;
   final String currentNps;
   final TextEditingController customRhythmController;
+  final TextEditingController customAccentController;
   final String selectedInstrumentKey;
   final List<String> availableInstruments;
   final int breakInterval;
@@ -18,6 +19,7 @@ class FormattingSection extends StatelessWidget {
   final ValueChanged<int> onTempoChanged;
   final ValueChanged<int> onMeasuresChanged;
   final ValueChanged<String> onCustomRhythmChanged;
+  final ValueChanged<String> onCustomAccentChanged;
   final ValueChanged<String?> onInstrumentChanged;
   final ValueChanged<int> onBreakIntervalChanged;
   final ValueChanged<int> onBreakLengthChanged;
@@ -31,6 +33,7 @@ class FormattingSection extends StatelessWidget {
     required this.measuresPerLine,
     required this.currentNps,
     required this.customRhythmController,
+    required this.customAccentController,
     required this.selectedInstrumentKey,
     required this.availableInstruments,
     required this.breakInterval,
@@ -40,6 +43,7 @@ class FormattingSection extends StatelessWidget {
     required this.onTempoChanged,
     required this.onMeasuresChanged,
     required this.onCustomRhythmChanged,
+    required this.onCustomAccentChanged,
     required this.onInstrumentChanged,
     required this.onBreakIntervalChanged,
     required this.onBreakLengthChanged,
@@ -97,6 +101,14 @@ class FormattingSection extends StatelessWidget {
               onChanged: onCustomRhythmChanged,
             ),
           ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: TextField(
+            controller: customAccentController,
+            decoration: const InputDecoration(labelText: "Accent Pattern (1=Max Velocity, 0=Normal)", hintText: "e.g., 1,0,0,0", border: OutlineInputBorder(), isDense: true),
+            onChanged: onCustomAccentChanged,
+          ),
+        ),
         Row(
           children: [
             Expanded(
