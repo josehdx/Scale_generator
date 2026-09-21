@@ -32,7 +32,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   static const String _storageKey = 'auto_saved_lick_presets';
   final ScaleEngine _engine = ScaleEngine();
   final MidiPro _midiPro = MidiPro();
-  late PageController _pageController;
+  
   int _selectedPageIndex = 0;
 
   bool _isPlaying = false;
@@ -86,6 +86,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   String _selectedRhythmPattern = "Straight 16ths";
   final TextEditingController _customRhythmController = TextEditingController(text: "16,16,8");
   final TextEditingController _customAccentController = TextEditingController(text: "1,0,0,0");
+  String _lastAutoAccentString = "1,0,0,0";
   List<String> _parsedRhythmPattern = ["16th"];
 
   String _generatedTab = "Generating tab...";
@@ -101,7 +102,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
     _loadSoundFont();
     _loadPresetsFromDisk();
     
@@ -114,7 +114,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   @override
   void dispose() {
     _stopPlayback();
-    _pageController.dispose();
     _fretboardScrollController.dispose();
     _activeNoteNotifier.dispose();
     _customRhythmController.dispose();
@@ -401,6 +400,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       _selectedRhythmPattern = preset.rhythm;
       _customRhythmController.text = preset.customRhythmString;
       _customAccentController.text = preset.customAccentString;
+      _lastAutoAccentString = preset.customAccentString;
       _tempo = preset.tempo;
       _measuresPerLine = preset.measuresPerLine;
       _breakInterval = preset.breakInterval;
@@ -415,7 +415,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
 
   void _loadPreset(LickPreset preset) {
     _applyPresetState(preset);
-    _pageController.animateToPage(0, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+    setState(() => _selectedPageIndex = 0);
   }
 
   List<int> _parseNpsProfile(String npsStr) {
@@ -546,10 +546,20 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     _currentSequence = _engine.applyIntervalBreaks(_currentSequence, _breakInterval, _breakLength);
     for (int i = 0; i < _endRests; i++) _currentSequence.add([-1, -1]);
     
+    int calculatedNotesPerMeasure = _calculateNotesPerMeasure();
+
+    List<String> newAccentList = List.generate(calculatedNotesPerMeasure, (i) => i == 0 ? "1" : "0");
+    String newAccentString = newAccentList.join(",");
+
+    if (_customAccentController.text == _lastAutoAccentString) {
+      _customAccentController.text = newAccentString;
+      _lastAutoAccentString = newAccentString;
+    }
+
     setState(() {
       _generatedTab = _engine.renderAsciiTab(
         _currentSequence,
-        notesPerMeasure: _calculateNotesPerMeasure(),
+        notesPerMeasure: calculatedNotesPerMeasure,
         rhythmLabel: _selectedRhythmPattern,
         nps: _currentNps,
         measuresPerSystem: _measuresPerLine <= 0 ? 999 : _measuresPerLine,
@@ -666,7 +676,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         _isPreviewPlaying = false;
       });
     }
-    _midiPro.loadSoundfont(sf2Path: 'assets/guitar.sf2', instrumentIndex: _selectedInstrumentIndex);
   }
 
   Widget _buildStudioScreen() {
@@ -849,19 +858,15 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              ChoiceChip(label: const Text("Main Studio"), selected: _selectedPageIndex == 0, onSelected: (s) { if (s) { _stopPlayback(); _pageController.animateToPage(0, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut); } }),
+              ChoiceChip(label: const Text("Main Studio"), selected: _selectedPageIndex == 0, onSelected: (s) { if (s) { _stopPlayback(); setState(() => _selectedPageIndex = 0); } }),
               const SizedBox(width: 16),
-              ChoiceChip(label: const Text("Saved Presets"), selected: _selectedPageIndex == 1, onSelected: (s) { if (s) { _stopPlayback(); _pageController.animateToPage(1, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut); } }),
+              ChoiceChip(label: const Text("Saved Presets"), selected: _selectedPageIndex == 1, onSelected: (s) { if (s) { _stopPlayback(); setState(() => _selectedPageIndex = 1); } }),
             ],
           ),
         ),
       ),
-      body: PageView(
-        controller: _pageController,
-        onPageChanged: (index) {
-          _stopPlayback();
-          setState(() => _selectedPageIndex = index);
-        },
+      body: IndexedStack(
+        index: _selectedPageIndex,
         children: [
           _buildStudioScreen(),
           SavedPresetsScreen(
