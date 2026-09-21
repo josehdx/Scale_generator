@@ -16,7 +16,6 @@ class TheorySection extends StatelessWidget {
   final int startFret;
   final TextEditingController customNpsController;
   final TextEditingController manualTabController;
-
   final ValueChanged<String?> onKeyChanged;
   final ValueChanged<String?> onScaleChanged;
   final ValueChanged<String?> onTuningChanged;
@@ -64,27 +63,81 @@ class TheorySection extends StatelessWidget {
       children: [
         Row(
           children: [
-            Expanded(child: StudioDropdown(label: 'Key', value: selectedKey, items: availableKeys, onChanged: onKeyChanged)),
-            const SizedBox(width: 8),
-            Expanded(flex: 2, child: StudioDropdown(label: 'Scale', value: selectedScale, items: availableScales, onChanged: onScaleChanged)),
-            const SizedBox(width: 8),
-            Expanded(flex: 2, child: StudioDropdown(label: 'Tuning', value: selectedTuning, items: availableTunings, onChanged: onTuningChanged)),
+            Expanded(
+              flex: 3,
+              child: StudioDropdown(
+                label: 'Key',
+                value: selectedKey,
+                items: availableKeys,
+                onChanged: onKeyChanged,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              flex: 5,
+              child: StudioDropdown(
+                label: 'Scale',
+                value: selectedScale,
+                items: availableScales,
+                onChanged: onScaleChanged,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              flex: 4,
+              child: StudioDropdown(
+                label: 'Tuning',
+                value: selectedTuning,
+                items: availableTunings,
+                onChanged: onTuningChanged,
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 8),
         Row(
           children: [
-            Expanded(flex: 2, child: StudioDropdown(label: 'System', value: selectedSystem, items: availableSystems, onChanged: onSystemChanged)),
+            Expanded(
+              flex: 2,
+              child: StudioDropdown(
+                label: 'System',
+                value: selectedSystem,
+                items: availableSystems,
+                onChanged: onSystemChanged,
+              ),
+            ),
             const SizedBox(width: 8),
             if (selectedSystem == "Single String Horizontal")
               Expanded(
                 flex: 2,
-                child: StudioDropdown(label: 'String Target', value: singleStringTarget.toString(), items: const ["1", "2", "3", "4", "5", "6"], onChanged: onSingleStringTargetChanged),
+                child: StudioDropdown(
+                  label: 'String Target',
+                  value: singleStringTarget.toString(),
+                  items: const ["1", "2", "3", "4", "5", "6"],
+                  onChanged: onSingleStringTargetChanged,
+                ),
               )
             else if (selectedSystem != "Manual Entry") ...[
-              Expanded(child: StudioDropdown(label: 'Start Str', value: startString.toString(), items: const ["1", "2", "3", "4", "5", "6"], onChanged: onStartStringChanged)),
-              IconButton(icon: const Icon(Icons.swap_horiz, color: Colors.grey), onPressed: onSwapStrings),
-              Expanded(child: StudioDropdown(label: 'End Str', value: endString.toString(), items: const ["1", "2", "3", "4", "5", "6"], onChanged: onEndStringChanged)),
+              Expanded(
+                child: StudioDropdown(
+                  label: 'Start Str',
+                  value: startString.toString(),
+                  items: const ["1", "2", "3", "4", "5", "6"],
+                  onChanged: onStartStringChanged,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.swap_horiz, color: Colors.grey),
+                onPressed: onSwapStrings,
+              ),
+              Expanded(
+                child: StudioDropdown(
+                  label: 'End Str',
+                  value: endString.toString(),
+                  items: const ["1", "2", "3", "4", "5", "6"],
+                  onChanged: onEndStringChanged,
+                ),
+              ),
             ],
           ],
         ),
@@ -114,7 +167,11 @@ class TheorySection extends StatelessWidget {
             Text("Start Fret: $startFret"),
             Expanded(
               child: Slider(
-                value: startFret.toDouble(), min: 0, max: 20, divisions: 20, label: startFret.toString(),
+                value: startFret.toDouble(),
+                min: 0,
+                max: 20,
+                divisions: 20,
+                label: startFret.toString(),
                 onChanged: (val) => onStartFretChanged(val.toInt()),
               ),
             ),

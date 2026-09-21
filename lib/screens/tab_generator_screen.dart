@@ -566,8 +566,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     int calculatedNotesPerMeasure = _calculateNotesPerMeasure();
 
     List<String> newAccentList = List.generate(_dynamicBeatsPerMeasure, (i) => i == 0 ? "1" : "0");
-    String newAccentStr = newAccentList.join(",");
-    _customAccentController.text = newAccentStr;
+    _customAccentController.text = newAccentList.join(",");
 
     setState(() {
       _generatedTab = _engine.renderAsciiTab(
@@ -631,16 +630,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       endIdx = _selectionEnd.clamp(startIdx, seqToPlay.length - 1);
     }
     
-    double elapsed16ths = 0.0;
-    for (int i = 0; i < startIdx; i++) {
-      String rhythmLabel = activePattern[i % activePattern.length];
-      double subdivs = {"Quarter": 4.0, "8th": 2.0, "16th": 1.0}[rhythmLabel] ?? 1.0;
-      elapsed16ths += subdivs;
-    }
-    
     do {
-      double currentLoop16ths = elapsed16ths;
-      
       for (int i = startIdx; i <= endIdx; i++) {
         if (!mounted || _playbackToken != currentToken || (isPreview && !_isPreviewPlaying) || (!isPreview && !_isPlaying)) { 
            _stopPlayback(); 
@@ -650,8 +640,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         var note = seqToPlay[i];
         int pitch = -1;
         
-        int currentBeatIndex = (currentLoop16ths / 4.0).floor();
-        int currentVelocity = activeAccents[currentBeatIndex % activeAccents.length];
+        int currentVelocity = activeAccents[i % activeAccents.length];
         
         if (note[0] != -1) {
           pitch = activeOpenStrings[note[0]]! + note[1];
@@ -672,13 +661,10 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         
         String currentRhythm = activePattern[i % activePattern.length];
         double beatMultiplier = {"Quarter": 1.0, "8th": 0.5, "16th": 0.25}[currentRhythm] ?? 0.25;
-        double subdivs = {"Quarter": 4.0, "8th": 2.0, "16th": 1.0}[currentRhythm] ?? 1.0;
         
         int msDelay = ((60000 / tempo) * beatMultiplier).round();
         if (msDelay < 20) msDelay = 20;
         await Future.delayed(Duration(milliseconds: msDelay));
-        
-        currentLoop16ths += subdivs;
         
         if (_playbackToken != currentToken) return;
         if (pitch != -1) {

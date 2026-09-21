@@ -24,13 +24,20 @@ class StudioDropdown extends StatelessWidget {
         const SizedBox(height: 4),
         DropdownButtonFormField<String>(
           isExpanded: true,
+          icon: const Icon(Icons.arrow_drop_down, size: 20),
+          style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.w500),
           decoration: const InputDecoration(
             isDense: true,
-            contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+            contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 8),
             border: OutlineInputBorder(),
           ),
           value: value,
-          items: items.map((e) => DropdownMenuItem(value: e, child: Text(e, overflow: TextOverflow.ellipsis))).toList(),
+          items: items
+              .map((e) => DropdownMenuItem(
+                    value: e,
+                    child: Text(e, overflow: TextOverflow.ellipsis),
+                  ))
+              .toList(),
           onChanged: onChanged,
         ),
       ],
@@ -64,7 +71,7 @@ class StudioNumberField extends StatelessWidget {
           textAlign: TextAlign.center,
           decoration: const InputDecoration(
             isDense: true,
-            contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+            contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 4),
             border: OutlineInputBorder(),
           ),
           onChanged: (val) {
