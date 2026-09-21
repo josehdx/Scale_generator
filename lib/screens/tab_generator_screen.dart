@@ -34,7 +34,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   final MidiPro _midiPro = MidiPro();
   
   int _selectedPageIndex = 0;
-
   bool _isPlaying = false;
   bool _isPreviewPlaying = false;
   bool _isPreviewLooping = false;
@@ -623,7 +622,16 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       endIdx = _selectionEnd.clamp(startIdx, seqToPlay.length - 1);
     }
     
+    double elapsed16ths = 0.0;
+    for (int i = 0; i < startIdx; i++) {
+      String rhythmLabel = activePattern[i % activePattern.length];
+      double subdivs = {"Quarter": 4.0, "8th": 2.0, "16th": 1.0}[rhythmLabel] ?? 1.0;
+      elapsed16ths += subdivs;
+    }
+    
     do {
+      double currentLoop16ths = elapsed16ths;
+      
       for (int i = startIdx; i <= endIdx; i++) {
         if (!mounted || _playbackToken != currentToken || (isPreview && !_isPreviewPlaying) || (!isPreview && !_isPlaying)) { 
            _stopPlayback(); 
@@ -632,7 +640,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         
         var note = seqToPlay[i];
         int pitch = -1;
-        int currentVelocity = activeAccents[i % activeAccents.length];
+        
+        int currentBeatIndex = (currentLoop16ths / 4.0).floor();
+        int currentVelocity = activeAccents[currentBeatIndex % activeAccents.length];
         
         if (note[0] != -1) {
           pitch = activeOpenStrings[note[0]]! + note[1];
@@ -653,9 +663,13 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         
         String currentRhythm = activePattern[i % activePattern.length];
         double beatMultiplier = {"Quarter": 1.0, "8th": 0.5, "16th": 0.25}[currentRhythm] ?? 0.25;
+        double subdivs = {"Quarter": 4.0, "8th": 2.0, "16th": 1.0}[currentRhythm] ?? 1.0;
+        
         int msDelay = ((60000 / tempo) * beatMultiplier).round();
         if (msDelay < 20) msDelay = 20;
         await Future.delayed(Duration(milliseconds: msDelay));
+        
+        currentLoop16ths += subdivs;
         
         if (_playbackToken != currentToken) return;
         if (pitch != -1) {

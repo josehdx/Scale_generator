@@ -37,8 +37,31 @@ class SavedPresetsScreen extends StatefulWidget {
   State<SavedPresetsScreen> createState() => _SavedPresetsScreenState();
 }
 
-class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
+class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticKeepAliveClientMixin {
   final Set<String> _selectedIds = {};
+  final Map<String, GlobalKey> _itemKeys = {};
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void didUpdateWidget(covariant SavedPresetsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.activePreviewId != oldWidget.activePreviewId && widget.activePreviewId != null) {
+      _scrollToActivePreview();
+    }
+  }
+
+  void _scrollToActivePreview() {
+    final key = _itemKeys[widget.activePreviewId];
+    if (key != null && key.currentContext != null) {
+      Scrollable.ensureVisible(
+        key.currentContext!,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
 
   void _toggleSelection(String id) {
     setState(() {
@@ -93,7 +116,6 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
 
   void _showRenameDialog(BuildContext context, LickPreset preset) {
     TextEditingController controller = TextEditingController(text: preset.name);
-
     showDialog(
       context: context,
       builder: (context) {
@@ -129,11 +151,10 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     bool hasSelection = _selectedIds.isNotEmpty;
-
     return Column(
       children: [
-        // DYNAMIC TOP BAR
         Container(
           padding: const EdgeInsets.all(8.0),
           color: hasSelection ? Colors.blue.withOpacity(0.15) : Colors.transparent,
@@ -199,8 +220,6 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
                   ],
                 ),
         ),
-
-        // GLOBAL PLAYBACK STRIP
         if (!hasSelection && widget.savedPresets.isNotEmpty)
           Container(
             padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 16.0),
@@ -243,8 +262,6 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
               ],
             ),
           ),
-
-        // REORDERABLE LIST OF PRESETS
         Expanded(
           child: widget.savedPresets.isEmpty
               ? const Center(
@@ -257,16 +274,17 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
               : ReorderableListView.builder(
                   itemCount: widget.savedPresets.length,
                   onReorder: widget.onReorderPresets,
-                  buildDefaultDragHandles: false, 
+                  buildDefaultDragHandles: false,
                   itemBuilder: (context, index) {
                     final preset = widget.savedPresets[index];
+                    _itemKeys.putIfAbsent(preset.id, () => GlobalKey());
                     
                     bool isSelected = _selectedIds.contains(preset.id);
                     bool isActive = widget.activePreviewId == preset.id;
                     bool isPlayingThis = isActive && widget.isPreviewPlaying;
-
+                    
                     return Card(
-                      key: ValueKey(preset.id), 
+                      key: ValueKey(preset.id),
                       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
@@ -275,87 +293,89 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> {
                           width: 1.0,
                         ),
                       ),
-                      color: isSelected 
-                          ? Colors.blue.withOpacity(0.2) 
+                      color: isSelected
+                          ? Colors.blue.withOpacity(0.2)
                           : (isPlayingThis ? Colors.green.withOpacity(0.15) : (isActive ? Colors.green.withOpacity(0.05) : Colors.grey.shade900)),
-                      child: ListTile(
-                        leading: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Checkbox(
-                              value: isSelected,
-                              onChanged: (_) => _toggleSelection(preset.id),
-                            ),
-                            CircleAvatar(
-                              backgroundColor: isPlayingThis ? Colors.green : (isActive ? Colors.teal : Colors.blueAccent),
-                              child: Icon(isPlayingThis ? Icons.volume_up : (isActive ? Icons.play_arrow : Icons.music_note), color: Colors.white),
-                            ),
-                          ],
-                        ),
-                        title: Text(preset.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text("Tempo: ${preset.tempo} BPM | System: ${preset.system}\nGenerated: ${preset.createdAt.toString().split('.')[0]}"),
-                        isThreeLine: true,
-                        
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (isPlayingThis)
-                              const Padding(
-                                padding: EdgeInsets.only(right: 8.0),
-                                child: Icon(Icons.equalizer, color: Colors.greenAccent, size: 20),
+                      child: Container(
+                        key: _itemKeys[preset.id],
+                        child: ListTile(
+                          leading: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Checkbox(
+                                value: isSelected,
+                                onChanged: (_) => _toggleSelection(preset.id),
                               ),
-                            if (!hasSelection)
-                              PopupMenuButton<String>(
-                                onSelected: (value) {
-                                  if (value == 'load') widget.onLoadPreset(preset);
-                                  if (value == 'rename') _showRenameDialog(context, preset);
-                                  if (value == 'delete') widget.onDeletePresets([preset.id]);
-                                },
-                                itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                                  const PopupMenuItem<String>(
-                                    value: 'load',
-                                    child: ListTile(
-                                      leading: Icon(Icons.open_in_new, color: Colors.greenAccent),
-                                      title: Text('Load Preset'),
-                                      contentPadding: EdgeInsets.zero,
-                                    ),
-                                  ),
-                                  const PopupMenuItem<String>(
-                                    value: 'rename',
-                                    child: ListTile(
-                                      leading: Icon(Icons.edit, color: Colors.amberAccent),
-                                      title: Text('Rename'),
-                                      contentPadding: EdgeInsets.zero,
-                                    ),
-                                  ),
-                                  const PopupMenuDivider(),
-                                  const PopupMenuItem<String>(
-                                    value: 'delete',
-                                    child: ListTile(
-                                      leading: Icon(Icons.delete, color: Colors.redAccent),
-                                      title: Text('Delete'),
-                                      contentPadding: EdgeInsets.zero,
-                                    ),
-                                  ),
-                                ],
+                              CircleAvatar(
+                                backgroundColor: isPlayingThis ? Colors.green : (isActive ? Colors.teal : Colors.blueAccent),
+                                child: Icon(isPlayingThis ? Icons.volume_up : (isActive ? Icons.play_arrow : Icons.music_note), color: Colors.white),
                               ),
-                            const SizedBox(width: 8),
-                            ReorderableDragStartListener(
-                              index: index,
-                              child: const Icon(Icons.drag_handle, color: Colors.white54, size: 28),
-                            ),
-                          ],
-                        ),
-                        onTap: () {
-                          if (hasSelection) {
+                            ],
+                          ),
+                          title: Text(preset.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: Text("Tempo: ${preset.tempo} BPM | System: ${preset.system}\nGenerated: ${preset.createdAt.toString().split('.')[0]}"),
+                          isThreeLine: true,
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (isPlayingThis)
+                                const Padding(
+                                  padding: EdgeInsets.only(right: 8.0),
+                                  child: Icon(Icons.equalizer, color: Colors.greenAccent, size: 20),
+                                ),
+                              if (!hasSelection)
+                                PopupMenuButton<String>(
+                                  onSelected: (value) {
+                                    if (value == 'load') widget.onLoadPreset(preset);
+                                    if (value == 'rename') _showRenameDialog(context, preset);
+                                    if (value == 'delete') widget.onDeletePresets([preset.id]);
+                                  },
+                                  itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                                    const PopupMenuItem<String>(
+                                      value: 'load',
+                                      child: ListTile(
+                                        leading: Icon(Icons.open_in_new, color: Colors.greenAccent),
+                                        title: Text('Load Preset'),
+                                        contentPadding: EdgeInsets.zero,
+                                      ),
+                                    ),
+                                    const PopupMenuItem<String>(
+                                      value: 'rename',
+                                      child: ListTile(
+                                        leading: Icon(Icons.edit, color: Colors.amberAccent),
+                                        title: Text('Rename'),
+                                        contentPadding: EdgeInsets.zero,
+                                      ),
+                                    ),
+                                    const PopupMenuDivider(),
+                                    const PopupMenuItem<String>(
+                                      value: 'delete',
+                                      child: ListTile(
+                                        leading: Icon(Icons.delete, color: Colors.redAccent),
+                                        title: Text('Delete'),
+                                        contentPadding: EdgeInsets.zero,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              const SizedBox(width: 8),
+                              ReorderableDragStartListener(
+                                index: index,
+                                child: const Icon(Icons.drag_handle, color: Colors.white54, size: 28),
+                              ),
+                            ],
+                          ),
+                          onTap: () {
+                            if (hasSelection) {
+                              _toggleSelection(preset.id);
+                            } else {
+                              widget.onPlayPreview(preset);
+                            }
+                          },
+                          onLongPress: () {
                             _toggleSelection(preset.id);
-                          } else {
-                            widget.onPlayPreview(preset);
-                          }
-                        },
-                        onLongPress: () {
-                          _toggleSelection(preset.id);
-                        },
+                          },
+                        ),
                       ),
                     );
                   },
