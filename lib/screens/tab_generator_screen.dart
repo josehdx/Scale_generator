@@ -61,7 +61,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   int _playbackToken = 0;
   bool _isMidiReady = false;
   bool _isLooping = false;
-  bool _isLoadingPreset = false;
 
   bool _isFretboardVisible = true;
   bool _isTheoryExpanded = false;
@@ -169,13 +168,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     }
     double nps = (_tempo / 60) * maxMultiplier;
     return nps.toStringAsFixed(1);
-  }
-
-  bool _isAutoAccent(String val) {
-    final parts = val.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-    if (parts.isEmpty || parts.first != "1") return false;
-    if (parts.length == 1) return true;
-    return parts.skip(1).every((e) => e == "0");
   }
 
   List<int> _parseAccentPattern(String val) {
@@ -387,7 +379,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   void _applyPresetState(LickPreset preset) {
-    _isLoadingPreset = true;
     setState(() {
       _selectedKey = preset.key;
       _selectedScale = preset.scale;
@@ -439,7 +430,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     });
     _changeGuitarSound(preset.instrumentIndex);
     _generateTab();
-    _isLoadingPreset = false;
   }
 
   void _loadPreset(LickPreset preset) {
@@ -575,15 +565,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     
     int calculatedNotesPerMeasure = _calculateNotesPerMeasure();
 
-    if (!_isLoadingPreset) {
-      if (_isAutoAccent(_customAccentController.text)) {
-        List<String> newAccentList = List.generate(_dynamicBeatsPerMeasure, (i) => i == 0 ? "1" : "0");
-        String newAccentStr = newAccentList.join(",");
-        if (_customAccentController.text != newAccentStr) {
-          _customAccentController.text = newAccentStr;
-        }
-      }
-    }
+    List<String> newAccentList = List.generate(_dynamicBeatsPerMeasure, (i) => i == 0 ? "1" : "0");
+    String newAccentStr = newAccentList.join(",");
+    _customAccentController.text = newAccentStr;
 
     setState(() {
       _generatedTab = _engine.renderAsciiTab(
@@ -896,7 +880,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         title: const Text('Tab Generator Studio'),
         actions: [ IconButton(icon: const Icon(Icons.bookmark_add_outlined), tooltip: 'Save Lick Preset', onPressed: _saveCurrentLick) ],
