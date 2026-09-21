@@ -21,7 +21,9 @@ class StudioDropdown extends StatelessWidget {
       decoration: InputDecoration(
         labelText: label,
         isDense: true,
-        contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+        border: const OutlineInputBorder(),
       ),
       value: value,
       items: items.map((e) => DropdownMenuItem(value: e, child: Text(e, overflow: TextOverflow.ellipsis))).toList(),

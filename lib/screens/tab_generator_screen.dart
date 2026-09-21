@@ -22,6 +22,25 @@ import '../widgets/studio/formatting_section.dart';
 import '../widgets/studio/tab_output_section.dart';
 import 'saved_presets_screen.dart';
 
+class KeepAliveWrapper extends StatefulWidget {
+  final Widget child;
+  const KeepAliveWrapper({super.key, required this.child});
+
+  @override
+  State<KeepAliveWrapper> createState() => _KeepAliveWrapperState();
+}
+
+class _KeepAliveWrapperState extends State<KeepAliveWrapper> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
+}
+
 class TabGeneratorScreen extends StatefulWidget {
   const TabGeneratorScreen({super.key});
   @override
@@ -32,8 +51,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   static const String _storageKey = 'auto_saved_lick_presets';
   final ScaleEngine _engine = ScaleEngine();
   final MidiPro _midiPro = MidiPro();
-  
+  late PageController _pageController;
   int _selectedPageIndex = 0;
+
   bool _isPlaying = false;
   bool _isPreviewPlaying = false;
   bool _isPreviewLooping = false;
@@ -86,7 +106,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   String _selectedRhythmPattern = "Straight 16ths";
   final TextEditingController _customRhythmController = TextEditingController(text: "16,16,8");
   final TextEditingController _customAccentController = TextEditingController(text: "1,0,0,0");
-  String _lastAutoAccentString = "1,0,0,0";
   List<String> _parsedRhythmPattern = ["16th"];
 
   String _generatedTab = "Generating tab...";
@@ -102,6 +121,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(initialPage: _selectedPageIndex);
     _loadSoundFont();
     _loadPresetsFromDisk();
     
@@ -114,6 +134,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   @override
   void dispose() {
     _stopPlayback();
+    _pageController.dispose();
     _fretboardScrollController.dispose();
     _activeNoteNotifier.dispose();
     _customRhythmController.dispose();
@@ -148,6 +169,13 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     }
     double nps = (_tempo / 60) * maxMultiplier;
     return nps.toStringAsFixed(1);
+  }
+
+  bool _isAutoAccent(String val) {
+    final parts = val.split(',').map((e) => e.trim()).toList();
+    if (parts.isEmpty || parts.first != "1") return false;
+    if (parts.length == 1) return true;
+    return parts.skip(1).every((e) => e == "0");
   }
 
   List<int> _parseAccentPattern(String val) {
@@ -401,7 +429,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       _selectedRhythmPattern = preset.rhythm;
       _customRhythmController.text = preset.customRhythmString;
       _customAccentController.text = preset.customAccentString;
-      _lastAutoAccentString = preset.customAccentString;
       _tempo = preset.tempo;
       _measuresPerLine = preset.measuresPerLine;
       _breakInterval = preset.breakInterval;
@@ -417,13 +444,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
 
   void _loadPreset(LickPreset preset) {
     _applyPresetState(preset);
-    setState(() => _selectedPageIndex = 0);
-  }
-
-  List<int> _parseNpsProfile(String npsStr) {
-    List<int> parsed = npsStr.split(',').map((e) => int.tryParse(e.trim()) ?? 3).toList();
-    while (parsed.length < 6) parsed.add(3);
-    return parsed.take(6).toList();
+    _pageController.animateToPage(0, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
   }
 
   List<List<int>> _buildSequenceForPreset(LickPreset preset) {
@@ -455,7 +476,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     } else if (preset.system == "3-Note-Per-String (3NPS)") {
       boxDict = _engine.getScaleNotes3NPS(preset.key, preset.scale, safeStartFret, targetStrings);
     } else if (preset.system == "Custom Notes-Per-String") {
-      boxDict = _engine.getScaleNotesCustomNPS(preset.key, preset.scale, safeStartFret, targetStrings, _parseNpsProfile(preset.customNps));
+      List<int> customNpsList = preset.customNps.split(',').map((e) => int.tryParse(e.trim()) ?? 3).toList();
+      while (customNpsList.length < 6) customNpsList.add(3);
+      boxDict = _engine.getScaleNotesCustomNPS(preset.key, preset.scale, safeStartFret, targetStrings, customNpsList.take(6).toList());
     } else {
       int safeSingleTarget = (int.tryParse(preset.fragment) ?? 1).clamp(1, 6);
       boxDict = _engine.getScaleNotesSingleString(preset.key, preset.scale, safeStartFret, safeSingleTarget);
@@ -511,7 +534,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       } else if (_selectedSystem == "3-Note-Per-String (3NPS)") {
         boxDict = _engine.getScaleNotes3NPS(_selectedKey, _selectedScale, _startFret, targetStrings);
       } else if (_selectedSystem == "Custom Notes-Per-String") {
-        boxDict = _engine.getScaleNotesCustomNPS(_selectedKey, _selectedScale, _startFret, targetStrings, _parseNpsProfile(_customNpsController.text));
+        List<int> customNpsList = _customNpsController.text.split(',').map((e) => int.tryParse(e.trim()) ?? 3).toList();
+        while (customNpsList.length < 6) customNpsList.add(3);
+        boxDict = _engine.getScaleNotesCustomNPS(_selectedKey, _selectedScale, _startFret, targetStrings, customNpsList.take(6).toList());
       } else {
         boxDict = _engine.getScaleNotesSingleString(_selectedKey, _selectedScale, _startFret, _singleStringTarget);
       }
@@ -551,12 +576,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     int calculatedNotesPerMeasure = _calculateNotesPerMeasure();
 
     if (!_isLoadingPreset) {
-      List<String> newAccentList = List.generate(_dynamicBeatsPerMeasure, (i) => i == 0 ? "1" : "0");
-      String newAccentString = newAccentList.join(",");
-
-      if (_customAccentController.text == _lastAutoAccentString) {
-        _customAccentController.text = newAccentString;
-        _lastAutoAccentString = newAccentString;
+      if (_isAutoAccent(_customAccentController.text)) {
+        List<String> newAccentList = List.generate(_dynamicBeatsPerMeasure, (i) => i == 0 ? "1" : "0");
+        _customAccentController.text = newAccentList.join(",");
       }
     }
 
@@ -869,6 +891,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         title: const Text('Tab Generator Studio'),
         actions: [ IconButton(icon: const Icon(Icons.bookmark_add_outlined), tooltip: 'Save Lick Preset', onPressed: _saveCurrentLick) ],
@@ -877,17 +900,21 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              ChoiceChip(label: const Text("Main Studio"), selected: _selectedPageIndex == 0, onSelected: (s) { if (s) { _stopPlayback(); setState(() => _selectedPageIndex = 0); } }),
+              ChoiceChip(label: const Text("Main Studio"), selected: _selectedPageIndex == 0, onSelected: (s) { if (s) { _stopPlayback(); _pageController.animateToPage(0, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut); } }),
               const SizedBox(width: 16),
-              ChoiceChip(label: const Text("Saved Presets"), selected: _selectedPageIndex == 1, onSelected: (s) { if (s) { _stopPlayback(); setState(() => _selectedPageIndex = 1); } }),
+              ChoiceChip(label: const Text("Saved Presets"), selected: _selectedPageIndex == 1, onSelected: (s) { if (s) { _stopPlayback(); _pageController.animateToPage(1, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut); } }),
             ],
           ),
         ),
       ),
-      body: IndexedStack(
-        index: _selectedPageIndex,
+      body: PageView(
+        controller: _pageController,
+        onPageChanged: (index) {
+          setState(() => _selectedPageIndex = index);
+          if (index != 0 && _isPlaying) _stopPlayback(); 
+        },
         children: [
-          _buildStudioScreen(),
+          KeepAliveWrapper(child: _buildStudioScreen()),
           SavedPresetsScreen(
             savedPresets: _savedPresets,
             activePreviewId: _previewPresetId,
