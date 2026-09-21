@@ -4,6 +4,8 @@ import 'studio_components.dart';
 class FormattingSection extends StatelessWidget {
   final String selectedRhythmPattern;
   final List<String> availableRhythmPatterns;
+  final String selectedTimeSignature;
+  final List<String> availableTimeSignatures;
   final int tempo;
   final int measuresPerLine;
   final String currentNps;
@@ -16,6 +18,7 @@ class FormattingSection extends StatelessWidget {
   final int endRests;
 
   final ValueChanged<String?> onRhythmChanged;
+  final ValueChanged<String?> onTimeSignatureChanged;
   final ValueChanged<int> onTempoChanged;
   final ValueChanged<int> onMeasuresChanged;
   final ValueChanged<String> onCustomRhythmChanged;
@@ -29,6 +32,8 @@ class FormattingSection extends StatelessWidget {
     super.key,
     required this.selectedRhythmPattern,
     required this.availableRhythmPatterns,
+    required this.selectedTimeSignature,
+    required this.availableTimeSignatures,
     required this.tempo,
     required this.measuresPerLine,
     required this.currentNps,
@@ -40,6 +45,7 @@ class FormattingSection extends StatelessWidget {
     required this.breakLength,
     required this.endRests,
     required this.onRhythmChanged,
+    required this.onTimeSignatureChanged,
     required this.onTempoChanged,
     required this.onMeasuresChanged,
     required this.onCustomRhythmChanged,
@@ -59,7 +65,22 @@ class FormattingSection extends StatelessWidget {
           children: [
             Expanded(
               flex: 2,
-              child: StudioDropdown(label: 'Rhythm Pattern', value: selectedRhythmPattern, items: availableRhythmPatterns, onChanged: onRhythmChanged),
+              child: StudioDropdown(
+                label: 'Rhythm Pattern', 
+                value: selectedRhythmPattern, 
+                items: availableRhythmPatterns, 
+                onChanged: onRhythmChanged,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 2,
+              child: StudioDropdown(
+                label: 'Time Signature', 
+                value: selectedTimeSignature, 
+                items: availableTimeSignatures, 
+                onChanged: onTimeSignatureChanged,
+              ),
             ),
             const SizedBox(width: 8),
             Expanded(

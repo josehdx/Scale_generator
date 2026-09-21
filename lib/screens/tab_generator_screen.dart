@@ -96,13 +96,14 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   List<MotifToken> _motifTokens = [];
   final TextEditingController _customSequenceController = TextEditingController(text: "1, 2, 3, 4, 5, 6, 7, 8");
 
-  // RHYTHM STATE
+  // RHYTHM & FORMATTING STATE
   int _breakInterval = 0;
   int _breakLength = 4;
   int _endRests = 0;
   int _measuresPerLine = 1;
   int _tempo = 120;
   String _selectedRhythmPattern = "Straight 16ths";
+  String _selectedTimeSignature = "Auto";
   final TextEditingController _customRhythmController = TextEditingController(text: "16,16,8");
   final TextEditingController _customAccentController = TextEditingController(text: "1,0,0,0");
   List<String> _parsedRhythmPattern = ["16th"];
@@ -115,6 +116,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   final List<String> _pathways = ["Straight Linear", "3-Step Triplet", "4-Step 16th", "Note Skipping", "Custom Motif Builder", "Custom Sequence (Indices)"];
   final List<String> _directions = ["Ascend -> Descend", "Descend -> Ascend", "One-Way (Ascend)", "One-Way (Descend)"];
   final List<String> _rhythmPatterns = ["Straight 16ths", "Straight 8ths", "Gallop (8-16-16)", "Reverse Gallop (16-16-8)", "Syncopated (16-8-16)", "Custom Pattern"];
+  final List<String> _timeSignatures = ["Auto", "2/4", "3/4", "4/4", "5/4", "6/4", "7/4", "9/4", "12/4"];
   final Map<String, int> _guitarSounds = {"Clean Electric": 27, "Steel Acoustic": 25, "Jazz Electric": 26, "Nylon Acoustic": 24};
 
   @override
@@ -147,6 +149,10 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   String _getMotifString() => _motifTokens.map((t) => t.value).join(',');
 
   int get _dynamicBeatsPerMeasure {
+    if (_selectedTimeSignature != "Auto") {
+      int? parsed = int.tryParse(_selectedTimeSignature.split('/')[0]);
+      if (parsed != null && parsed > 0) return parsed;
+    }
     if (_selectedPathway == "3-Step Triplet") return 3;
     if (_selectedPathway == "Custom Motif Builder" && _selectedSystem != "Manual Entry") {
       return _motifTokens.isNotEmpty ? _motifTokens.length : 4;
@@ -368,7 +374,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       customNps: _customNpsProfile, startFret: _startFret, pathway: _selectedPathway, direction: _selectedDirection, 
       motifString: _selectedPathway == "Custom Motif Builder" ? _getMotifString() : _customSequenceController.text, 
       rhythm: _selectedRhythmPattern, customRhythmString: _customRhythmController.text, customAccentString: _customAccentController.text,
-      manualTabString: _manualTabController.text,
+      manualTabString: _manualTabController.text, timeSignature: _selectedTimeSignature,
       tempo: _tempo, measuresPerLine: _measuresPerLine, breakInterval: _breakInterval, 
       breakLength: _breakLength, endRests: _endRests, tabOutput: _generatedTab, instrumentIndex: _selectedInstrumentIndex, createdAt: DateTime.now(),
     );
@@ -389,6 +395,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       _customNpsProfile = preset.customNps;
       _customNpsController.text = preset.customNps;
       _manualTabController.text = preset.manualTabString;
+      _selectedTimeSignature = preset.timeSignature;
       
       if (preset.system == "Single String Horizontal") {
         _singleStringTarget = (int.tryParse(preset.fragment) ?? 1).clamp(1, 6);
@@ -809,6 +816,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                       onToggle: () => setState(() => _isFormattingExpanded = !_isFormattingExpanded),
                       child: FormattingSection(
                         selectedRhythmPattern: _selectedRhythmPattern, availableRhythmPatterns: _rhythmPatterns,
+                        selectedTimeSignature: _selectedTimeSignature, availableTimeSignatures: _timeSignatures,
                         tempo: _tempo, measuresPerLine: _measuresPerLine, currentNps: _currentNps,
                         customRhythmController: _customRhythmController, customAccentController: _customAccentController,
                         selectedInstrumentKey: _guitarSounds.keys.firstWhere((k) => _guitarSounds[k] == _selectedInstrumentIndex), availableInstruments: _guitarSounds.keys.toList(),
@@ -816,6 +824,12 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                         onRhythmChanged: (v) {
                           bool wasPlaying = _isPlaying;
                           setState(() => _selectedRhythmPattern = v!);
+                          _generateTab();
+                          if (wasPlaying) _playLick();
+                        },
+                        onTimeSignatureChanged: (v) {
+                          bool wasPlaying = _isPlaying;
+                          setState(() => _selectedTimeSignature = v!);
                           _generateTab();
                           if (wasPlaying) _playLick();
                         },
@@ -920,7 +934,16 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
               var idx = _savedPresets.indexWhere((p) => p.id == id);
               if (idx != -1) {
                 var o = _savedPresets[idx];
-                _savedPresets[idx] = LickPreset(id: o.id, name: name, key: o.key, scale: o.scale, tuning: o.tuning, system: o.system, fragment: o.fragment, customNps: o.customNps, startFret: o.startFret, pathway: o.pathway, direction: o.direction, motifString: o.motifString, rhythm: o.rhythm, customRhythmString: o.customRhythmString, customAccentString: o.customAccentString, manualTabString: o.manualTabString, tempo: o.tempo, measuresPerLine: o.measuresPerLine, breakInterval: o.breakInterval, breakLength: o.breakLength, endRests: o.endRests, tabOutput: o.tabOutput, instrumentIndex: o.instrumentIndex, createdAt: o.createdAt);
+                _savedPresets[idx] = LickPreset(
+                  id: o.id, name: name, key: o.key, scale: o.scale, tuning: o.tuning, 
+                  system: o.system, fragment: o.fragment, customNps: o.customNps, 
+                  startFret: o.startFret, pathway: o.pathway, direction: o.direction, 
+                  motifString: o.motifString, rhythm: o.rhythm, customRhythmString: o.customRhythmString, 
+                  customAccentString: o.customAccentString, manualTabString: o.manualTabString, 
+                  timeSignature: o.timeSignature, tempo: o.tempo, measuresPerLine: o.measuresPerLine, 
+                  breakInterval: o.breakInterval, breakLength: o.breakLength, endRests: o.endRests, 
+                  tabOutput: o.tabOutput, instrumentIndex: o.instrumentIndex, createdAt: o.createdAt
+                );
                 _savePresetsToDisk();
               }
             }),
