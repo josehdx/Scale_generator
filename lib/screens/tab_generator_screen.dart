@@ -617,10 +617,10 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         
         var note = seqToPlay[i];
         int pitch = -1;
+        int currentVelocity = activeAccents[i % activeAccents.length];
         
         if (note[0] != -1) {
           pitch = activeOpenStrings[note[0]]! + note[1];
-          int currentVelocity = activeAccents[i % activeAccents.length];
           _midiPro.playMidiNote(midi: pitch, velocity: currentVelocity);
           _activeMidiNotes.add(pitch);
         }
@@ -633,6 +633,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
           'previewKey': overrideKey,
           'previewScale': overrideScale,
           'previewTuning': overrideTuning,
+          'isAccent': currentVelocity == 127,
         };
         
         String currentRhythm = activePattern[i % activePattern.length];
@@ -690,7 +691,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
               builder: (context, noteData, child) {
                 int? actStr, actFret, prevStr, prevFret;
                 String? pKey, pScale, pTuning;
+                bool? isAccent;
                 if (noteData != null && noteData['string'] != -1) {
+                  isAccent = noteData['isAccent'];
                   if (noteData['isPreview']) {
                     prevStr = noteData['string'];
                     prevFret = noteData['fret'];
@@ -705,7 +708,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                 return InteractiveFretboard(
                   engine: _engine, selectedKey: _selectedKey, selectedScale: _selectedScale, startFret: _startFret, 
                   selectedTuning: _selectedTuning, activeString: actStr, activeFret: actFret, 
-                  previewString: prevStr, previewFret: prevFret, previewKey: pKey, previewScale: pScale, previewTuning: pTuning, scrollController: _fretboardScrollController, 
+                  previewString: prevStr, previewFret: prevFret, previewKey: pKey, previewScale: pScale, previewTuning: pTuning, 
+                  isAccent: isAccent,
+                  scrollController: _fretboardScrollController, 
                   onNoteTapped: (k, f) => setState(() { _selectedKey = k; _startFret = f; _generateTab(); })
                 );
               },
@@ -718,7 +723,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
           child: ClipRect(
             child: NotificationListener<ScrollUpdateNotification>(
               onNotification: (ScrollUpdateNotification notification) {
-                FocusManager.instance.primaryFocus?.unfocus();
+                if (notification.dragDetails != null) {
+                  FocusManager.instance.primaryFocus?.unfocus();
+                }
                 return false;
               },
               child: SingleChildScrollView(

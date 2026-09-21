@@ -14,6 +14,7 @@ class InteractiveFretboard extends StatelessWidget {
   final String? previewKey;
   final String? previewScale;
   final String? previewTuning;
+  final bool? isAccent;
   final ScrollController? scrollController;
   final Function(String newKey, int fret) onNoteTapped;
 
@@ -31,6 +32,7 @@ class InteractiveFretboard extends StatelessWidget {
     this.previewKey,
     this.previewScale,
     this.previewTuning,
+    this.isAccent,
     this.scrollController,
     required this.onNoteTapped,
   });
@@ -68,6 +70,7 @@ class InteractiveFretboard extends StatelessWidget {
                   bool isRoot = interval == 0;
                   bool isActive = (activeString == stringNum && activeFret == fretNum);
                   bool isPreview = (previewString == stringNum && previewFret == fretNum);
+                  bool isThisAccent = isAccent ?? false;
 
                   String noteName = engine.noteMap.entries
                       .firstWhere((e) => e.value == notePitch,
@@ -89,11 +92,11 @@ class InteractiveFretboard extends StatelessWidget {
 
                   // Overrides for playback highlighting
                   if (isActive) {
-                    noteColor = Colors.greenAccent;
+                    noteColor = isThisAccent ? Colors.orangeAccent : Colors.greenAccent;
                     textColor = Colors.black;
                   }
                   if (isPreview) {
-                    noteColor = Colors.purpleAccent.shade200;
+                    noteColor = isThisAccent ? Colors.pinkAccent : Colors.purpleAccent.shade200;
                     textColor = Colors.white;
                   }
 
@@ -118,7 +121,6 @@ class InteractiveFretboard extends StatelessWidget {
                         ),
                       ),
                       child: Center(
-                        // We always render the container now, no more `isInScale` check here
                         child: Container(
                           padding: const EdgeInsets.all(4),
                           decoration: BoxDecoration(
