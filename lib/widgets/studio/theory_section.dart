@@ -91,18 +91,20 @@ class TheorySection extends StatelessWidget {
         if (selectedSystem == "Custom Notes-Per-String")
           Padding(
             padding: const EdgeInsets.only(top: 8.0),
-            child: TextFormField(
+            child: StudioTextField(
+              label: "NPS Profile (e, B, G, D, A, E)",
+              hintText: "e.g., 3, 4, 3, 4, 3, 3",
               controller: customNpsController,
-              decoration: const InputDecoration(labelText: "NPS Profile (e, B, G, D, A, E)", hintText: "e.g., 3, 4, 3, 4, 3, 3", border: OutlineInputBorder(), isDense: true),
               onChanged: onCustomNpsChanged,
             ),
           ),
         if (selectedSystem == "Manual Entry")
           Padding(
             padding: const EdgeInsets.only(top: 8.0),
-            child: TextFormField(
+            child: StudioTextField(
+              label: "Manual Sequence (String:Fret)",
+              hintText: "e.g., 6:5, 6:8, 5:5, 5:7",
               controller: manualTabController,
-              decoration: const InputDecoration(labelText: "Manual Sequence (String:Fret)", hintText: "e.g., 6:5, 6:8, 5:5, 5:7", border: OutlineInputBorder(), isDense: true),
               onChanged: onManualTabChanged,
             ),
           ),

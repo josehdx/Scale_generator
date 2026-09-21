@@ -172,7 +172,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   bool _isAutoAccent(String val) {
-    final parts = val.split(',').map((e) => e.trim()).toList();
+    final parts = val.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
     if (parts.isEmpty || parts.first != "1") return false;
     if (parts.length == 1) return true;
     return parts.skip(1).every((e) => e == "0");
@@ -578,7 +578,10 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     if (!_isLoadingPreset) {
       if (_isAutoAccent(_customAccentController.text)) {
         List<String> newAccentList = List.generate(_dynamicBeatsPerMeasure, (i) => i == 0 ? "1" : "0");
-        _customAccentController.text = newAccentList.join(",");
+        String newAccentStr = newAccentList.join(",");
+        if (_customAccentController.text != newAccentStr) {
+          _customAccentController.text = newAccentStr;
+        }
       }
     }
 
@@ -725,6 +728,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         Padding(
           padding: const EdgeInsets.all(8.0),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(child: StudioDropdown(label: 'Scale', value: _selectedScale, items: _engine.scaleFormulas.keys.toList(), onChanged: (v) => setState(() { _selectedScale = v!; _generateTab(); }))),
               const SizedBox(width: 8),
@@ -779,6 +783,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                 return false;
               },
               child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
                 child: Column(
                   children: [
                     CollapsibleSection(

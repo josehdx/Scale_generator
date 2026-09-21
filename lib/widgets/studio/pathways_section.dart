@@ -137,9 +137,10 @@ class PathwaysSection extends StatelessWidget {
         else if (selectedPathway == "Custom Sequence (Indices)")
           Padding(
             padding: const EdgeInsets.only(top: 8.0),
-            child: TextField(
+            child: StudioTextField(
+              label: "Note Sequence (1-based index)",
+              hintText: "e.g., 1, 2, 3, 2, 3, 4",
               controller: customSequenceController,
-              decoration: const InputDecoration(labelText: "Note Sequence (1-based index)", hintText: "e.g., 1, 2, 3, 2, 3, 4", border: OutlineInputBorder(), isDense: true),
               onChanged: onCustomSequenceChanged,
             ),
           ),

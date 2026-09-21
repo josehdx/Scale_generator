@@ -55,6 +55,7 @@ class FormattingSection extends StatelessWidget {
     return Column(
       children: [
         Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
               flex: 2,
@@ -63,11 +64,11 @@ class FormattingSection extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               flex: 2,
-              child: StudioNumberField(label: 'Tempo\nBPM', value: tempo, onChanged: onTempoChanged),
+              child: StudioNumberField(label: 'Tempo BPM', value: tempo, onChanged: onTempoChanged),
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: StudioNumberField(label: 'Wrap\nLines', value: measuresPerLine, onChanged: onMeasuresChanged),
+              child: StudioNumberField(label: 'Lines', value: measuresPerLine, onChanged: onMeasuresChanged),
             ),
           ],
         ),
@@ -95,32 +96,35 @@ class FormattingSection extends StatelessWidget {
         if (selectedRhythmPattern == "Custom Pattern")
           Padding(
             padding: const EdgeInsets.only(bottom: 8.0),
-            child: TextField(
+            child: StudioTextField(
+              label: "Custom Rhythm Pattern",
+              hintText: "e.g. 16,16,8,4",
               controller: customRhythmController,
-              decoration: const InputDecoration(labelText: "Custom Rhythm Pattern (e.g. 16,16,8,4)", border: OutlineInputBorder(), isDense: true),
               onChanged: onCustomRhythmChanged,
             ),
           ),
         Padding(
           padding: const EdgeInsets.only(bottom: 8.0),
-          child: TextField(
+          child: StudioTextField(
+            label: "Accent Pattern (1=Max Velocity, 0=Normal)",
+            hintText: "e.g., 1,0,0,0",
             controller: customAccentController,
-            decoration: const InputDecoration(labelText: "Accent Pattern (1=Max Velocity, 0=Normal)", hintText: "e.g., 1,0,0,0", border: OutlineInputBorder(), isDense: true),
             onChanged: onCustomAccentChanged,
           ),
         ),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
               flex: 2,
               child: StudioDropdown(label: 'Guitar Sound', value: selectedInstrumentKey, items: availableInstruments, onChanged: onInstrumentChanged),
             ),
             const SizedBox(width: 8),
-            Expanded(child: StudioNumberField(label: 'Break\nInterval', value: breakInterval, onChanged: onBreakIntervalChanged)),
+            Expanded(child: StudioNumberField(label: 'Interval', value: breakInterval, onChanged: onBreakIntervalChanged)),
             const SizedBox(width: 8),
-            Expanded(child: StudioNumberField(label: 'Break\nLength', value: breakLength, onChanged: onBreakLengthChanged)),
+            Expanded(child: StudioNumberField(label: 'Length', value: breakLength, onChanged: onBreakLengthChanged)),
             const SizedBox(width: 8),
-            Expanded(child: StudioNumberField(label: 'End\nRests', value: endRests, onChanged: onEndRestsChanged)),
+            Expanded(child: StudioNumberField(label: 'Rests', value: endRests, onChanged: onEndRestsChanged)),
           ],
         ),
       ],

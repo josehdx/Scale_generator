@@ -17,6 +17,8 @@ class TabGeneratorApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         useMaterial3: true,
         brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF121212),
+        canvasColor: const Color(0xFF121212),
       ),
       home: const TabGeneratorScreen(),
     );
