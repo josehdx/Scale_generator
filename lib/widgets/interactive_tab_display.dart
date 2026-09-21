@@ -30,6 +30,7 @@ class InteractiveTabDisplay extends StatefulWidget {
 class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
   final ScrollController _verticalController = ScrollController();
   final List<ScrollController> _horizontalControllers = [];
+  final List<GlobalKey> _systemKeys = [];
 
   @override
   void dispose() {
@@ -50,6 +51,9 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
       final orphanedController = _horizontalControllers.removeLast();
       orphanedController.dispose();
     }
+    while (_systemKeys.length > totalSystems) {
+      _systemKeys.removeLast();
+    }
 
     if (widget.currentPlayingIndex != -1 &&
         widget.currentPlayingIndex != oldWidget.currentPlayingIndex) {
@@ -62,13 +66,16 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     int sysIndex = widget.currentPlayingIndex ~/ notesPerSystem;
     int noteIndexInSys = widget.currentPlayingIndex % notesPerSystem;
 
-    if (_verticalController.hasClients) {
-      double vertOffset = sysIndex * 110.0;
-      _verticalController.animateTo(
-        vertOffset,
-        duration: const Duration(milliseconds: 150),
-        curve: Curves.easeInOut,
-      );
+    if (sysIndex < _systemKeys.length) {
+      final context = _systemKeys[sysIndex].currentContext;
+      if (context != null) {
+        Scrollable.ensureVisible(
+          context,
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeInOut,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+        );
+      }
     }
 
     if (sysIndex < _horizontalControllers.length &&
@@ -89,6 +96,9 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
     while (_horizontalControllers.length < totalSystems) {
       _horizontalControllers.add(ScrollController());
+    }
+    while (_systemKeys.length < totalSystems) {
+      _systemKeys.add(GlobalKey());
     }
 
     List<String> stringLabels = ["e", "B", "G", "D", "A", "E"];
@@ -176,6 +186,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
       systemWidgets.add(
         Padding(
+          key: _systemKeys[currentSysIndex],
           padding: const EdgeInsets.only(bottom: 12.0),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,

@@ -1,6 +1,6 @@
 class LickPreset {
   final String id, name, key, scale, tuning, system, fragment, customNps, pathway, direction, motifString, rhythm, customRhythmString, customAccentString, manualTabString, tabOutput;
-  final int startFret, tempo, measuresPerLine, breakInterval, breakLength, endRests;
+  final int startFret, tempo, measuresPerLine, breakInterval, breakLength, endRests, instrumentIndex;
   final DateTime createdAt;
 
   LickPreset({
@@ -9,7 +9,7 @@ class LickPreset {
     required this.direction, required this.motifString, required this.rhythm, required this.customRhythmString, 
     required this.customAccentString, required this.manualTabString,
     required this.tempo, required this.measuresPerLine, required this.breakInterval,
-    required this.breakLength, required this.endRests, required this.tabOutput, required this.createdAt
+    required this.breakLength, required this.endRests, required this.tabOutput, required this.instrumentIndex, required this.createdAt
   });
 
   Map<String, dynamic> toJson() => {
@@ -18,7 +18,7 @@ class LickPreset {
     'motifString': motifString, 'rhythm': rhythm, 'customRhythmString': customRhythmString,
     'customAccentString': customAccentString, 'manualTabString': manualTabString,
     'tempo': tempo, 'measuresPerLine': measuresPerLine, 'breakInterval': breakInterval,
-    'breakLength': breakLength, 'endRests': endRests, 'tabOutput': tabOutput, 'createdAt': createdAt.toIso8601String()
+    'breakLength': breakLength, 'endRests': endRests, 'tabOutput': tabOutput, 'instrumentIndex': instrumentIndex, 'createdAt': createdAt.toIso8601String()
   };
 
   factory LickPreset.fromJson(Map<String, dynamic> json) => LickPreset(
@@ -44,6 +44,7 @@ class LickPreset {
     breakLength: json['breakLength'] ?? 4,
     endRests: json['endRests'] ?? 0,
     tabOutput: json['tabOutput'] ?? '',
+    instrumentIndex: json['instrumentIndex'] ?? 27,
     createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : DateTime.now(),
   );
 }

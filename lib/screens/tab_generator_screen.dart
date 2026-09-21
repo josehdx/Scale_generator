@@ -204,7 +204,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       if (pair.length == 2) {
         int? stringNum = int.tryParse(pair[0].trim());
         int? fretNum = int.tryParse(pair[1].trim());
-        if (stringNum != null && fretNum != null) {
+        if (stringNum != null && fretNum != null && stringNum >= 1 && stringNum <= 6 && fretNum >= 0) {
           result.add([stringNum, fretNum]);
         }
       } else if (p.trim().toUpperCase() == 'R') {
@@ -351,7 +351,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       rhythm: _selectedRhythmPattern, customRhythmString: _customRhythmController.text, customAccentString: _customAccentController.text,
       manualTabString: _manualTabController.text,
       tempo: _tempo, measuresPerLine: _measuresPerLine, breakInterval: _breakInterval, 
-      breakLength: _breakLength, endRests: _endRests, tabOutput: _generatedTab, createdAt: DateTime.now(),
+      breakLength: _breakLength, endRests: _endRests, tabOutput: _generatedTab, instrumentIndex: _selectedInstrumentIndex, createdAt: DateTime.now(),
     );
     
     setState(() => _savedPresets.insert(0, preset));
@@ -365,19 +365,19 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       _selectedScale = preset.scale;
       _selectedTuning = preset.tuning;
       _selectedSystem = preset.system;
-      _startFret = preset.startFret;
+      _startFret = preset.startFret.clamp(0, 24);
       _selectedPathway = preset.pathway;
       _customNpsProfile = preset.customNps;
       _customNpsController.text = preset.customNps;
       _manualTabController.text = preset.manualTabString;
       
       if (preset.system == "Single String Horizontal") {
-        _singleStringTarget = int.tryParse(preset.fragment) ?? 1;
+        _singleStringTarget = (int.tryParse(preset.fragment) ?? 1).clamp(1, 6);
       } else {
         if (preset.fragment.contains('-') && !preset.fragment.contains('Strings')) {
           var parts = preset.fragment.split('-');
-          _startString = int.tryParse(parts[0]) ?? 6;
-          _endString = int.tryParse(parts[1]) ?? 1;
+          _startString = (int.tryParse(parts[0]) ?? 6).clamp(1, 6);
+          _endString = (int.tryParse(parts[1]) ?? 1).clamp(1, 6);
         } else {
           _startString = 6; _endString = 1;
         }
@@ -407,8 +407,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       _breakLength = preset.breakLength;
       _endRests = preset.endRests;
       _generatedTab = preset.tabOutput;
+      _selectedInstrumentIndex = preset.instrumentIndex;
     });
-    setState(() {});
+    _changeGuitarSound(preset.instrumentIndex);
     _generateTab();
   }
 
@@ -417,18 +418,25 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     _pageController.animateToPage(0, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
   }
 
+  List<int> _parseNpsProfile(String npsStr) {
+    List<int> parsed = npsStr.split(',').map((e) => int.tryParse(e.trim()) ?? 3).toList();
+    while (parsed.length < 6) parsed.add(3);
+    return parsed.take(6).toList();
+  }
+
   List<List<int>> _buildSequenceForPreset(LickPreset preset) {
     _engine.setTuning(preset.tuning);
     if (preset.system == "Manual Entry") {
       return _parseManualTab(preset.manualTabString);
     }
 
+    int safeStartFret = preset.startFret.clamp(0, 24);
     int stStr = 6, enStr = 1;
     if (preset.system != "Single String Horizontal") {
       if (preset.fragment.contains('-') && !preset.fragment.contains('Strings')) {
         var parts = preset.fragment.split('-');
-        stStr = int.tryParse(parts[0]) ?? 6;
-        enStr = int.tryParse(parts[1]) ?? 1;
+        stStr = (int.tryParse(parts[0]) ?? 6).clamp(1, 6);
+        enStr = (int.tryParse(parts[1]) ?? 1).clamp(1, 6);
       }
     }
     
@@ -441,13 +449,14 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     
     Map<int, List<int>> boxDict;
     if (preset.system == "Box Position / CAGED") {
-      boxDict = _engine.getScaleNotesBox(preset.key, preset.scale, preset.startFret, targetStrings);
+      boxDict = _engine.getScaleNotesBox(preset.key, preset.scale, safeStartFret, targetStrings);
     } else if (preset.system == "3-Note-Per-String (3NPS)") {
-      boxDict = _engine.getScaleNotes3NPS(preset.key, preset.scale, preset.startFret, targetStrings);
+      boxDict = _engine.getScaleNotes3NPS(preset.key, preset.scale, safeStartFret, targetStrings);
     } else if (preset.system == "Custom Notes-Per-String") {
-      boxDict = _engine.getScaleNotesCustomNPS(preset.key, preset.scale, preset.startFret, targetStrings, preset.customNps.split(',').map((e) => int.tryParse(e.trim()) ?? 3).toList());
+      boxDict = _engine.getScaleNotesCustomNPS(preset.key, preset.scale, safeStartFret, targetStrings, _parseNpsProfile(preset.customNps));
     } else {
-      boxDict = _engine.getScaleNotesSingleString(preset.key, preset.scale, preset.startFret, 1);
+      int safeSingleTarget = (int.tryParse(preset.fragment) ?? 1).clamp(1, 6);
+      boxDict = _engine.getScaleNotesSingleString(preset.key, preset.scale, safeStartFret, safeSingleTarget);
     }
     
     List<List<int>> sequence = [];
@@ -500,7 +509,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       } else if (_selectedSystem == "3-Note-Per-String (3NPS)") {
         boxDict = _engine.getScaleNotes3NPS(_selectedKey, _selectedScale, _startFret, targetStrings);
       } else if (_selectedSystem == "Custom Notes-Per-String") {
-        boxDict = _engine.getScaleNotesCustomNPS(_selectedKey, _selectedScale, _startFret, targetStrings, _customNpsController.text.split(',').map((e) => int.tryParse(e.trim()) ?? 3).toList());
+        boxDict = _engine.getScaleNotesCustomNPS(_selectedKey, _selectedScale, _startFret, targetStrings, _parseNpsProfile(_customNpsController.text));
       } else {
         boxDict = _engine.getScaleNotesSingleString(_selectedKey, _selectedScale, _startFret, _singleStringTarget);
       }
@@ -558,7 +567,8 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     String? overrideAccentPattern, 
     String? overrideTuning, 
     String? overrideKey, 
-    String? overrideScale, 
+    String? overrideScale,
+    int? overrideInstrument,
     String? presetId
   }) async {
     if (!_isMidiReady) return;
@@ -569,6 +579,10 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     _playbackToken++;
     final int currentToken = _playbackToken;
     bool isPreview = presetId != null;
+
+    if (overrideInstrument != null && overrideInstrument != _selectedInstrumentIndex) {
+      await _midiPro.loadSoundfont(sf2Path: 'assets/guitar.sf2', instrumentIndex: overrideInstrument);
+    }
     
     setState(() {
       if (isPreview) {
@@ -651,6 +665,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         _isPreviewPlaying = false;
       });
     }
+    _midiPro.loadSoundfont(sf2Path: 'assets/guitar.sf2', instrumentIndex: _selectedInstrumentIndex);
   }
 
   Widget _buildStudioScreen() {
@@ -700,107 +715,115 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         PlaybackControlBar(isPlaying: _isPlaying, isMidiReady: _isMidiReady, isLooping: _isLooping, hasSequence: _currentSequence.isNotEmpty, hasSelection: _selectionStart != -1 && _selectionEnd != -1, selectionStart: _selectionStart, selectionEnd: _selectionEnd, onPlay: _playLick, onStop: _stopPlayback, onToggleLoop: () => setState(() => _isLooping = !_isLooping), onSave: _saveCurrentLick, onCopy: () => Clipboard.setData(ClipboardData(text: _generatedTab)), onClearSelection: _clearSelection),
         const SizedBox(height: 4),
         Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                CollapsibleSection(
-                  title: "  1. Theory & Fretboard",
-                  isExpanded: _isTheoryExpanded,
-                  onToggle: () => setState(() => _isTheoryExpanded = !_isTheoryExpanded),
-                  child: TheorySection(
-                    selectedKey: _selectedKey, availableKeys: _engine.noteMap.keys.toList(),
-                    selectedScale: _selectedScale, availableScales: _engine.scaleFormulas.keys.toList(),
-                    selectedTuning: _selectedTuning, availableTunings: _engine.tunings.keys.toList(),
-                    selectedSystem: _selectedSystem, availableSystems: _systems,
-                    singleStringTarget: _singleStringTarget, startString: _startString,
-                    endString: _endString, startFret: _startFret, customNpsController: _customNpsController,
-                    manualTabController: _manualTabController,
-                    onKeyChanged: (v) => setState(() { _selectedKey = v!; _generateTab(); }),
-                    onScaleChanged: (v) => setState(() { _selectedScale = v!; _generateTab(); }),
-                    onTuningChanged: (v) => setState(() { _selectedTuning = v!; _generateTab(); }),
-                    onSystemChanged: (v) => setState(() { _selectedSystem = v!; _generateTab(); }),
-                    onSingleStringTargetChanged: (v) => setState(() { _singleStringTarget = int.parse(v!); _generateTab(); }),
-                    onStartStringChanged: (v) => setState(() { _startString = int.parse(v!); _generateTab(); }),
-                    onEndStringChanged: (v) => setState(() { _endString = int.parse(v!); _generateTab(); }),
-                    onSwapStrings: _swapStrings,
-                    onCustomNpsChanged: (val) => _generateTab(),
-                    onStartFretChanged: (val) => setState(() { _startFret = val; _generateTab(); }),
-                    onManualTabChanged: (_) => _generateTab(),
-                  ),
+          child: ClipRect(
+            child: NotificationListener<ScrollUpdateNotification>(
+              onNotification: (ScrollUpdateNotification notification) {
+                FocusManager.instance.primaryFocus?.unfocus();
+                return false;
+              },
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    CollapsibleSection(
+                      title: "  1. Theory & Fretboard",
+                      isExpanded: _isTheoryExpanded,
+                      onToggle: () => setState(() => _isTheoryExpanded = !_isTheoryExpanded),
+                      child: TheorySection(
+                        selectedKey: _selectedKey, availableKeys: _engine.noteMap.keys.toList(),
+                        selectedScale: _selectedScale, availableScales: _engine.scaleFormulas.keys.toList(),
+                        selectedTuning: _selectedTuning, availableTunings: _engine.tunings.keys.toList(),
+                        selectedSystem: _selectedSystem, availableSystems: _systems,
+                        singleStringTarget: _singleStringTarget, startString: _startString,
+                        endString: _endString, startFret: _startFret, customNpsController: _customNpsController,
+                        manualTabController: _manualTabController,
+                        onKeyChanged: (v) => setState(() { _selectedKey = v!; _generateTab(); }),
+                        onScaleChanged: (v) => setState(() { _selectedScale = v!; _generateTab(); }),
+                        onTuningChanged: (v) => setState(() { _selectedTuning = v!; _generateTab(); }),
+                        onSystemChanged: (v) => setState(() { _selectedSystem = v!; _generateTab(); }),
+                        onSingleStringTargetChanged: (v) => setState(() { _singleStringTarget = int.parse(v!); _generateTab(); }),
+                        onStartStringChanged: (v) => setState(() { _startString = int.parse(v!); _generateTab(); }),
+                        onEndStringChanged: (v) => setState(() { _endString = int.parse(v!); _generateTab(); }),
+                        onSwapStrings: _swapStrings,
+                        onCustomNpsChanged: (val) { _customNpsProfile = val; _generateTab(); },
+                        onStartFretChanged: (val) => setState(() { _startFret = val; _generateTab(); }),
+                        onManualTabChanged: (_) => _generateTab(),
+                      ),
+                    ),
+                    CollapsibleSection(
+                      title: "  2. Pathways & Motifs",
+                      isExpanded: _isPathwaysExpanded,
+                      onToggle: () => setState(() => _isPathwaysExpanded = !_isPathwaysExpanded),
+                      child: PathwaysSection(
+                        selectedPathway: _selectedPathway, availablePathways: _pathways,
+                        selectedDirection: _selectedDirection, availableDirections: _directions,
+                        selectedSystem: _selectedSystem, motifTokens: _motifTokens, customSequenceController: _customSequenceController,
+                        onPathwayChanged: (v) => setState(() { _selectedPathway = v!; _generateTab(); }),
+                        onDirectionChanged: (v) => _onDirectionChanged(v!),
+                        onMotifAdded: (note) => setState(() { _motifTokens.add(MotifToken(UniqueKey().toString(), note)); _generateTab(); }),
+                        onMotifRemoved: (index) => setState(() { _motifTokens.removeAt(index); _generateTab(); }),
+                        onMotifReordered: (oldIndex, newIndex) => setState(() {
+                          if (oldIndex < newIndex) newIndex -= 1;
+                          final item = _motifTokens.removeAt(oldIndex);
+                          _motifTokens.insert(newIndex, item);
+                          _generateTab();
+                        }),
+                        onClearMotifs: () => setState(() { _motifTokens.clear(); _generateTab(); }),
+                        onCustomSequenceChanged: (_) => _generateTab(),
+                      ),
+                    ),
+                    CollapsibleSection(
+                      title: "  3. Formatting & Rhythm",
+                      isExpanded: _isFormattingExpanded,
+                      onToggle: () => setState(() => _isFormattingExpanded = !_isFormattingExpanded),
+                      child: FormattingSection(
+                        selectedRhythmPattern: _selectedRhythmPattern, availableRhythmPatterns: _rhythmPatterns,
+                        tempo: _tempo, measuresPerLine: _measuresPerLine, currentNps: _currentNps,
+                        customRhythmController: _customRhythmController, customAccentController: _customAccentController,
+                        selectedInstrumentKey: _guitarSounds.keys.firstWhere((k) => _guitarSounds[k] == _selectedInstrumentIndex), availableInstruments: _guitarSounds.keys.toList(),
+                        breakInterval: _breakInterval, breakLength: _breakLength, endRests: _endRests,
+                        onRhythmChanged: (v) {
+                          bool wasPlaying = _isPlaying;
+                          setState(() => _selectedRhythmPattern = v!);
+                          _generateTab();
+                          if (wasPlaying) _playLick();
+                        },
+                        onTempoChanged: (v) {
+                          bool wasPlaying = _isPlaying;
+                          setState(() => _tempo = v.clamp(40, 300));
+                          _generateTab();
+                          if (wasPlaying) _playLick();
+                        },
+                        onMeasuresChanged: (v) { setState(() => _measuresPerLine = v); _generateTab(); },
+                        onCustomRhythmChanged: (_) => _generateTab(),
+                        onCustomAccentChanged: (_) => _generateTab(),
+                        onInstrumentChanged: (v) { if (v != null) _changeGuitarSound(_guitarSounds[v]!); },
+                        onBreakIntervalChanged: (v) { setState(() => _breakInterval = v); _generateTab(); },
+                        onBreakLengthChanged: (v) { setState(() => _breakLength = v); _generateTab(); },
+                        onEndRestsChanged: (v) { setState(() => _endRests = v); _generateTab(); },
+                      ),
+                    ),
+                    CollapsibleSection(
+                      title: "  4. Generated Tab",
+                      isExpanded: _isTabExpanded,
+                      onToggle: () => setState(() => _isTabExpanded = !_isTabExpanded),
+                      child: TabOutputSection(
+                        currentSequence: _currentSequence, generatedTab: _generatedTab, autoTimeSignature: _autoTimeSignature,
+                        activeNoteNotifier: _activeNoteNotifier, notesPerMeasure: _calculateNotesPerMeasure(),
+                        rhythmStr: _parsedRhythmPattern.first, measuresPerLine: _measuresPerLine,
+                        selectionStart: _selectionStart, selectionEnd: _selectionEnd, selectedTuning: _selectedTuning,
+                        onBeatTapped: (index) => setState(() {
+                          if (_selectionStart == -1 || (_selectionStart != -1 && _selectionEnd != _selectionStart)) {
+                            _selectionStart = index; _selectionEnd = index; _tapAnchorIndex = index;
+                          } else {
+                            _selectionStart = min(_tapAnchorIndex!, index); _selectionEnd = max(_tapAnchorIndex!, index);
+                          }
+                        }),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                 ),
-                CollapsibleSection(
-                  title: "  2. Pathways & Motifs",
-                  isExpanded: _isPathwaysExpanded,
-                  onToggle: () => setState(() => _isPathwaysExpanded = !_isPathwaysExpanded),
-                  child: PathwaysSection(
-                    selectedPathway: _selectedPathway, availablePathways: _pathways,
-                    selectedDirection: _selectedDirection, availableDirections: _directions,
-                    selectedSystem: _selectedSystem, motifTokens: _motifTokens, customSequenceController: _customSequenceController,
-                    onPathwayChanged: (v) => setState(() { _selectedPathway = v!; _generateTab(); }),
-                    onDirectionChanged: (v) => _onDirectionChanged(v!),
-                    onMotifAdded: (note) => setState(() { _motifTokens.add(MotifToken(UniqueKey().toString(), note)); _generateTab(); }),
-                    onMotifRemoved: (index) => setState(() { _motifTokens.removeAt(index); _generateTab(); }),
-                    onMotifReordered: (oldIndex, newIndex) => setState(() {
-                      if (oldIndex < newIndex) newIndex -= 1;
-                      final item = _motifTokens.removeAt(oldIndex);
-                      _motifTokens.insert(newIndex, item);
-                      _generateTab();
-                    }),
-                    onClearMotifs: () => setState(() { _motifTokens.clear(); _generateTab(); }),
-                    onCustomSequenceChanged: (_) => _generateTab(),
-                  ),
-                ),
-                CollapsibleSection(
-                  title: "  3. Formatting & Rhythm",
-                  isExpanded: _isFormattingExpanded,
-                  onToggle: () => setState(() => _isFormattingExpanded = !_isFormattingExpanded),
-                  child: FormattingSection(
-                    selectedRhythmPattern: _selectedRhythmPattern, availableRhythmPatterns: _rhythmPatterns,
-                    tempo: _tempo, measuresPerLine: _measuresPerLine, currentNps: _currentNps,
-                    customRhythmController: _customRhythmController, customAccentController: _customAccentController,
-                    selectedInstrumentKey: _guitarSounds.keys.firstWhere((k) => _guitarSounds[k] == _selectedInstrumentIndex), availableInstruments: _guitarSounds.keys.toList(),
-                    breakInterval: _breakInterval, breakLength: _breakLength, endRests: _endRests,
-                    onRhythmChanged: (v) {
-                      bool wasPlaying = _isPlaying;
-                      setState(() => _selectedRhythmPattern = v!);
-                      _generateTab();
-                      if (wasPlaying) _playLick();
-                    },
-                    onTempoChanged: (v) {
-                      bool wasPlaying = _isPlaying;
-                      setState(() => _tempo = v.clamp(40, 300));
-                      _generateTab();
-                      if (wasPlaying) _playLick();
-                    },
-                    onMeasuresChanged: (v) { setState(() => _measuresPerLine = v); _generateTab(); },
-                    onCustomRhythmChanged: (_) => _generateTab(),
-                    onCustomAccentChanged: (_) => _generateTab(),
-                    onInstrumentChanged: (v) { if (v != null) _changeGuitarSound(_guitarSounds[v]!); },
-                    onBreakIntervalChanged: (v) { setState(() => _breakInterval = v); _generateTab(); },
-                    onBreakLengthChanged: (v) { setState(() => _breakLength = v); _generateTab(); },
-                    onEndRestsChanged: (v) { setState(() => _endRests = v); _generateTab(); },
-                  ),
-                ),
-                CollapsibleSection(
-                  title: "  4. Generated Tab",
-                  isExpanded: _isTabExpanded,
-                  onToggle: () => setState(() => _isTabExpanded = !_isTabExpanded),
-                  child: TabOutputSection(
-                    currentSequence: _currentSequence, generatedTab: _generatedTab, autoTimeSignature: _autoTimeSignature,
-                    activeNoteNotifier: _activeNoteNotifier, notesPerMeasure: _calculateNotesPerMeasure(),
-                    rhythmStr: _parsedRhythmPattern.first, measuresPerLine: _measuresPerLine,
-                    selectionStart: _selectionStart, selectionEnd: _selectionEnd, selectedTuning: _selectedTuning,
-                    onBeatTapped: (index) => setState(() {
-                      if (_selectionStart == -1 || (_selectionStart != -1 && _selectionEnd != _selectionStart)) {
-                        _selectionStart = index; _selectionEnd = index; _tapAnchorIndex = index;
-                      } else {
-                        _selectionStart = min(_tapAnchorIndex!, index); _selectionEnd = max(_tapAnchorIndex!, index);
-                      }
-                    }),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
+              ),
             ),
           ),
         ),
@@ -849,6 +872,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                 overrideTuning: preset.tuning,
                 overrideKey: preset.key,
                 overrideScale: preset.scale,
+                overrideInstrument: preset.instrumentIndex,
                 presetId: preset.id,
               );
             },
@@ -864,7 +888,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
               var idx = _savedPresets.indexWhere((p) => p.id == id);
               if (idx != -1) {
                 var o = _savedPresets[idx];
-                _savedPresets[idx] = LickPreset(id: o.id, name: name, key: o.key, scale: o.scale, tuning: o.tuning, system: o.system, fragment: o.fragment, customNps: o.customNps, startFret: o.startFret, pathway: o.pathway, direction: o.direction, motifString: o.motifString, rhythm: o.rhythm, customRhythmString: o.customRhythmString, customAccentString: o.customAccentString, manualTabString: o.manualTabString, tempo: o.tempo, measuresPerLine: o.measuresPerLine, breakInterval: o.breakInterval, breakLength: o.breakLength, endRests: o.endRests, tabOutput: o.tabOutput, createdAt: o.createdAt);
+                _savedPresets[idx] = LickPreset(id: o.id, name: name, key: o.key, scale: o.scale, tuning: o.tuning, system: o.system, fragment: o.fragment, customNps: o.customNps, startFret: o.startFret, pathway: o.pathway, direction: o.direction, motifString: o.motifString, rhythm: o.rhythm, customRhythmString: o.customRhythmString, customAccentString: o.customAccentString, manualTabString: o.manualTabString, tempo: o.tempo, measuresPerLine: o.measuresPerLine, breakInterval: o.breakInterval, breakLength: o.breakLength, endRests: o.endRests, tabOutput: o.tabOutput, instrumentIndex: o.instrumentIndex, createdAt: o.createdAt);
                 _savePresetsToDisk();
               }
             }),
