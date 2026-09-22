@@ -16,36 +16,50 @@ class StudioDropdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-        const SizedBox(height: 4),
-        DropdownButtonFormField<String>(
-          isExpanded: true,
-          icon: const Icon(Icons.arrow_drop_down, size: 20),
-          style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.w500),
-          decoration: const InputDecoration(
-            isDense: true,
-            contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-            border: OutlineInputBorder(),
-          ),
-          value: value,
-          items: items
-              .map((e) => DropdownMenuItem(
-                    value: e,
-                    child: Text(e, overflow: TextOverflow.ellipsis),
-                  ))
-              .toList(),
-          onChanged: onChanged,
-        ),
-      ],
+    return DropdownButtonFormField<String>(
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: label,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      ),
+      value: value,
+      items: items.map((e) => DropdownMenuItem(value: e, child: Text(e, overflow: TextOverflow.ellipsis))).toList(),
+      onChanged: onChanged,
     );
   }
 }
 
-class StudioNumberField extends StatelessWidget {
+class StudioTextField extends StatelessWidget {
+  final String label;
+  final String hintText;
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+
+  const StudioTextField({
+    super.key,
+    required this.label,
+    required this.hintText,
+    required this.controller,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hintText,
+        border: const OutlineInputBorder(),
+        isDense: true,
+      ),
+      onChanged: onChanged,
+    );
+  }
+}
+
+class StudioNumberField extends StatefulWidget {
   final String label;
   final int value;
   final ValueChanged<int> onChanged;
@@ -58,65 +72,54 @@ class StudioNumberField extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-        const SizedBox(height: 4),
-        TextFormField(
-          initialValue: value.toString(),
-          keyboardType: TextInputType.number,
-          textAlign: TextAlign.center,
-          decoration: const InputDecoration(
-            isDense: true,
-            contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-            border: OutlineInputBorder(),
-          ),
-          onChanged: (val) {
-            int? parsed = int.tryParse(val);
-            if (parsed != null && parsed >= 0) onChanged(parsed);
-          },
-        ),
-      ],
-    );
-  }
+  State<StudioNumberField> createState() => _StudioNumberFieldState();
 }
 
-class StudioTextField extends StatelessWidget {
-  final String label;
-  final String? hintText;
-  final TextEditingController controller;
-  final ValueChanged<String> onChanged;
+class _StudioNumberFieldState extends State<StudioNumberField> {
+  late TextEditingController _controller;
 
-  const StudioTextField({
-    super.key,
-    required this.label,
-    this.hintText,
-    required this.controller,
-    required this.onChanged,
-  });
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.value.toString());
+  }
+
+  @override
+  void didUpdateWidget(StudioNumberField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value) {
+      if (_controller.text != widget.value.toString()) {
+        _controller.text = widget.value.toString();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-        const SizedBox(height: 4),
-        TextField(
-          controller: controller,
-          decoration: InputDecoration(
-            hintText: hintText,
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-            border: const OutlineInputBorder(),
-          ),
-          onChanged: onChanged,
-        ),
-      ],
+    return TextFormField(
+      controller: _controller,
+      keyboardType: TextInputType.number,
+      textAlign: TextAlign.center,
+      decoration: InputDecoration(
+        labelText: widget.label,
+        labelStyle: const TextStyle(fontSize: 11, height: 1.1),
+        floatingLabelAlignment: FloatingLabelAlignment.center,
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        alignLabelWithHint: true,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        border: const OutlineInputBorder(),
+      ),
+      onChanged: (val) {
+        int? parsed = int.tryParse(val);
+        if (parsed != null && parsed >= 0) widget.onChanged(parsed);
+      },
     );
   }
 }

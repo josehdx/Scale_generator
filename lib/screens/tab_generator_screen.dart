@@ -49,6 +49,7 @@ class TabGeneratorScreen extends StatefulWidget {
 
 class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   static const String _storageKey = 'auto_saved_lick_presets';
+  static const String _sessionKey = 'last_session_state';
   final ScaleEngine _engine = ScaleEngine();
   final MidiPro _midiPro = MidiPro();
   late PageController _pageController;
@@ -134,7 +135,8 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     "L2,L1,L2,H1,H2,H1,L2,L1,L2,L1".split(',').forEach((t) {
       _motifTokens.add(MotifToken(UniqueKey().toString(), t));
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) => _generateTab());
+    
+    _loadSessionFromDisk();
   }
 
   @override
@@ -159,14 +161,13 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       if (parsed != null && parsed > 0) return parsed;
     }
     
-    // ISOLATE MANUAL ENTRY: Do not calculate dynamic time signatures based on manual tab length.
     if (_selectedSystem == "Manual Entry") return 4;
     
     if (_selectedPathway == "3-Step Triplet") return 3;
-    if (_selectedPathway == "Custom Motif Builder") {
+    if (_selectedPathway == "Custom Motif Builder" && _selectedSystem != "Manual Entry") {
       return _motifTokens.isNotEmpty ? _motifTokens.length : 4;
     }
-    if (_selectedPathway == "Custom Sequence (Indices)") {
+    if (_selectedPathway == "Custom Sequence (Indices)" && _selectedSystem != "Manual Entry") {
       int count = _customSequenceController.text.split(',').where((e) => e.trim().isNotEmpty).length;
       return count > 0 ? count : 4;
     }
@@ -448,6 +449,32 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     });
   }
 
+  Future<void> _loadSessionFromDisk() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? jsonString = prefs.getString(_sessionKey);
+      if (jsonString != null && jsonString.isNotEmpty) {
+        final preset = LickPreset.fromJson(jsonDecode(jsonString));
+        _applyPresetState(preset);
+        return;
+      }
+    } catch (e) {
+      debugPrint("Session Read Error: $e");
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _generateTab());
+  }
+
+  Future<void> _saveSessionToDisk() async {
+    if (_currentSequence.isEmpty) return;
+    try {
+      final preset = _buildCurrentStateAsPreset('session', 'session');
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_sessionKey, jsonEncode(preset.toJson()));
+    } catch (e) {
+      debugPrint("Session Write Error: $e");
+    }
+  }
+
   Future<void> _loadPresetsFromDisk() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -528,13 +555,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     setState(() { _selectionStart = -1; _selectionEnd = -1; _tapAnchorIndex = null; });
   }
 
-  void _saveCurrentLick() {
-    if (_currentSequence.isEmpty || _generatedTab.startsWith(" ")) return;
-    String patternLabel = _selectedSystem == "Manual Entry" ? "Manual Entry" : (_selectedPathway.contains("Custom") ? "Custom Pattern" : _selectedPathway);
-    String presetName = "$_selectedKey $_selectedScale - $patternLabel (Fret $_startFret)";
-    
-    final preset = LickPreset(
-      id: DateTime.now().millisecondsSinceEpoch.toString(), name: presetName, key: _selectedKey, scale: _selectedScale,
+  LickPreset _buildCurrentStateAsPreset(String id, String name) {
+    return LickPreset(
+      id: id, name: name, key: _selectedKey, scale: _selectedScale,
       tuning: _selectedTuning, system: _selectedSystem, 
       fragment: _selectedSystem == "Single String Horizontal" ? _singleStringTarget.toString() : "$_startString-$_endString", 
       customNps: _customNpsProfile, startFret: _startFret, pathway: _selectedPathway, direction: _selectedDirection, 
@@ -544,7 +567,45 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       tempo: _tempo, measuresPerLine: _measuresPerLine, breakInterval: _breakInterval, 
       breakLength: _breakLength, endRests: _endRests, tabOutput: _generatedTab, instrumentIndex: _selectedInstrumentIndex, createdAt: DateTime.now(),
     );
+  }
+
+  void _saveCurrentLick() {
+    if (_currentSequence.isEmpty || _generatedTab.startsWith(" ")) return;
     
+    if (_selectedSystem == "Manual Entry") {
+      TextEditingController nameController = TextEditingController();
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text("Save Manual Tab"),
+          content: TextField(
+            controller: nameController,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: "Preset Name", border: OutlineInputBorder()),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel", style: TextStyle(color: Colors.grey))),
+            ElevatedButton(
+              onPressed: () {
+                if (nameController.text.trim().isNotEmpty) {
+                  Navigator.pop(context);
+                  _executeSave(nameController.text.trim());
+                }
+              },
+              child: const Text("Save"),
+            ),
+          ],
+        ),
+      );
+    } else {
+      String patternLabel = _selectedPathway.contains("Custom") ? "Custom Pattern" : _selectedPathway;
+      String presetName = "$_selectedKey $_selectedScale - $patternLabel (Fret $_startFret)";
+      _executeSave(presetName);
+    }
+  }
+
+  void _executeSave(String presetName) {
+    final preset = _buildCurrentStateAsPreset(DateTime.now().millisecondsSinceEpoch.toString(), presetName);
     setState(() => _savedPresets.insert(0, preset));
     _savePresetsToDisk();
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Saved Preset: '$presetName'")));
@@ -770,6 +831,8 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         tempo: _tempo,
       );
     });
+    
+    _saveSessionToDisk();
   }
 
   void _playLick({
@@ -806,10 +869,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       }
     });
 
-    // WARMUP THE AUDIO ENGINE
-    // Fire a silent MIDI note before starting the rhythm loop.
-    // This forces the synthesizer to spin up its audio thread now,
-    // preventing latency from stacking the first two notes of the sequence out of time.
     _midiPro.playMidiNote(midi: 12, velocity: 1);
     await Future.delayed(const Duration(milliseconds: 150));
     _midiPro.stopMidiNote(midi: 12);
@@ -839,8 +898,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         var note = seqToPlay[i];
         int pitch = -1;
         
-        // ACCENT FIX: Accents map 1:1 to the event indices of the note sequence.
-        // If your sequence is 10 notes, and your accent pattern is 10 items, they map perfectly.
         int currentVelocity = activeAccents[i % activeAccents.length];
         
         if (note[0] != -1) {
