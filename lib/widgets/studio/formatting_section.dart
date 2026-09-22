@@ -64,7 +64,7 @@ class FormattingSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
-              flex: 2,
+              flex: 4,
               child: StudioDropdown(
                 label: 'Rhythm Pattern', 
                 value: selectedRhythmPattern, 
@@ -74,7 +74,7 @@ class FormattingSection extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Expanded(
-              flex: 2,
+              flex: 3,
               child: StudioDropdown(
                 label: 'Time Signature', 
                 value: selectedTimeSignature, 
@@ -84,12 +84,23 @@ class FormattingSection extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Expanded(
-              flex: 2,
-              child: StudioNumberField(label: 'Tempo BPM', value: tempo, onChanged: onTempoChanged),
+              flex: 5,
+              child: StudioStepperField(
+                label: 'Tempo BPM', 
+                value: tempo, 
+                min: 40,
+                max: 300,
+                onChanged: onTempoChanged
+              ),
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: StudioNumberField(label: 'Lines', value: measuresPerLine, onChanged: onMeasuresChanged),
+              flex: 3,
+              child: StudioNumberField(
+                label: 'Bars/Row', 
+                value: measuresPerLine, 
+                onChanged: onMeasuresChanged
+              ),
             ),
           ],
         ),

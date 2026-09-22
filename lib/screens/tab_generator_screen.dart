@@ -556,6 +556,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
 
   void _clearSelection() {
     setState(() { _selectionStart = -1; _selectionEnd = -1; _tapAnchorIndex = null; });
+    if (_endRests > 0) {
+      _generateTab();
+    }
   }
 
   LickPreset _buildCurrentStateAsPreset(String id, String name) {
@@ -809,7 +812,17 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     }
     
     _currentSequence = _engine.applyIntervalBreaks(_currentSequence, _breakInterval, _breakLength);
-    for (int i = 0; i < _endRests; i++) _currentSequence.add([-1, -1]);
+    
+    // Dynamic Rests logic
+    bool hasMultipleSelection = _selectionStart != -1 && _selectionEnd != -1 && _selectionStart != _selectionEnd;
+    if (hasMultipleSelection && _endRests > 0) {
+      int insertIndex = max(_selectionStart, _selectionEnd) + 1;
+      insertIndex = insertIndex.clamp(0, _currentSequence.length);
+      List<List<int>> restsToInsert = List.generate(_endRests, (_) => [-1, -1]);
+      _currentSequence.insertAll(insertIndex, restsToInsert);
+    } else {
+      for (int i = 0; i < _endRests; i++) _currentSequence.add([-1, -1]);
+    }
     
     int calculatedNotesPerMeasure = _calculateNotesPerMeasure();
     if (_isAutoAccent(_customAccentController.text)) {
@@ -1037,15 +1050,19 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                         onKeyChanged: (v) => setState(() { _selectedKey = v!; _generateTab(); }),
                         onScaleChanged: (v) => setState(() { _selectedScale = v!; _generateTab(); }),
                         onTuningChanged: (v) => setState(() { _selectedTuning = v!; _generateTab(); }),
-                        onSystemChanged: (v) => setState(() { 
-                           _selectedSystem = v!; 
-                           if (_selectedSystem == "Manual Entry") {
-                            _isFretboardVisible = true;
-                            _isTabExpanded = true;
-                          }
-                          _clearSelection(); 
-                           _generateTab(); 
-                         }),
+                        onSystemChanged: (v) {
+                          setState(() { 
+                             _selectedSystem = v!; 
+                             if (_selectedSystem == "Manual Entry") {
+                              _isFretboardVisible = true;
+                              _isTabExpanded = true;
+                            }
+                            _selectionStart = -1;
+                            _selectionEnd = -1;
+                            _tapAnchorIndex = null;
+                          });
+                          _generateTab(); 
+                        },
                         onSingleStringTargetChanged: (v) => setState(() { _singleStringTarget = int.parse(v!); _generateTab(); }),
                         onStartStringChanged: (v) => setState(() { _startString = int.parse(v!); _generateTab(); }),
                         onEndStringChanged: (v) => setState(() { _endString = int.parse(v!); _generateTab(); }),
@@ -1124,13 +1141,21 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                         activeNoteNotifier: _activeNoteNotifier, notesPerMeasure: _calculateNotesPerMeasure(),
                         rhythmStr: _parsedRhythmPattern.first, measuresPerLine: _measuresPerLine,
                         selectionStart: _selectionStart, selectionEnd: _selectionEnd, selectedTuning: _selectedTuning,
-                        onBeatTapped: (index) => setState(() {
-                          if (_selectionStart == -1 || (_selectionStart != -1 && _selectionEnd != _selectionStart)) {
-                            _selectionStart = index; _selectionEnd = index; _tapAnchorIndex = index;
-                          } else {
-                            _selectionStart = min(_tapAnchorIndex!, index); _selectionEnd = max(_tapAnchorIndex!, index);
+                        onBeatTapped: (index) {
+                          setState(() {
+                            if (_selectionStart == -1 || (_selectionStart != -1 && _selectionEnd != _selectionStart)) {
+                              _selectionStart = index; 
+                              _selectionEnd = index; 
+                              _tapAnchorIndex = index;
+                            } else {
+                              _selectionStart = min(_tapAnchorIndex!, index); 
+                              _selectionEnd = max(_tapAnchorIndex!, index);
+                            }
+                          });
+                          if (_endRests > 0) {
+                            _generateTab();
                           }
-                        }),
+                        },
                       ),
                     ),
                     const SizedBox(height: 16),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 class StudioDropdown extends StatelessWidget {
@@ -77,17 +78,27 @@ class StudioNumberField extends StatefulWidget {
 
 class _StudioNumberFieldState extends State<StudioNumberField> {
   late TextEditingController _controller;
+  late FocusNode _focusNode;
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.value.toString());
+    _focusNode = FocusNode();
+    
+    // Defer state update until user is completely done typing
+    _focusNode.addListener(() {
+      if (!_focusNode.hasFocus) {
+        _commitValue();
+      }
+    });
   }
 
   @override
   void didUpdateWidget(StudioNumberField oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.value != widget.value) {
+    // Don't override text if the user is actively typing in it
+    if (oldWidget.value != widget.value && !_focusNode.hasFocus) {
       if (_controller.text != widget.value.toString()) {
         _controller.text = widget.value.toString();
       }
@@ -97,13 +108,26 @@ class _StudioNumberFieldState extends State<StudioNumberField> {
   @override
   void dispose() {
     _controller.dispose();
+    _focusNode.dispose();
     super.dispose();
+  }
+
+  void _commitValue() {
+    int? parsed = int.tryParse(_controller.text);
+    if (parsed != null && parsed >= 0) {
+      if (parsed != widget.value) {
+        widget.onChanged(parsed);
+      }
+    } else {
+      _controller.text = widget.value.toString();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return TextFormField(
       controller: _controller,
+      focusNode: _focusNode,
       keyboardType: TextInputType.number,
       textAlign: TextAlign.center,
       decoration: InputDecoration(
@@ -116,10 +140,146 @@ class _StudioNumberFieldState extends State<StudioNumberField> {
         contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
         border: const OutlineInputBorder(),
       ),
-      onChanged: (val) {
-        int? parsed = int.tryParse(val);
-        if (parsed != null && parsed >= 0) widget.onChanged(parsed);
-      },
+      onFieldSubmitted: (_) => _commitValue(),
+    );
+  }
+}
+
+class StudioStepperField extends StatefulWidget {
+  final String label;
+  final int value;
+  final int min;
+  final int max;
+  final ValueChanged<int> onChanged;
+
+  const StudioStepperField({
+    super.key,
+    required this.label,
+    required this.value,
+    this.min = 0,
+    this.max = 999,
+    required this.onChanged,
+  });
+
+  @override
+  State<StudioStepperField> createState() => _StudioStepperFieldState();
+}
+
+class _StudioStepperFieldState extends State<StudioStepperField> {
+  late TextEditingController _controller;
+  late FocusNode _focusNode;
+  Timer? _repeatTimer;
+  Timer? _delayTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.value.toString());
+    _focusNode = FocusNode();
+    
+    _focusNode.addListener(() {
+      if (!_focusNode.hasFocus) {
+        _commitValue();
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(StudioStepperField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value && !_focusNode.hasFocus) {
+      _controller.text = widget.value.toString();
+    }
+  }
+
+  @override
+  void dispose() {
+    _delayTimer?.cancel();
+    _repeatTimer?.cancel();
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _commitValue() {
+    int? parsed = int.tryParse(_controller.text);
+    if (parsed != null) {
+      int clamped = parsed.clamp(widget.min, widget.max);
+      _controller.text = clamped.toString();
+      if (clamped != widget.value) {
+        widget.onChanged(clamped);
+      }
+    } else {
+      _controller.text = widget.value.toString();
+    }
+  }
+
+  void _updateValue(int delta) {
+    int current = int.tryParse(_controller.text) ?? widget.value;
+    int next = (current + delta).clamp(widget.min, widget.max);
+    if (next != current || current != widget.value) {
+      _controller.text = next.toString();
+      widget.onChanged(next);
+    }
+  }
+
+  void _startHold(int delta) {
+    // Forcefully remove focus from the text field to prevent keyboard popups during icon tap/hold
+    FocusManager.instance.primaryFocus?.unfocus(); 
+    
+    _updateValue(delta); 
+    
+    // Add a natural 400ms delay before beginning the high-speed continuous scroll
+    _delayTimer = Timer(const Duration(milliseconds: 400), () {
+      _repeatTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+        _updateValue(delta * 5);
+      });
+    });
+  }
+
+  void _stopHold() {
+    _delayTimer?.cancel();
+    _repeatTimer?.cancel();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: _controller,
+      focusNode: _focusNode,
+      keyboardType: TextInputType.number,
+      textAlign: TextAlign.center,
+      decoration: InputDecoration(
+        labelText: widget.label,
+        labelStyle: const TextStyle(fontSize: 11, height: 1.1),
+        floatingLabelAlignment: FloatingLabelAlignment.center,
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        alignLabelWithHint: true,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 0),
+        border: const OutlineInputBorder(),
+        prefixIcon: ExcludeFocus(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (_) => _startHold(-1),
+            onTapUp: (_) => _stopHold(),
+            onTapCancel: () => _stopHold(),
+            child: const Icon(Icons.arrow_drop_down, size: 24),
+          ),
+        ),
+        suffixIcon: ExcludeFocus(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (_) => _startHold(1),
+            onTapUp: (_) => _stopHold(),
+            onTapCancel: () => _stopHold(),
+            child: const Icon(Icons.arrow_drop_up, size: 24),
+          ),
+        ),
+        prefixIconConstraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+        suffixIconConstraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+      ),
+      onFieldSubmitted: (_) => _commitValue(),
     );
   }
 }
