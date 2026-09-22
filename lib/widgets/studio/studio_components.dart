@@ -224,12 +224,11 @@ class _StudioStepperFieldState extends State<StudioStepperField> {
   }
 
   void _startHold(int delta) {
-    // Forcefully remove focus from the text field to prevent keyboard popups during icon tap/hold
+    // Drop focus from text input safely
     FocusManager.instance.primaryFocus?.unfocus(); 
     
     _updateValue(delta); 
     
-    // Add a natural 400ms delay before beginning the high-speed continuous scroll
     _delayTimer = Timer(const Duration(milliseconds: 400), () {
       _repeatTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
         _updateValue(delta * 5);
@@ -244,42 +243,75 @@ class _StudioStepperFieldState extends State<StudioStepperField> {
 
   @override
   Widget build(BuildContext context) {
-    return TextFormField(
-      controller: _controller,
-      focusNode: _focusNode,
-      keyboardType: TextInputType.number,
-      textAlign: TextAlign.center,
-      decoration: InputDecoration(
-        labelText: widget.label,
-        labelStyle: const TextStyle(fontSize: 11, height: 1.1),
-        floatingLabelAlignment: FloatingLabelAlignment.center,
-        floatingLabelBehavior: FloatingLabelBehavior.always,
-        alignLabelWithHint: true,
-        isDense: true,
-        contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 0),
-        border: const OutlineInputBorder(),
-        prefixIcon: ExcludeFocus(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTapDown: (_) => _startHold(-1),
-            onTapUp: (_) => _stopHold(),
-            onTapCancel: () => _stopHold(),
-            child: const Icon(Icons.arrow_drop_down, size: 24),
-          ),
-        ),
-        suffixIcon: ExcludeFocus(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTapDown: (_) => _startHold(1),
-            onTapUp: (_) => _stopHold(),
-            onTapCancel: () => _stopHold(),
-            child: const Icon(Icons.arrow_drop_up, size: 24),
-          ),
-        ),
-        prefixIconConstraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-        suffixIconConstraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade600),
+        borderRadius: BorderRadius.circular(4),
       ),
-      onFieldSubmitted: (_) => _commitValue(),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Row(
+            children: [
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTapDown: (_) => _startHold(-1),
+                onTapUp: (_) => _stopHold(),
+                onTapCancel: () => _stopHold(),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4.0, vertical: 6.0),
+                  child: Icon(Icons.arrow_drop_down, size: 24),
+                ),
+              ),
+              Expanded(
+                child: TextFormField(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 16),
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 0),
+                    border: InputBorder.none,
+                  ),
+                  onFieldSubmitted: (_) => _commitValue(),
+                ),
+              ),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTapDown: (_) => _startHold(1),
+                onTapUp: (_) => _stopHold(),
+                onTapCancel: () => _stopHold(),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4.0, vertical: 6.0),
+                  child: Icon(Icons.arrow_drop_up, size: 24),
+                ),
+              ),
+            ],
+          ),
+          // Floating Label
+          Positioned(
+            top: -6,
+            left: 0,
+            right: 0,
+            child: Align(
+              alignment: Alignment.center,
+              child: Container(
+                color: const Color(0xFF121212), // Matches scaffold background to clip border
+                padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                child: Text(
+                  widget.label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey.shade400,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
