@@ -137,31 +137,15 @@ class FormattingSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
-              flex: 4,
+              flex: 2,
               child: StudioDropdown(label: 'Guitar Sound', value: selectedInstrumentKey, items: availableInstruments, onChanged: onInstrumentChanged),
             ),
             const SizedBox(width: 8),
-            // Visually Grouped Interval Break Parameters
-            Expanded(
-              flex: 5,
-              child: Container(
-                padding: const EdgeInsets.only(top: 4, bottom: 4, left: 6, right: 6),
-                decoration: BoxDecoration(
-                  color: Colors.amber.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: Colors.amber.withOpacity(0.3)),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(child: StudioNumberField(label: 'Inter. Break', value: breakInterval, onChanged: onBreakIntervalChanged)),
-                    const SizedBox(width: 6),
-                    Expanded(child: StudioNumberField(label: 'Inter. Length', value: breakLength, onChanged: onBreakLengthChanged)),
-                  ],
-                ),
-              ),
-            ),
+            Expanded(child: StudioNumberField(label: 'Interval', value: breakInterval, onChanged: onBreakIntervalChanged)),
             const SizedBox(width: 8),
-            Expanded(flex: 2, child: StudioNumberField(label: 'Rests', value: endRests, onChanged: onEndRestsChanged)),
+            Expanded(child: StudioNumberField(label: 'Length', value: breakLength, onChanged: onBreakLengthChanged)),
+            const SizedBox(width: 8),
+            Expanded(child: StudioNumberField(label: 'Rests', value: endRests, onChanged: onEndRestsChanged)),
           ],
         ),
       ],

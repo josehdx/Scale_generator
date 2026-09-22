@@ -5,7 +5,7 @@ class ScaleEngine {
     'C': 0, 'C#': 1, 'D': 2, 'D#': 3, 'E': 4, 'F': 5,
     'F#': 6, 'G': 7, 'G#': 8, 'A': 9, 'A#': 10, 'B': 11
   };
-
+  
   final Map<String, List<int>> scaleFormulas = {
     'Minor Pentatonic': [0, 3, 5, 7, 10],
     'Major Pentatonic': [0, 2, 4, 7, 9],
@@ -19,16 +19,16 @@ class ScaleEngine {
     'Dorian': [0, 2, 3, 5, 7, 9, 10],
     'Mixolydian': [0, 2, 4, 5, 7, 9, 10]
   };
-
+  
   Map<int, int> openStrings = {1: 64, 2: 59, 3: 55, 4: 50, 5: 45, 6: 40};
-
+  
   final Map<String, Map<int, int>> tunings = {
     'Standard E': {1: 64, 2: 59, 3: 55, 4: 50, 5: 45, 6: 40},
     'Drop D': {1: 64, 2: 59, 3: 55, 4: 50, 5: 45, 6: 38},
     'Eb Standard': {1: 63, 2: 58, 3: 54, 4: 49, 5: 44, 6: 39},
     'D Standard': {1: 62, 2: 57, 3: 53, 4: 48, 5: 43, 6: 38},
   };
-
+  
   void setTuning(String tuningName) {
     if (tunings.containsKey(tuningName)) openStrings = tunings[tuningName]!;
   }
@@ -36,7 +36,6 @@ class ScaleEngine {
   Map<int, List<int>> getScaleNotesBox(String key, String scale, int startFret, List<int> targetStrings) {
     int rootPc = noteMap[key] ?? 0;
     List<int> scalePcs = (scaleFormulas[scale] ?? []).map((step) => (rootPc + step) % 12).toList();
-
     Map<int, List<int>> boxDict = {};
     for (int stringNum in targetStrings) {
       int openMidi = openStrings[stringNum]!;
@@ -62,14 +61,11 @@ class ScaleEngine {
     List<int> scalePcs = (scaleFormulas[scale] ?? []).map((step) => (rootPc + step) % 12).toList();
     Map<int, List<int>> boxDict = {};
     int lastMinPitch = -1;
-
     for (int stringNum in targetStrings..sort((a, b) => b.compareTo(a))) {
       int openMidi = openStrings[stringNum]!;
       List<int> stringFrets = [];
-      
       int fret = (lastMinPitch != -1) ? max(0, lastMinPitch + 1 - openMidi) : startFret;
       int targetNotes = npsProfile.length == 6 ? npsProfile[stringNum - 1] : 3;
-
       while (stringFrets.length < targetNotes && fret <= 24) {
         int pitch = openMidi + fret;
         if (scalePcs.contains(pitch % 12) && pitch > lastMinPitch) {
@@ -87,10 +83,8 @@ class ScaleEngine {
     int rootPc = noteMap[key] ?? 0;
     List<int> scalePcs = (scaleFormulas[scale] ?? []).map((step) => (rootPc + step) % 12).toList();
     int openMidi = openStrings[targetString]!;
-    
     List<int> stringFrets = [];
     int upperFretLimit = min(startFret + 15, 24);
-    
     for (int fret = startFret; fret <= upperFretLimit; fret++) {
       if (scalePcs.contains((openMidi + fret) % 12)) stringFrets.add(fret);
     }
@@ -148,7 +142,6 @@ class ScaleEngine {
   List<List<int>> buildCustomSequence(List<List<int>> baseNotes, String sequenceStr) {
     List<List<int>> result = [];
     if (baseNotes.isEmpty) return result;
-    
     List<String> tokens = sequenceStr.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
     for (String token in tokens) {
       int? idx = int.tryParse(token);
@@ -157,62 +150,14 @@ class ScaleEngine {
     return result;
   }
 
-  List<List<int>> buildSingleStringMotif(Map<int, List<int>> boxDict, String rawMotif, int targetString, String direction) {
-    List<int> frets = boxDict[targetString] ?? [];
-    if (frets.isEmpty) return [];
-
-    frets.sort();
-
-    List<int> tokens = [];
-    List<String> parts = rawMotif.split(',').where((p) => p.trim().isNotEmpty).toList();
-    for (String p in parts) {
-      String clean = p.replaceAll(RegExp(r'[A-Za-z]'), '');
-      int? idx = int.tryParse(clean);
-      if (idx != null && idx > 0) tokens.add(idx - 1);
-    }
-
-    if (tokens.isEmpty) return [];
-
-    int windowSize = tokens.reduce(max) + 1;
-    List<List<int>> ascendSeq = [];
-    List<List<int>> descendSeq = [];
-
-    for (int windowStart = 0; windowStart <= frets.length - windowSize; windowStart++) {
-      for (int t in tokens) {
-        ascendSeq.add([targetString, frets[windowStart + t]]);
-      }
-    }
-
-    for (int windowStart = frets.length - windowSize; windowStart >= 0; windowStart--) {
-      for (int t in tokens) {
-        descendSeq.add([targetString, frets[windowStart + t]]);
-      }
-    }
-
-    if (direction.startsWith("One-Way (Ascend)")) return ascendSeq;
-    if (direction.startsWith("One-Way (Descend)")) return descendSeq;
-    if (direction == "Ascend -> Descend") {
-      if (ascendSeq.isEmpty) return descendSeq;
-      return [...ascendSeq, ...descendSeq.skip(tokens.length)];
-    }
-    if (direction == "Descend -> Ascend") {
-      if (descendSeq.isEmpty) return ascendSeq;
-      return [...descendSeq, ...ascendSeq.skip(tokens.length)];
-    }
-    
-    return ascendSeq;
-  }
-
   List<List<int>> buildCustomMotif(Map<int, List<int>> boxDict, String rawMotif, int startStr, int endStr) {
     if (startStr == endStr) return [];
-    
     List<List<int>> pairs = [];
     if (startStr > endStr) { 
       for (int i = startStr; i > endStr; i--) pairs.add([i, i - 1]);
     } else { 
       for (int i = startStr; i < endStr; i++) pairs.add([i + 1, i]);
     }
-
     List<Map<String, dynamic>> tokens = [];
     List<String> parts = rawMotif.split(',').where((p) => p.trim().isNotEmpty).toList();
     for (String p in parts) {
@@ -222,12 +167,10 @@ class ScaleEngine {
       int? idx = int.tryParse(p.substring(1));
       if (idx != null && idx > 0 && (side == 'L' || side == 'H')) tokens.add({'side': side, 'idx': idx - 1});
     }
-
     List<List<int>> sequence = [];
     for (var pair in pairs) {
       int lowStr = pair[0]; 
       int highStr = pair[1]; 
-      
       for (var t in tokens) {
         int targetStr = (t['side'] == 'L') ? lowStr : highStr;
         List<int>? frets = boxDict[targetStr];
@@ -261,20 +204,16 @@ class ScaleEngine {
   }) {
     int notesPerSystem = notesPerMeasure * (measuresPerSystem <= 0 ? 999 : measuresPerSystem);
     Map<int, String> stringLabels = {1: 'e', 2: 'B', 3: 'G', 4: 'D', 5: 'A', 6: 'E'};
-    
     List<String> outputLines = [
       "Tempo: $tempo BPM ($nps Notes/Sec)", 
       "Time Signature: $beatsPerMeasure/4", 
       "Rhythm: $rhythmLabel", 
       ""
     ];
-
     for (int sysStart = 0; sysStart < noteSequence.length; sysStart += notesPerSystem) {
       int sysEnd = min(sysStart + notesPerSystem, noteSequence.length);
       List<List<int>> systemNotes = noteSequence.sublist(sysStart, sysEnd);
-      
       Map<int, String> systemGrid = {for (int s = 1; s <= 6; s++) s: "${stringLabels[s]}|"};
-      
       for (int idx = 0; idx < systemNotes.length; idx++) {
         var note = systemNotes[idx];
         if (idx > 0 && idx % notesPerMeasure == 0) {
@@ -286,7 +225,6 @@ class ScaleEngine {
           else systemGrid[s] = systemGrid[s]! + ("-" * colWidth);
         }
       }
-      
       for (int s = 1; s <= 6; s++) {
         systemGrid[s] = "${systemGrid[s]}|";
         outputLines.add(systemGrid[s]!);

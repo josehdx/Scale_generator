@@ -15,9 +15,8 @@ class InteractiveFretboard extends StatelessWidget {
   final String? previewScale;
   final String? previewTuning;
   final bool? isAccent;
-  final bool isManualMode;
   final ScrollController? scrollController;
-  final Function(String newKey, int stringNum, int fretNum) onNoteTapped;
+  final Function(String newKey, int fret) onNoteTapped;
 
   const InteractiveFretboard({
     super.key,
@@ -34,7 +33,6 @@ class InteractiveFretboard extends StatelessWidget {
     this.previewScale,
     this.previewTuning,
     this.isAccent,
-    this.isManualMode = false,
     this.scrollController,
     required this.onNoteTapped,
   });
@@ -48,7 +46,7 @@ class InteractiveFretboard extends StatelessWidget {
     int rootPitch = engine.noteMap[effectiveKey] ?? 0;
 
     return Container(
-      height: 225, 
+      height: 225, // Fixed height constraint ensures touch gestures are routed properly
       decoration: BoxDecoration(
         color: Colors.brown.shade900,
         borderRadius: BorderRadius.circular(8),
@@ -71,8 +69,8 @@ class InteractiveFretboard extends StatelessWidget {
                   int notePitch = (openPitch + fretNum) % 12;
                   int interval = (notePitch - rootPitch + 12) % 12;
                   
-                  bool isInScale = isManualMode ? true : scaleFormula.contains(interval);
-                  bool isRoot = isManualMode ? false : interval == 0;
+                  bool isInScale = scaleFormula.contains(interval);
+                  bool isRoot = interval == 0;
                   bool isActive = (activeString == stringNum && activeFret == fretNum);
                   bool isPreview = (previewString == stringNum && previewFret == fretNum);
                   bool isThisAccent = isAccent ?? false;
@@ -105,7 +103,7 @@ class InteractiveFretboard extends StatelessWidget {
 
                   return GestureDetector(
                     onTap: () {
-                      onNoteTapped(noteName, stringNum, fretNum);
+                      onNoteTapped(noteName, fretNum);
                     },
                     child: Container(
                       width: fretNum == 0 ? 36 : 46,

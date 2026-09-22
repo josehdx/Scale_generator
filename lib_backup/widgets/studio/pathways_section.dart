@@ -42,15 +42,10 @@ class PathwaysSection extends StatelessWidget {
     if (selectedSystem == "3-Note-Per-String (3NPS)") maxNotes = 6;
     else if (selectedSystem == "Box Position / CAGED") maxNotes = 4;
     else if (selectedSystem == "Custom Notes-Per-String") maxNotes = 8;
-    else if (selectedSystem == "Single String Horizontal") maxNotes = 8;
     
     List<String> availableNotes = [];
-    if (selectedSystem == "Single String Horizontal") {
-      for(int i = 1; i <= maxNotes; i++) availableNotes.add("$i");
-    } else {
-      for(int i = 1; i <= maxNotes; i++) availableNotes.add("L$i");
-      for(int i = 1; i <= maxNotes; i++) availableNotes.add("H$i");
-    }
+    for(int i = 1; i <= maxNotes; i++) availableNotes.add("L$i");
+    for(int i = 1; i <= maxNotes; i++) availableNotes.add("H$i");
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -75,17 +70,12 @@ class PathwaysSection extends StatelessWidget {
                   itemBuilder: (context, index) {
                     final token = motifTokens[index];
                     bool isLower = token.value.startsWith('L');
-                    bool isSingle = int.tryParse(token.value) != null;
-                    Color chipColor = isSingle 
-                        ? Colors.indigo.shade800 
-                        : (isLower ? Colors.blue.shade900 : Colors.teal.shade900);
-
                     return Padding(
                       key: ValueKey(token.id),
                       padding: const EdgeInsets.only(right: 8.0),
                       child: InputChip(
                         label: Text(token.value, style: const TextStyle(fontWeight: FontWeight.bold)),
-                        backgroundColor: chipColor,
+                        backgroundColor: isLower ? Colors.blue.shade900 : Colors.teal.shade900,
                         deleteIcon: const Icon(Icons.cancel, size: 16, color: Colors.white70),
                         onDeleted: () => onMotifRemoved(index),
                       ),
@@ -103,15 +93,10 @@ class PathwaysSection extends StatelessWidget {
           runSpacing: 8.0,
           children: availableNotes.map((note) {
             bool isLower = note.startsWith('L');
-            bool isSingle = int.tryParse(note) != null;
-            Color borderColor = isSingle 
-                ? Colors.indigo.shade700 
-                : (isLower ? Colors.blue.shade700 : Colors.teal.shade700);
-
             return ActionChip(
               label: Text(note),
               backgroundColor: Colors.grey.shade900,
-              side: BorderSide(color: borderColor),
+              side: BorderSide(color: isLower ? Colors.blue.shade700 : Colors.teal.shade700),
               onPressed: () => onMotifAdded(note),
             );
           }).toList(),
@@ -139,7 +124,7 @@ class PathwaysSection extends StatelessWidget {
             Expanded(
               flex: 2, 
               child: selectedPathway == "Custom Motif Builder"
-                  ? StudioDropdown(label: 'Loop Direction', value: selectedDirection, items: availableDirections, onChanged: onDirectionChanged)
+                  ? const SizedBox.shrink()
                   : StudioDropdown(label: 'Loop Direction', value: selectedDirection, items: availableDirections, onChanged: onDirectionChanged)
             ),
           ],

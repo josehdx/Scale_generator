@@ -61,13 +61,12 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   int _playbackToken = 0;
   bool _isMidiReady = false;
   bool _isLooping = false;
-  bool _isLoadingPreset = false;
 
   bool _isFretboardVisible = true;
   bool _isTheoryExpanded = false;
   bool _isPathwaysExpanded = false;
   bool _isFormattingExpanded = false;
-  bool _isTabExpanded = true;
+  bool _isTabExpanded = false;
 
   final Set<int> _activeMidiNotes = {};
   final ScrollController _fretboardScrollController = ScrollController();
@@ -89,10 +88,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   int _singleStringTarget = 1;
   String _customNpsProfile = "3,4,3,4,3,3";
   final TextEditingController _customNpsController = TextEditingController(text: "3,4,3,4,3,3");
-  
-  // MANUAL ENTRY STATE
   final TextEditingController _manualTabController = TextEditingController(text: "6:5, 6:8, 5:5, 5:7");
-  String _manualSelectedDuration = "16th";
 
   // MOTIF & PATHWAY STATE
   String _selectedPathway = "Custom Motif Builder";
@@ -110,7 +106,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   String _selectedTimeSignature = "Auto";
   final TextEditingController _customRhythmController = TextEditingController(text: "16,16,8");
   final TextEditingController _customAccentController = TextEditingController(text: "1,0,0,0");
-  String _lastAutoAccentString = "1,0,0,0";
   List<String> _parsedRhythmPattern = ["16th"];
 
   String _generatedTab = "Generating tab...";
@@ -158,15 +153,11 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       int? parsed = int.tryParse(_selectedTimeSignature.split('/')[0]);
       if (parsed != null && parsed > 0) return parsed;
     }
-    
-    // ISOLATE MANUAL ENTRY: Do not calculate dynamic time signatures based on manual tab length.
-    if (_selectedSystem == "Manual Entry") return 4;
-    
     if (_selectedPathway == "3-Step Triplet") return 3;
-    if (_selectedPathway == "Custom Motif Builder") {
+    if (_selectedPathway == "Custom Motif Builder" && _selectedSystem != "Manual Entry") {
       return _motifTokens.isNotEmpty ? _motifTokens.length : 4;
     }
-    if (_selectedPathway == "Custom Sequence (Indices)") {
+    if (_selectedPathway == "Custom Sequence (Indices)" && _selectedSystem != "Manual Entry") {
       int count = _customSequenceController.text.split(',').where((e) => e.trim().isNotEmpty).length;
       return count > 0 ? count : 4;
     }
@@ -183,13 +174,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     }
     double nps = (_tempo / 60) * maxMultiplier;
     return nps.toStringAsFixed(1);
-  }
-
-  bool _isAutoAccent(String val) {
-    final parts = val.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-    if (parts.isEmpty || parts.first != "1") return false;
-    if (parts.length == 1) return true;
-    return parts.skip(1).every((e) => e == "0");
   }
 
   List<int> _parseAccentPattern(String val) {
@@ -298,156 +282,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     });
   }
 
-  void _handleFretboardTap(String noteName, int stringNum, int fretNum) {
-    if (_selectedSystem == "Manual Entry") {
-      int pitch = _engine.openStrings[stringNum]! + fretNum;
-      _midiPro.playMidiNote(midi: pitch, velocity: 127);
-      Future.delayed(const Duration(milliseconds: 300), () => _midiPro.stopMidiNote(midi: pitch));
-      
-      if (_selectedRhythmPattern != "Custom Pattern") {
-        setState(() { _selectedRhythmPattern = "Custom Pattern"; });
-      }
-
-      List<List<int>> currentSeq = _parseManualTab(_manualTabController.text);
-      List<String> currentRhythms = _customRhythmController.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-      
-      while(currentRhythms.length < currentSeq.length) currentRhythms.add("16th");
-
-      int cursor = _selectionStart != -1 ? max(_selectionStart, _selectionEnd) : currentSeq.length;
-      
-      if (cursor >= currentSeq.length) {
-        currentSeq.add([stringNum, fretNum]);
-        currentRhythms.add(_manualSelectedDuration);
-        cursor = currentSeq.length; 
-      } else {
-        currentSeq[cursor] = [stringNum, fretNum];
-        currentRhythms[cursor] = _manualSelectedDuration;
-        cursor++; 
-      }
-
-      _manualTabController.text = currentSeq.map((n) => n[0] == -1 ? "R" : "${n[0]}:${n[1]}").join(", ");
-      _customRhythmController.text = currentRhythms.join(",");
-      
-      setState(() {
-        _selectionStart = cursor < currentSeq.length ? cursor : -1;
-        _selectionEnd = _selectionStart;
-        _tapAnchorIndex = _selectionStart;
-      });
-      
-      _generateTab();
-    } else {
-      setState(() { _selectedKey = noteName; _startFret = fretNum; _generateTab(); });
-    }
-  }
-
-  void _handleInsertRest() {
-    if (_selectedRhythmPattern != "Custom Pattern") {
-      setState(() { _selectedRhythmPattern = "Custom Pattern"; });
-    }
-    List<List<int>> currentSeq = _parseManualTab(_manualTabController.text);
-    List<String> currentRhythms = _customRhythmController.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-    while(currentRhythms.length < currentSeq.length) currentRhythms.add("16th");
-
-    int cursor = _selectionStart != -1 ? max(_selectionStart, _selectionEnd) : currentSeq.length;
-    if (cursor >= currentSeq.length) {
-      currentSeq.add([-1, -1]);
-      currentRhythms.add(_manualSelectedDuration);
-      cursor = currentSeq.length;
-    } else {
-      currentSeq[cursor] = [-1, -1];
-      currentRhythms[cursor] = _manualSelectedDuration;
-      cursor++;
-    }
-    _manualTabController.text = currentSeq.map((n) => n[0] == -1 ? "R" : "${n[0]}:${n[1]}").join(", ");
-    _customRhythmController.text = currentRhythms.join(",");
-    setState(() {
-      _selectionStart = cursor < currentSeq.length ? cursor : -1;
-      _selectionEnd = _selectionStart;
-      _tapAnchorIndex = _selectionStart;
-    });
-    _generateTab();
-  }
-
-  void _showManualDeleteMenu() {
-    int startIdx, endIdx;
-    
-    if (_selectionStart != -1 && _selectionEnd != -1) {
-      startIdx = min(_selectionStart, _selectionEnd);
-      endIdx = max(_selectionStart, _selectionEnd);
-    } else {
-      int cursor = _currentSequence.length - 1;
-      if (cursor < 0) return;
-      startIdx = cursor;
-      endIdx = cursor;
-    }
-    
-    int count = endIdx - startIdx + 1;
-
-    showModalBottomSheet(context: context, builder: (c) {
-      return SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.clear),
-              title: Text("Clear $count Note${count > 1 ? 's' : ''} (Keep Empty Space)"),
-              onTap: () {
-                Navigator.pop(c);
-                List<List<int>> currentSeq = _parseManualTab(_manualTabController.text);
-                
-                for (int i = startIdx; i <= endIdx; i++) {
-                  if (i < currentSeq.length) {
-                    currentSeq[i] = [-1, -1];
-                  }
-                }
-                
-                _manualTabController.text = currentSeq.map((n) => n[0] == -1 ? "R" : "${n[0]}:${n[1]}").join(", ");
-                _generateTab();
-              }
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_forever, color: Colors.redAccent),
-              title: Text("Delete $count Beat${count > 1 ? 's' : ''} (Shorten Tab)", style: const TextStyle(color: Colors.redAccent)),
-              onTap: () {
-                Navigator.pop(c);
-                List<List<int>> currentSeq = _parseManualTab(_manualTabController.text);
-                List<String> currentRhythms = _customRhythmController.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-                
-                int actualStart = startIdx.clamp(0, currentSeq.length - 1);
-                int actualEnd = endIdx.clamp(0, currentSeq.length - 1);
-                
-                currentSeq.removeRange(actualStart, actualEnd + 1);
-                
-                int rStart = startIdx.clamp(0, currentRhythms.length);
-                int rEnd = (endIdx + 1).clamp(0, currentRhythms.length);
-                if (rStart < rEnd) {
-                  currentRhythms.removeRange(rStart, rEnd);
-                }
-                
-                _manualTabController.text = currentSeq.map((n) => n[0] == -1 ? "R" : "${n[0]}:${n[1]}").join(", ");
-                _customRhythmController.text = currentRhythms.join(",");
-                
-                setState(() {
-                  if (currentSeq.isEmpty) {
-                    _selectionStart = -1;
-                  } else {
-                    _selectionStart = actualStart > 0 ? actualStart - 1 : 0;
-                    if (_selectionStart >= currentSeq.length) {
-                      _selectionStart = currentSeq.length - 1;
-                    }
-                  }
-                  _selectionEnd = _selectionStart;
-                  _tapAnchorIndex = _selectionStart;
-                });
-                _generateTab();
-              }
-            ),
-          ],
-        ),
-      );
-    });
-  }
-
   Future<void> _loadPresetsFromDisk() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -551,7 +385,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   void _applyPresetState(LickPreset preset) {
-    _isLoadingPreset = true;
     setState(() {
       _selectedKey = preset.key;
       _selectedScale = preset.scale;
@@ -594,7 +427,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       _selectedRhythmPattern = preset.rhythm;
       _customRhythmController.text = preset.customRhythmString;
       _customAccentController.text = preset.customAccentString;
-      _lastAutoAccentString = preset.customAccentString;
       _tempo = preset.tempo;
       _measuresPerLine = preset.measuresPerLine;
       _breakInterval = preset.breakInterval;
@@ -602,14 +434,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       _endRests = preset.endRests;
       _generatedTab = preset.tabOutput;
       _selectedInstrumentIndex = preset.instrumentIndex;
-      
-      _selectionStart = -1;
-      _selectionEnd = -1;
-      _tapAnchorIndex = null;
     });
     _changeGuitarSound(preset.instrumentIndex);
     _generateTab();
-    _isLoadingPreset = false;
   }
 
   void _loadPreset(LickPreset preset) {
@@ -624,8 +451,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     }
 
     int safeStartFret = preset.startFret.clamp(0, 24);
-    int safeSingleTarget = (int.tryParse(preset.fragment) ?? 1).clamp(1, 6);
-
     int stStr = 6, enStr = 1;
     if (preset.system != "Single String Horizontal") {
       if (preset.fragment.contains('-') && !preset.fragment.contains('Strings')) {
@@ -652,14 +477,13 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       while (customNpsList.length < 6) customNpsList.add(3);
       boxDict = _engine.getScaleNotesCustomNPS(preset.key, preset.scale, safeStartFret, targetStrings, customNpsList.take(6).toList());
     } else {
+      int safeSingleTarget = (int.tryParse(preset.fragment) ?? 1).clamp(1, 6);
       boxDict = _engine.getScaleNotesSingleString(preset.key, preset.scale, safeStartFret, safeSingleTarget);
     }
     
     List<List<int>> sequence = [];
     if (preset.pathway == "Custom Motif Builder") {
-      if (preset.system == "Single String Horizontal") {
-        sequence = _engine.buildSingleStringMotif(boxDict, preset.motifString, safeSingleTarget, preset.direction);
-      } else if (targetStrings.length >= 2) {
+      if (preset.system != "Single String Horizontal" && targetStrings.length >= 2) {
         sequence = _engine.buildCustomMotif(boxDict, preset.motifString, stStr, enStr);
       }
     } else {
@@ -687,6 +511,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   void _generateTab() {
     _stopPlayback();
     _engine.setTuning(_selectedTuning);
+    _clearSelection();
     _activeNoteNotifier.value = null;
     _parsedRhythmPattern = _parsePatternString(_selectedRhythmPattern);
     
@@ -715,15 +540,11 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       
       _currentSequence = [];
       if (_selectedPathway == "Custom Motif Builder") {
-        if (_selectedSystem == "Single String Horizontal") {
-          _currentSequence = _engine.buildSingleStringMotif(boxDict, _getMotifString(), _singleStringTarget, _selectedDirection);
-        } else {
-          if (targetStrings.length < 2) {
-            setState(() => _generatedTab = "  Custom Motif Builder requires at least 2 strings.");
-            return;
-          }
-          _currentSequence = _engine.buildCustomMotif(boxDict, _getMotifString(), _startString, _endString);
+        if (_selectedSystem == "Single String Horizontal" || targetStrings.length < 2) {
+          setState(() => _generatedTab = "  Custom Motif Builder requires at least 2 strings.");
+          return;
         }
+        _currentSequence = _engine.buildCustomMotif(boxDict, _getMotifString(), _startString, _endString);
       } else {
         List<List<int>> baseNotes = _engine.flattenBoxDict(boxDict, _startString, _endString);
         if (_selectedPathway == "Custom Sequence (Indices)") {
@@ -751,13 +572,8 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     
     int calculatedNotesPerMeasure = _calculateNotesPerMeasure();
 
-    if (_isAutoAccent(_customAccentController.text)) {
-      List<String> newAccentList = List.generate(_dynamicBeatsPerMeasure, (i) => i == 0 ? "1" : "0");
-      String newAccentStr = newAccentList.join(",");
-      if (_customAccentController.text != newAccentStr) {
-        _customAccentController.text = newAccentStr;
-      }
-    }
+    List<String> newAccentList = List.generate(_dynamicBeatsPerMeasure, (i) => i == 0 ? "1" : "0");
+    _customAccentController.text = newAccentList.join(",");
 
     setState(() {
       _generatedTab = _engine.renderAsciiTab(
@@ -805,14 +621,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         _isPlaying = true;
       }
     });
-
-    // WARMUP THE AUDIO ENGINE
-    // Fire a silent MIDI note before starting the rhythm loop.
-    // This forces the synthesizer to spin up its audio thread now,
-    // preventing latency from stacking the first two notes of the sequence out of time.
-    _midiPro.playMidiNote(midi: 12, velocity: 1);
-    await Future.delayed(const Duration(milliseconds: 150));
-    _midiPro.stopMidiNote(midi: 12);
     
     String rhythm = overrideRhythm ?? _selectedRhythmPattern;
     int tempo = overrideTempo ?? _tempo;
@@ -839,8 +647,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         var note = seqToPlay[i];
         int pitch = -1;
         
-        // ACCENT FIX: Accents map 1:1 to the event indices of the note sequence.
-        // If your sequence is 10 notes, and your accent pattern is 10 items, they map perfectly.
         int currentVelocity = activeAccents[i % activeAccents.length];
         
         if (note[0] != -1) {
@@ -891,30 +697,26 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         _isPreviewPlaying = false;
       });
     }
-    _midiPro.loadSoundfont(sf2Path: 'assets/guitar.sf2', instrumentIndex: _selectedInstrumentIndex);
   }
 
   Widget _buildStudioScreen() {
-    bool isManualMode = _selectedSystem == "Manual Entry";
-    
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          padding: const EdgeInsets.all(8.0),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              const Text("Interactive Fretboard", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-              GestureDetector(
-                onTap: () => setState(() => _isFretboardVisible = !_isFretboardVisible),
-                child: Icon(_isFretboardVisible ? Icons.visibility : Icons.visibility_off, color: Colors.grey, size: 24),
-              ),
+              Expanded(child: StudioDropdown(label: 'Scale', value: _selectedScale, items: _engine.scaleFormulas.keys.toList(), onChanged: (v) => setState(() { _selectedScale = v!; _generateTab(); }))),
+              const SizedBox(width: 8),
+              Chip(avatar: const Icon(Icons.music_note, color: Colors.redAccent, size: 16), label: Text('Root: $_selectedKey | Fret: $_startFret')),
+              IconButton(icon: Icon(_isFretboardVisible ? Icons.visibility : Icons.visibility_off, color: Colors.grey), tooltip: _isFretboardVisible ? 'Hide Fretboard' : 'Show Fretboard', onPressed: () => setState(() => _isFretboardVisible = !_isFretboardVisible))
             ],
           ),
         ),
         if (_isFretboardVisible)
           Padding(
-            padding: const EdgeInsets.only(left: 8.0, right: 8.0),
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
             child: ValueListenableBuilder<Map<String, dynamic>?>(
               valueListenable: _activeNoteNotifier,
               builder: (context, noteData, child) {
@@ -939,9 +741,8 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                   selectedTuning: _selectedTuning, activeString: actStr, activeFret: actFret, 
                   previewString: prevStr, previewFret: prevFret, previewKey: pKey, previewScale: pScale, previewTuning: pTuning, 
                   isAccent: isAccent,
-                  isManualMode: isManualMode,
                   scrollController: _fretboardScrollController, 
-                  onNoteTapped: _handleFretboardTap,
+                  onNoteTapped: (k, f) => setState(() { _selectedKey = k; _startFret = f; _generateTab(); })
                 );
               },
             ),
@@ -963,68 +764,54 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                 child: Column(
                   children: [
                     CollapsibleSection(
-                      title: "  1. Theory & System",
+                      title: "  1. Theory & Fretboard",
                       isExpanded: _isTheoryExpanded,
                       onToggle: () => setState(() => _isTheoryExpanded = !_isTheoryExpanded),
                       child: TheorySection(
-                        isManualMode: isManualMode,
-                        manualSelectedDuration: _manualSelectedDuration,
                         selectedKey: _selectedKey, availableKeys: _engine.noteMap.keys.toList(),
                         selectedScale: _selectedScale, availableScales: _engine.scaleFormulas.keys.toList(),
                         selectedTuning: _selectedTuning, availableTunings: _engine.tunings.keys.toList(),
                         selectedSystem: _selectedSystem, availableSystems: _systems,
                         singleStringTarget: _singleStringTarget, startString: _startString,
                         endString: _endString, startFret: _startFret, customNpsController: _customNpsController,
-                        onCursorLeft: () => setState(() { _selectionStart = max(0, (_selectionStart == -1 ? _currentSequence.length : _selectionStart) - 1); _selectionEnd = _selectionStart; }),
-                        onCursorRight: () => setState(() { if (_selectionStart != -1) { _selectionStart = min(_currentSequence.length - 1, _selectionStart + 1); _selectionEnd = _selectionStart; } }),
-                        onInsertRest: _handleInsertRest,
-                        onDeleteMenu: _showManualDeleteMenu,
-                        onManualDurationChanged: (v) => setState(() => _manualSelectedDuration = v!),
+                        manualTabController: _manualTabController,
                         onKeyChanged: (v) => setState(() { _selectedKey = v!; _generateTab(); }),
                         onScaleChanged: (v) => setState(() { _selectedScale = v!; _generateTab(); }),
                         onTuningChanged: (v) => setState(() { _selectedTuning = v!; _generateTab(); }),
-                        onSystemChanged: (v) => setState(() { 
-                          _selectedSystem = v!; 
-                          if (_selectedSystem == "Manual Entry") {
-                            _isFretboardVisible = true;
-                            _isTabExpanded = true;
-                          }
-                          _clearSelection(); 
-                          _generateTab(); 
-                        }),
+                        onSystemChanged: (v) => setState(() { _selectedSystem = v!; _generateTab(); }),
                         onSingleStringTargetChanged: (v) => setState(() { _singleStringTarget = int.parse(v!); _generateTab(); }),
                         onStartStringChanged: (v) => setState(() { _startString = int.parse(v!); _generateTab(); }),
                         onEndStringChanged: (v) => setState(() { _endString = int.parse(v!); _generateTab(); }),
                         onSwapStrings: _swapStrings,
                         onCustomNpsChanged: (val) { _customNpsProfile = val; _generateTab(); },
                         onStartFretChanged: (val) => setState(() { _startFret = val; _generateTab(); }),
+                        onManualTabChanged: (_) => _generateTab(),
                       ),
                     ),
-                    if (!isManualMode)
-                      CollapsibleSection(
-                        title: "  2. Pathways & Motifs",
-                        isExpanded: _isPathwaysExpanded,
-                        onToggle: () => setState(() => _isPathwaysExpanded = !_isPathwaysExpanded),
-                        child: PathwaysSection(
-                          selectedPathway: _selectedPathway, availablePathways: _pathways,
-                          selectedDirection: _selectedDirection, availableDirections: _directions,
-                          selectedSystem: _selectedSystem, motifTokens: _motifTokens, customSequenceController: _customSequenceController,
-                          onPathwayChanged: (v) => setState(() { _selectedPathway = v!; _generateTab(); }),
-                          onDirectionChanged: (v) => _onDirectionChanged(v!),
-                          onMotifAdded: (note) => setState(() { _motifTokens.add(MotifToken(UniqueKey().toString(), note)); _generateTab(); }),
-                          onMotifRemoved: (index) => setState(() { _motifTokens.removeAt(index); _generateTab(); }),
-                          onMotifReordered: (oldIndex, newIndex) => setState(() {
-                            if (oldIndex < newIndex) newIndex -= 1;
-                            final item = _motifTokens.removeAt(oldIndex);
-                            _motifTokens.insert(newIndex, item);
-                            _generateTab();
-                          }),
-                          onClearMotifs: () => setState(() { _motifTokens.clear(); _generateTab(); }),
-                          onCustomSequenceChanged: (_) => _generateTab(),
-                        ),
-                      ),
                     CollapsibleSection(
-                      title: isManualMode ? "  2. Formatting & Rhythm" : "  3. Formatting & Rhythm",
+                      title: "  2. Pathways & Motifs",
+                      isExpanded: _isPathwaysExpanded,
+                      onToggle: () => setState(() => _isPathwaysExpanded = !_isPathwaysExpanded),
+                      child: PathwaysSection(
+                        selectedPathway: _selectedPathway, availablePathways: _pathways,
+                        selectedDirection: _selectedDirection, availableDirections: _directions,
+                        selectedSystem: _selectedSystem, motifTokens: _motifTokens, customSequenceController: _customSequenceController,
+                        onPathwayChanged: (v) => setState(() { _selectedPathway = v!; _generateTab(); }),
+                        onDirectionChanged: (v) => _onDirectionChanged(v!),
+                        onMotifAdded: (note) => setState(() { _motifTokens.add(MotifToken(UniqueKey().toString(), note)); _generateTab(); }),
+                        onMotifRemoved: (index) => setState(() { _motifTokens.removeAt(index); _generateTab(); }),
+                        onMotifReordered: (oldIndex, newIndex) => setState(() {
+                          if (oldIndex < newIndex) newIndex -= 1;
+                          final item = _motifTokens.removeAt(oldIndex);
+                          _motifTokens.insert(newIndex, item);
+                          _generateTab();
+                        }),
+                        onClearMotifs: () => setState(() { _motifTokens.clear(); _generateTab(); }),
+                        onCustomSequenceChanged: (_) => _generateTab(),
+                      ),
+                    ),
+                    CollapsibleSection(
+                      title: "  3. Formatting & Rhythm",
                       isExpanded: _isFormattingExpanded,
                       onToggle: () => setState(() => _isFormattingExpanded = !_isFormattingExpanded),
                       child: FormattingSection(
@@ -1062,7 +849,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                       ),
                     ),
                     CollapsibleSection(
-                      title: isManualMode ? "  3. Generated Tab" : "  4. Generated Tab",
+                      title: "  4. Generated Tab",
                       isExpanded: _isTabExpanded,
                       onToggle: () => setState(() => _isTabExpanded = !_isTabExpanded),
                       child: TabOutputSection(
@@ -1093,7 +880,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         title: const Text('Tab Generator Studio'),
         actions: [ IconButton(icon: const Icon(Icons.bookmark_add_outlined), tooltip: 'Save Lick Preset', onPressed: _saveCurrentLick) ],

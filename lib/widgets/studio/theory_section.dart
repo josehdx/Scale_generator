@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'studio_components.dart';
 
 class TheorySection extends StatelessWidget {
+  final bool isManualMode;
+  final String manualSelectedDuration;
   final String selectedKey;
   final List<String> availableKeys;
   final String selectedScale;
@@ -14,8 +16,15 @@ class TheorySection extends StatelessWidget {
   final int startString;
   final int endString;
   final int startFret;
+  
   final TextEditingController customNpsController;
-  final TextEditingController manualTabController;
+
+  final VoidCallback onCursorLeft;
+  final VoidCallback onCursorRight;
+  final VoidCallback onInsertRest;
+  final VoidCallback onDeleteMenu;
+  final ValueChanged<String?> onManualDurationChanged;
+  
   final ValueChanged<String?> onKeyChanged;
   final ValueChanged<String?> onScaleChanged;
   final ValueChanged<String?> onTuningChanged;
@@ -26,10 +35,11 @@ class TheorySection extends StatelessWidget {
   final VoidCallback onSwapStrings;
   final ValueChanged<String> onCustomNpsChanged;
   final ValueChanged<int> onStartFretChanged;
-  final ValueChanged<String> onManualTabChanged;
 
   const TheorySection({
     super.key,
+    required this.isManualMode,
+    required this.manualSelectedDuration,
     required this.selectedKey,
     required this.availableKeys,
     required this.selectedScale,
@@ -43,7 +53,11 @@ class TheorySection extends StatelessWidget {
     required this.endString,
     required this.startFret,
     required this.customNpsController,
-    required this.manualTabController,
+    required this.onCursorLeft,
+    required this.onCursorRight,
+    required this.onInsertRest,
+    required this.onDeleteMenu,
+    required this.onManualDurationChanged,
     required this.onKeyChanged,
     required this.onScaleChanged,
     required this.onTuningChanged,
@@ -54,47 +68,63 @@ class TheorySection extends StatelessWidget {
     required this.onSwapStrings,
     required this.onCustomNpsChanged,
     required this.onStartFretChanged,
-    required this.onManualTabChanged,
   });
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Row(
-          children: [
-            Expanded(
-              flex: 3,
-              child: StudioDropdown(
-                label: 'Key',
-                value: selectedKey,
-                items: availableKeys,
-                onChanged: onKeyChanged,
+        if (!isManualMode)
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: StudioDropdown(
+                  label: 'Key',
+                  value: selectedKey,
+                  items: availableKeys,
+                  onChanged: onKeyChanged,
+                ),
               ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              flex: 5,
-              child: StudioDropdown(
-                label: 'Scale',
-                value: selectedScale,
-                items: availableScales,
-                onChanged: onScaleChanged,
+              const SizedBox(width: 6),
+              Expanded(
+                flex: 5,
+                child: StudioDropdown(
+                  label: 'Scale',
+                  value: selectedScale,
+                  items: availableScales,
+                  onChanged: onScaleChanged,
+                ),
               ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              flex: 4,
-              child: StudioDropdown(
-                label: 'Tuning',
-                value: selectedTuning,
-                items: availableTunings,
-                onChanged: onTuningChanged,
+              const SizedBox(width: 6),
+              Expanded(
+                flex: 4,
+                child: StudioDropdown(
+                  label: 'Tuning',
+                  value: selectedTuning,
+                  items: availableTunings,
+                  onChanged: onTuningChanged,
+                ),
               ),
-            ),
-          ],
-        ),
+            ],
+          )
+        else
+          Row(
+            children: [
+              Expanded(
+                flex: 4,
+                child: StudioDropdown(
+                  label: 'Tuning (Dictates Audio Pitch)',
+                  value: selectedTuning,
+                  items: availableTunings,
+                  onChanged: onTuningChanged,
+                ),
+              ),
+            ],
+          ),
+        
         const SizedBox(height: 8),
+        
         Row(
           children: [
             Expanded(
@@ -117,7 +147,7 @@ class TheorySection extends StatelessWidget {
                   onChanged: onSingleStringTargetChanged,
                 ),
               )
-            else if (selectedSystem != "Manual Entry") ...[
+            else if (!isManualMode) ...[
               Expanded(
                 child: StudioDropdown(
                   label: 'Start Str',
@@ -141,6 +171,7 @@ class TheorySection extends StatelessWidget {
             ],
           ],
         ),
+        
         if (selectedSystem == "Custom Notes-Per-String")
           Padding(
             padding: const EdgeInsets.only(top: 8.0),
@@ -151,32 +182,57 @@ class TheorySection extends StatelessWidget {
               onChanged: onCustomNpsChanged,
             ),
           ),
-        if (selectedSystem == "Manual Entry")
+          
+        if (isManualMode)
+          Container(
+            margin: const EdgeInsets.only(top: 12.0, bottom: 4.0),
+            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade900.withOpacity(0.3), 
+              borderRadius: BorderRadius.circular(8), 
+              border: Border.all(color: Colors.blueAccent.withOpacity(0.5))
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                IconButton(icon: const Icon(Icons.arrow_back_ios, size: 18), onPressed: onCursorLeft),
+                DropdownButton<String>(
+                  value: manualSelectedDuration,
+                  underline: const SizedBox(),
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 13),
+                  items: const [
+                    DropdownMenuItem(value: "Quarter", child: Text("Quarter")),
+                    DropdownMenuItem(value: "8th", child: Text("8th")),
+                    DropdownMenuItem(value: "16th", child: Text("16th")),
+                  ],
+                  onChanged: onManualDurationChanged,
+                ),
+                IconButton(icon: const Icon(Icons.space_bar), tooltip: "Insert Rest", onPressed: onInsertRest),
+                IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent), tooltip: "Delete", onPressed: onDeleteMenu),
+                IconButton(icon: const Icon(Icons.arrow_forward_ios, size: 18), onPressed: onCursorRight),
+              ]
+            )
+          ),
+          
+        if (!isManualMode)
           Padding(
             padding: const EdgeInsets.only(top: 8.0),
-            child: StudioTextField(
-              label: "Manual Sequence (String:Fret)",
-              hintText: "e.g., 6:5, 6:8, 5:5, 5:7",
-              controller: manualTabController,
-              onChanged: onManualTabChanged,
+            child: Row(
+              children: [
+                Text("Start Fret: $startFret"),
+                Expanded(
+                  child: Slider(
+                    value: startFret.toDouble(),
+                    min: 0,
+                    max: 20,
+                    divisions: 20,
+                    label: startFret.toString(),
+                    onChanged: (val) => onStartFretChanged(val.toInt()),
+                  ),
+                ),
+              ],
             ),
           ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Text("Start Fret: $startFret"),
-            Expanded(
-              child: Slider(
-                value: startFret.toDouble(),
-                min: 0,
-                max: 20,
-                divisions: 20,
-                label: startFret.toString(),
-                onChanged: (val) => onStartFretChanged(val.toInt()),
-              ),
-            ),
-          ],
-        )
       ],
     );
   }
