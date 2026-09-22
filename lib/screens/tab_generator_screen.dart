@@ -431,6 +431,21 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                 _generateTab();
               }
             ),
+            ListTile(
+              leading: const Icon(Icons.delete_sweep, color: Colors.red),
+              title: const Text("Delete All (Start from scratch)", style: TextStyle(color: Colors.red)),
+              onTap: () {
+                Navigator.pop(c);
+                _manualTabController.text = "";
+                _customRhythmController.text = "";
+                setState(() {
+                  _selectionStart = -1;
+                  _selectionEnd = -1;
+                  _tapAnchorIndex = null;
+                });
+                _generateTab();
+              }
+            ),
           ],
         ),
       );
