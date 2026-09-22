@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/lick_preset.dart';
+import '../models/preset_sanitizer.dart';
 
 class SavedPresetsScreen extends StatefulWidget {
   final List<LickPreset> savedPresets;
@@ -153,6 +154,7 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
   Widget build(BuildContext context) {
     super.build(context);
     bool hasSelection = _selectedIds.isNotEmpty;
+
     return Column(
       children: [
         Container(
@@ -283,6 +285,9 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
                     bool isActive = widget.activePreviewId == preset.id;
                     bool isPlayingThis = isActive && widget.isPreviewPlaying;
                     
+                    final (_, issues) = PresetSanitizer.validateAndSanitize(preset);
+                    final bool hasMisalignment = issues.isNotEmpty;
+                    
                     return Card(
                       key: ValueKey(preset.id),
                       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -312,7 +317,18 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
                               ),
                             ],
                           ),
-                          title: Text(preset.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          title: Row(
+                            children: [
+                              Expanded(child: Text(preset.name, style: const TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+                              if (hasMisalignment) ...[
+                                const SizedBox(width: 8),
+                                Tooltip(
+                                  message: issues.map((i) => i.message).join('\n'),
+                                  child: const Icon(Icons.warning_amber_rounded, size: 18, color: Colors.amberAccent),
+                                ),
+                              ],
+                            ],
+                          ),
                           subtitle: Text("Tempo: ${preset.tempo} BPM | System: ${preset.system}\nGenerated: ${preset.createdAt.toString().split('.')[0]}"),
                           isThreeLine: true,
                           trailing: Row(

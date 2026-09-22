@@ -9,9 +9,9 @@ import 'package:flutter_midi_pro/flutter_midi_pro.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 import '../models/lick_preset.dart';
 import '../models/motif_token.dart';
+import '../models/preset_sanitizer.dart';
 import '../scale_engine.dart';
 import '../widgets/interactive_fretboard.dart';
 import '../widgets/playback_control_bar.dart';
@@ -25,7 +25,6 @@ import 'saved_presets_screen.dart';
 class KeepAliveWrapper extends StatefulWidget {
   final Widget child;
   const KeepAliveWrapper({super.key, required this.child});
-
   @override
   State<KeepAliveWrapper> createState() => _KeepAliveWrapperState();
 }
@@ -33,7 +32,6 @@ class KeepAliveWrapper extends StatefulWidget {
 class _KeepAliveWrapperState extends State<KeepAliveWrapper> with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
-
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -54,7 +52,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   final MidiPro _midiPro = MidiPro();
   late PageController _pageController;
   int _selectedPageIndex = 0;
-
   bool _isPlaying = false;
   bool _isPreviewPlaying = false;
   bool _isPreviewLooping = false;
@@ -63,17 +60,14 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   bool _isMidiReady = false;
   bool _isLooping = false;
   bool _isLoadingPreset = false;
-
   bool _isFretboardVisible = true;
   bool _isTheoryExpanded = false;
   bool _isPathwaysExpanded = false;
   bool _isFormattingExpanded = false;
   bool _isTabExpanded = true;
-
   final Set<int> _activeMidiNotes = {};
   final ScrollController _fretboardScrollController = ScrollController();
   final ValueNotifier<Map<String, dynamic>?> _activeNoteNotifier = ValueNotifier(null);
-
   int _selectionStart = -1;
   int _selectionEnd = -1;
   int? _tapAnchorIndex;
@@ -90,7 +84,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   int _singleStringTarget = 1;
   String _customNpsProfile = "3,4,3,4,3,3";
   final TextEditingController _customNpsController = TextEditingController(text: "3,4,3,4,3,3");
-  
+
   // MANUAL ENTRY STATE
   final TextEditingController _manualTabController = TextEditingController(text: "6:5, 6:8, 5:5, 5:7");
   String _manualSelectedDuration = "16th";
@@ -113,7 +107,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   final TextEditingController _customAccentController = TextEditingController(text: "1,0,0,0");
   String _lastAutoAccentString = "1,0,0,0";
   List<String> _parsedRhythmPattern = ["16th"];
-
   String _generatedTab = "Generating tab...";
   List<List<int>> _currentSequence = [];
   List<LickPreset> _savedPresets = [];
@@ -308,12 +301,10 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       if (_selectedRhythmPattern != "Custom Pattern") {
         setState(() { _selectedRhythmPattern = "Custom Pattern"; });
       }
-
       List<List<int>> currentSeq = _parseManualTab(_manualTabController.text);
       List<String> currentRhythms = _customRhythmController.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
       
       while(currentRhythms.length < currentSeq.length) currentRhythms.add("16th");
-
       int cursor = _selectionStart != -1 ? max(_selectionStart, _selectionEnd) : currentSeq.length;
       
       if (cursor >= currentSeq.length) {
@@ -325,7 +316,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         currentRhythms[cursor] = _manualSelectedDuration;
         cursor++; 
       }
-
       _manualTabController.text = currentSeq.map((n) => n[0] == -1 ? "R" : "${n[0]}:${n[1]}").join(", ");
       _customRhythmController.text = currentRhythms.join(",");
       
@@ -348,7 +338,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     List<List<int>> currentSeq = _parseManualTab(_manualTabController.text);
     List<String> currentRhythms = _customRhythmController.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
     while(currentRhythms.length < currentSeq.length) currentRhythms.add("16th");
-
     int cursor = _selectionStart != -1 ? max(_selectionStart, _selectionEnd) : currentSeq.length;
     if (cursor >= currentSeq.length) {
       currentSeq.add([-1, -1]);
@@ -383,7 +372,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     }
     
     int count = endIdx - startIdx + 1;
-
     showModalBottomSheet(context: context, builder: (c) {
       return SafeArea(
         child: Column(
@@ -683,10 +671,8 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     if (preset.system == "Manual Entry") {
       return _parseManualTab(preset.manualTabString);
     }
-
     int safeStartFret = preset.startFret.clamp(0, 24);
     int safeSingleTarget = (int.tryParse(preset.fragment) ?? 1).clamp(1, 6);
-
     int stStr = 6, enStr = 1;
     if (preset.system != "Single String Horizontal") {
       if (preset.fragment.contains('-') && !preset.fragment.contains('Strings')) {
@@ -811,7 +797,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     for (int i = 0; i < _endRests; i++) _currentSequence.add([-1, -1]);
     
     int calculatedNotesPerMeasure = _calculateNotesPerMeasure();
-
     if (_isAutoAccent(_customAccentController.text)) {
       List<String> newAccentList = List.generate(_dynamicBeatsPerMeasure, (i) => i == 0 ? "1" : "0");
       String newAccentStr = newAccentList.join(",");
@@ -819,7 +804,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         _customAccentController.text = newAccentStr;
       }
     }
-
     setState(() {
       _generatedTab = _engine.renderAsciiTab(
         _currentSequence,
@@ -855,7 +839,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     _playbackToken++;
     final int currentToken = _playbackToken;
     bool isPreview = presetId != null;
-
     if (overrideInstrument != null && overrideInstrument != _selectedInstrumentIndex) {
       await _midiPro.loadSoundfont(sf2Path: 'assets/guitar.sf2', instrumentIndex: overrideInstrument);
     }
@@ -868,7 +851,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         _isPlaying = true;
       }
     });
-
     _midiPro.playMidiNote(midi: 12, velocity: 1);
     await Future.delayed(const Duration(milliseconds: 150));
     _midiPro.stopMidiNote(midi: 12);
@@ -890,10 +872,10 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     
     do {
       for (int i = startIdx; i <= endIdx; i++) {
-        if (!mounted || _playbackToken != currentToken || (isPreview && !_isPreviewPlaying) || (!isPreview && !_isPlaying)) { 
-           _stopPlayback(); 
-           return; 
-        }
+        if (!mounted || _playbackToken != currentToken || (isPreview && !_isPreviewPlaying) || (!isPreview && !_isPlaying)) {
+            _stopPlayback();
+            return;
+         }
         
         var note = seqToPlay[i];
         int pitch = -1;
@@ -1041,14 +1023,14 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                         onScaleChanged: (v) => setState(() { _selectedScale = v!; _generateTab(); }),
                         onTuningChanged: (v) => setState(() { _selectedTuning = v!; _generateTab(); }),
                         onSystemChanged: (v) => setState(() { 
-                          _selectedSystem = v!; 
-                          if (_selectedSystem == "Manual Entry") {
+                           _selectedSystem = v!; 
+                           if (_selectedSystem == "Manual Entry") {
                             _isFretboardVisible = true;
                             _isTabExpanded = true;
                           }
                           _clearSelection(); 
-                          _generateTab(); 
-                        }),
+                           _generateTab(); 
+                         }),
                         onSingleStringTargetChanged: (v) => setState(() { _singleStringTarget = int.parse(v!); _generateTab(); }),
                         onStartStringChanged: (v) => setState(() { _startString = int.parse(v!); _generateTab(); }),
                         onEndStringChanged: (v) => setState(() { _endString = int.parse(v!); _generateTab(); }),
@@ -1180,17 +1162,29 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
             isPreviewPlaying: _isPreviewPlaying,
             isPreviewLooping: _isPreviewLooping,
             onPlayPreview: (preset) {
+              final (healedPreset, issues) = PresetSanitizer.validateAndSanitize(preset);
+
+              if (issues.isNotEmpty && mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text("Auto-aligned preset parameters: ${issues.map((i) => i.message).join(' ')}"),
+                    duration: const Duration(seconds: 3),
+                    backgroundColor: Colors.amber.shade900,
+                  ),
+                );
+              }
+
               _playLick(
-                overrideSequence: _buildSequenceForPreset(preset),
-                overrideTempo: preset.tempo,
-                overrideRhythm: preset.rhythm,
-                overrideCustomRhythm: preset.customRhythmString,
-                overrideAccentPattern: preset.customAccentString,
-                overrideTuning: preset.tuning,
-                overrideKey: preset.key,
-                overrideScale: preset.scale,
-                overrideInstrument: preset.instrumentIndex,
-                presetId: preset.id,
+                overrideSequence: _buildSequenceForPreset(healedPreset),
+                overrideTempo: healedPreset.tempo,
+                overrideRhythm: healedPreset.rhythm,
+                overrideCustomRhythm: healedPreset.customRhythmString,
+                overrideAccentPattern: healedPreset.customAccentString,
+                overrideTuning: healedPreset.tuning,
+                overrideKey: healedPreset.key,
+                overrideScale: healedPreset.scale,
+                overrideInstrument: healedPreset.instrumentIndex,
+                presetId: healedPreset.id,
               );
             },
             onStopPreview: _stopPlayback,
@@ -1200,7 +1194,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
               _savedPresets.removeWhere((p) => ids.contains(p.id));
               if (ids.contains(_previewPresetId)) { _stopPlayback(); _previewPresetId = null; }
               _savePresetsToDisk(); 
-            }),
+             }),
             onRenamePreset: (id, name) => setState(() {
               var idx = _savedPresets.indexWhere((p) => p.id == id);
               if (idx != -1) {
