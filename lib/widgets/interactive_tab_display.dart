@@ -106,10 +106,27 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
         int fret = note[1];
 
         bool isPlaying = (noteIndex == widget.currentPlayingIndex);
+
+        // Highlight extension check for inserted rests
+        int effectiveEnd = (widget.selectionStart != -1 && widget.selectionEnd != -1) 
+            ? max(widget.selectionStart, widget.selectionEnd) 
+            : -1;
+
+        if (effectiveEnd != -1 && noteIndex > effectiveEnd && targetStr == -1) {
+            bool allRests = true;
+            for (int r = effectiveEnd + 1; r <= noteIndex; r++) {
+                if (r < widget.sequence.length && widget.sequence[r][0] != -1) {
+                    allRests = false;
+                    break;
+                }
+            }
+            if (allRests) effectiveEnd = noteIndex;
+        }
+
         bool isSelected = (widget.selectionStart != -1 &&
-            widget.selectionEnd != -1 &&
-            noteIndex >= widget.selectionStart &&
-            noteIndex <= widget.selectionEnd);
+            effectiveEnd != -1 &&
+            noteIndex >= min(widget.selectionStart, widget.selectionEnd) &&
+            noteIndex <= effectiveEnd);
 
         bool isMeasureEnd = (noteIndex + 1) % widget.notesPerMeasure == 0;
         int colWidth = (targetStr != -1 && fret >= 10) ? 4 : 3;

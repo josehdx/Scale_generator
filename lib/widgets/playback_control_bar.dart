@@ -2,12 +2,11 @@ import 'package:flutter/material.dart';
 import '../models/gp_track.dart';
 
 /// A reusable playback toolbar used by both the main Tab Studio and the GP Viewer.
-///
 /// All GP-Viewer-specific parameters ([isPaused], [gpLoopMode], [onCycleLoopMode])
 /// are optional and default to inert values so the main-studio call site requires
 /// zero changes.
 class PlaybackControlBar extends StatelessWidget {
-  // ── Core params (used by main studio + GP viewer) ─────────────────────────
+  // --- Core params (used by main studio + GP viewer) ---
   final bool isPlaying;
   final bool isMidiReady;
   final bool isLooping;
@@ -15,7 +14,6 @@ class PlaybackControlBar extends StatelessWidget {
   final bool hasSelection;
   final int selectionStart;
   final int selectionEnd;
-
   final VoidCallback onPlay;
   final VoidCallback onStop;
   final VoidCallback onToggleLoop;
@@ -23,17 +21,16 @@ class PlaybackControlBar extends StatelessWidget {
   final VoidCallback onCopy;
   final VoidCallback onClearSelection;
 
-  // ── GP Viewer extensions (all optional, backward-compatible) ──────────────
-
+  // --- GP Viewer extensions (all optional, backward-compatible) ---
   /// True when playback has been paused mid-track (position preserved).
   final bool isPaused;
 
   /// When non-null the bar renders in GP-viewer mode:
-  /// • Play/Pause/Resume button with pause semantics.
-  /// • 3-state loop icon (off → all → selection).
+  /// - Play/Pause/Resume button with pause semantics.
+  /// - 3-state loop icon (off -> all -> selection).
   final LoopMode? gpLoopMode;
 
-  /// Callback that cycles [gpLoopMode] through off → all → selection → off.
+  /// Callback that cycles [gpLoopMode] through off -> all -> selection -> off.
   /// Required when [gpLoopMode] is non-null.
   final VoidCallback? onCycleLoopMode;
 
@@ -78,7 +75,7 @@ class PlaybackControlBar extends StatelessWidget {
     this.onEndRestsChanged,
   });
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  // --- Helpers ---
 
   /// Icon for the current [LoopMode].
   IconData _loopIcon(LoopMode mode) {
@@ -108,18 +105,19 @@ class PlaybackControlBar extends StatelessWidget {
   String _loopTooltip(LoopMode mode) {
     switch (mode) {
       case LoopMode.off:
-        return 'Loop: OFF  (tap → Loop All)';
+        return 'Loop: OFF  (tap = Loop All)';
       case LoopMode.all:
-        return 'Loop: ALL  (tap → Loop Selection)';
+        return 'Loop: ALL  (tap = Loop Selection)';
       case LoopMode.selection:
-        return 'Loop: SELECTION  (tap → Loop Off)';
+        return 'Loop: SELECTION  (tap = Loop Off)';
     }
   }
 
-  // ── Build ─────────────────────────────────────────────────────────────────
+  // --- Build ---
 
   void _showSpeedDialog(BuildContext context) {
     if (onSpeedChanged == null) return;
+
     double current = speedMultiplier ?? 1.0;
     showModalBottomSheet(
       context: context,
@@ -235,6 +233,17 @@ class PlaybackControlBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool gpMode = gpLoopMode != null;
+    
+    String playLabel;
+    if (hasSelection) {
+      if (selectionStart == selectionEnd) {
+        playLabel = 'Play from here';
+      } else {
+        playLabel = 'Play selected group';
+      }
+    } else {
+      playLabel = 'Play';
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
@@ -246,20 +255,26 @@ class PlaybackControlBar extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // ── Rewind Button (reset to note 0) ─────────────────────────
+                // --- Rewind Button (reset to note 0, double-tap to deselect) ---
                 if (onRewind != null) ...[
-                  IconButton(
-                    icon: const Icon(Icons.first_page),
-                    color: Colors.white,
-                    tooltip: 'Rewind to Beginning',
-                    onPressed: onRewind,
+                  Tooltip(
+                    message: 'Rewind to Beginning (Double-tap to clear selection)',
+                    child: InkWell(
+                      onTap: onRewind,
+                      onDoubleTap: onClearSelection,
+                      borderRadius: BorderRadius.circular(20),
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                        child: Icon(Icons.first_page, color: Colors.white, size: 26),
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 4),
                 ],
 
-                // ── Play / Pause / Resume / Stop ────────────────────────────
+                // --- Play / Pause / Resume / Stop ---
                 if (isPlaying)
-                  // GP mode → Pause; legacy mode → Stop
+                  // GP mode = Pause; legacy mode = Stop
                   ElevatedButton.icon(
                     onPressed: gpMode ? onPlay : onStop,
                     icon: Icon(gpMode ? Icons.pause : Icons.stop),
@@ -283,7 +298,7 @@ class PlaybackControlBar extends StatelessWidget {
                   ElevatedButton.icon(
                     onPressed: (isMidiReady && hasSequence) ? onPlay : null,
                     icon: const Icon(Icons.play_arrow),
-                    label: Text(hasSelection ? 'Play Selection' : 'Play'),
+                    label: Text(playLabel),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
@@ -292,7 +307,7 @@ class PlaybackControlBar extends StatelessWidget {
 
                 const SizedBox(width: 4),
 
-                // ── Stop (GP mode only — separate from Pause) ───────────────
+                // --- Stop (GP mode only = separate from Pause) ---
                 if (gpMode)
                   IconButton(
                     icon: const Icon(Icons.stop_circle_outlined),
@@ -300,10 +315,9 @@ class PlaybackControlBar extends StatelessWidget {
                     tooltip: 'Stop & Reset',
                     onPressed: onStop,
                   ),
-
                 const SizedBox(width: 4),
 
-                // ── Loop toggle ──────────────────────────────────────────────
+                // --- Loop toggle ---
                 if (gpMode)
                   IconButton(
                     icon: Icon(_loopIcon(gpLoopMode!),
@@ -319,7 +333,7 @@ class PlaybackControlBar extends StatelessWidget {
                     onPressed: onToggleLoop,
                   ),
 
-                // ── Speed Multiplier Button ─────────────────────────────────
+                // --- Speed Multiplier Button ---
                 if (speedMultiplier != null) ...[
                   const SizedBox(width: 4),
                   InkWell(
@@ -358,7 +372,7 @@ class PlaybackControlBar extends StatelessWidget {
                   ),
                 ],
 
-                // ── Studio-only actions (hidden in GP mode) ──────────────────
+                // --- Studio-only actions (hidden in GP mode) ---
                 if (!gpMode) ...[
                   IconButton(
                     icon: const Icon(Icons.bookmark_add),
@@ -375,12 +389,12 @@ class PlaybackControlBar extends StatelessWidget {
             ),
           ),
 
-          // ── Loop mode label (GP mode) ──────────────────────────────────────
+          // --- Loop mode label (GP mode) ---
           if (gpMode && gpLoopMode != LoopMode.off)
             Padding(
               padding: const EdgeInsets.only(top: 2.0),
               child: Text(
-                gpLoopMode == LoopMode.all ? '⟳  Loop All' : '⟳  Loop Selection',
+                gpLoopMode == LoopMode.all ? '• Loop All' : '• Loop Selection',
                 style: TextStyle(
                   fontSize: 10,
                   color: _loopColor(gpLoopMode!),
@@ -389,7 +403,7 @@ class PlaybackControlBar extends StatelessWidget {
               ),
             ),
 
-          // ── Selection range indicator & Rest controls ──────────────────────
+          // --- Selection range indicator & Rest controls ---
           if (hasSelection)
             Padding(
               padding: const EdgeInsets.only(top: 2.0),
@@ -397,14 +411,14 @@ class PlaybackControlBar extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    'Selected Notes: ${selectionStart + 1} – ${selectionEnd + 1}',
+                    'Selected Notes: ${selectionStart + 1} - ${selectionEnd + 1}',
                     style: const TextStyle(
                         fontSize: 11, color: Colors.cyanAccent),
                   ),
                   if (onEndRestsChanged != null) ...[
                     const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
                         color: Colors.grey.shade800,
                         borderRadius: BorderRadius.circular(8),
@@ -413,32 +427,36 @@ class PlaybackControlBar extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           const Text('Rests: ', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                          Text(
-                            '${endRests ?? 0}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.amberAccent,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
                           GestureDetector(
                             onTap: (endRests ?? 0) > 0
                                 ? () => onEndRestsChanged!((endRests ?? 0) - 1)
                                 : null,
-                            child: Icon(
-                              Icons.remove_circle_outline,
-                              size: 14,
-                              color: (endRests ?? 0) > 0 ? Colors.white70 : Colors.white24,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                              child: Icon(
+                                Icons.remove_circle_outline,
+                                size: 16,
+                                color: (endRests ?? 0) > 0 ? Colors.white70 : Colors.white24,
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 4),
+                          Text(
+                            '${endRests ?? 0}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.amberAccent,
+                            ),
+                          ),
                           GestureDetector(
                             onTap: () => onEndRestsChanged!((endRests ?? 0) + 1),
-                            child: const Icon(
-                              Icons.add_circle_outline,
-                              size: 14,
-                              color: Colors.white70,
+                            child: const Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                              child: Icon(
+                                Icons.add_circle_outline,
+                                size: 16,
+                                color: Colors.white70,
+                              ),
                             ),
                           ),
                         ],

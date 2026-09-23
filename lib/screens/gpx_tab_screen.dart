@@ -2,11 +2,13 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:archive/archive.dart';
-import 'package:xml/xml.dart';
 import 'package:flutter_midi_pro/flutter_midi_pro.dart';
 
 import '../models/gp_track.dart';
+import '../services/gpx_parser_service.dart';
+import '../services/recent_files_service.dart';
+import '../widgets/gpx_viewer/gpx_track_menu.dart';
+import '../widgets/gpx_viewer/gpx_recent_files_view.dart';
 import '../widgets/interactive_tab_display.dart';
 import '../widgets/playback_control_bar.dart';
 
@@ -17,16 +19,26 @@ class GpxTabScreen extends StatefulWidget {
   State<GpxTabScreen> createState() => _GpxTabScreenState();
 }
 
-class _GpxTabScreenState extends State<GpxTabScreen> {
+class _GpxTabScreenState extends State<GpxTabScreen>
+    with AutomaticKeepAliveClientMixin {
+  // Preserve state when switching tabs
+  @override
+  bool get wantKeepAlive => true;
+
   // File / Song metadata
   String? _fileName;
   String _songTitle = '';
   String _artist = '';
   bool _isLoading = false;
 
-  // Track data
+  // Track data & Solo/Mute States
   List<GpTrack> _tracks = [];
   int _selectedTrackIndex = 0;
+  Set<int> _soloedTracks = {};
+  Set<int> _mutedTracks = {};
+
+  // Recent Files
+  List<Map<String, String>> _recentFiles = [];
 
   // Dynamic Rests & Speed
   int _endRests = 0;
@@ -34,13 +46,15 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
 
   List<List<int>> get _parsedSequence {
     if (_tracks.isEmpty) return [];
-    final List<List<int>> baseNotes = List<List<int>>.from(_tracks[_selectedTrackIndex].notes);
+    final List<List<int>> baseNotes =
+        List<List<int>>.from(_tracks[_selectedTrackIndex].notes);
 
     if (_endRests > 0) {
       if (_selectionStart != -1 && _selectionEnd != -1) {
         int insertIdx = max(_selectionStart, _selectionEnd) + 1;
         insertIdx = insertIdx.clamp(0, baseNotes.length);
-        baseNotes.insertAll(insertIdx, List.generate(_endRests, (_) => [-1, -1]));
+        baseNotes.insertAll(
+            insertIdx, List.generate(_endRests, (_) => [-1, -1]));
       } else {
         baseNotes.addAll(List.generate(_endRests, (_) => [-1, -1]));
       }
@@ -50,13 +64,15 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
 
   List<double> get _parsedRhythms {
     if (_tracks.isEmpty) return [];
-    final List<double> baseRhythms = List<double>.from(_tracks[_selectedTrackIndex].rhythms);
+    final List<double> baseRhythms =
+        List<double>.from(_tracks[_selectedTrackIndex].rhythms);
 
     if (_endRests > 0) {
       if (_selectionStart != -1 && _selectionEnd != -1) {
         int insertIdx = max(_selectionStart, _selectionEnd) + 1;
         insertIdx = insertIdx.clamp(0, baseRhythms.length);
-        baseRhythms.insertAll(insertIdx, List.generate(_endRests, (_) => 0.25));
+        baseRhythms.insertAll(
+            insertIdx, List.generate(_endRests, (_) => 0.25));
       } else {
         baseRhythms.addAll(List.generate(_endRests, (_) => 0.25));
       }
@@ -96,6 +112,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
   void initState() {
     super.initState();
     _loadSoundFont();
+    _loadRecentFiles();
   }
 
   @override
@@ -114,127 +131,101 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Recent Files
+  // ---------------------------------------------------------------------------
+
+  Future<void> _loadRecentFiles() async {
+    final files = await RecentFilesService.load();
+    if (mounted) setState(() => _recentFiles = files);
+  }
+
+  Future<void> _addRecentFile(String name, String path) async {
+    final updated = await RecentFilesService.add(_recentFiles, name, path);
+    if (mounted) setState(() => _recentFiles = updated);
+  }
+
+  Future<void> _removeRecentFile(String path) async {
+    final updated = await RecentFilesService.remove(_recentFiles, path);
+    if (mounted) setState(() => _recentFiles = updated);
+  }
+
+  Future<void> _openRecentFile(String name, String path) async {
+    _stopPlayback(resetPosition: true);
+    final file = File(path);
+    if (!await file.exists()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('File not found. It may have been moved or deleted.'),
+          backgroundColor: Colors.redAccent,
+        ));
+      }
+      _removeRecentFile(path);
+      return;
+    }
+    await _processFile(name, path, null);
+  }
+
+  // ---------------------------------------------------------------------------
+  // GP Parsing
+  // ---------------------------------------------------------------------------
+
   Future<void> _pickAndParseGp() async {
+    _stopPlayback(resetPosition: true);
+
+    final FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+      withData: true,
+    );
+
+    if (result == null || result.files.isEmpty) return;
+
+    final file = result.files.single;
+    if (!file.name.toLowerCase().endsWith('.gp')) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Invalid file type. Please select a Guitar Pro 7/8 (.gp) file.'),
+          backgroundColor: Colors.redAccent,
+        ));
+      }
+      return;
+    }
+
+    await _processFile(file.name, file.path, file.bytes);
+  }
+
+  Future<void> _processFile(
+      String name, String? path, List<int>? bytesData) async {
+    setState(() {
+      _isLoading = true;
+      _fileName = name;
+      _songTitle = '';
+      _artist = '';
+      _tracks = [];
+      _selectedTrackIndex = 0;
+      _soloedTracks = {0}; // Default: solo the first instrument
+      _mutedTracks = {};
+      _currentPlayingIndex = -1;
+      _selectionStart = -1;
+      _selectionEnd = -1;
+      _tapAnchorIndex = null;
+    });
+
     try {
-      _stopPlayback(resetPosition: true);
+      final score = await GpxParserService.parseGpFile(path, bytesData);
 
-      final FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.any,
-        withData: true,
-      );
-
-      if (result == null || result.files.isEmpty) return;
-
-      if (!result.files.single.name.toLowerCase().endsWith('.gp')) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text(
-                'Invalid file type. Please select a Guitar Pro 7/8 (.gp) file.'),
-            backgroundColor: Colors.redAccent,
-          ));
-        }
-        return;
+      if (path != null) {
+        await _addRecentFile(name, path);
       }
 
       setState(() {
-        _isLoading = true;
-        _fileName = result.files.single.name;
-        _songTitle = '';
-        _artist = '';
-        _tracks = [];
+        _songTitle = score.title;
+        _artist = score.artist;
+        _tracks = score.tracks;
         _selectedTrackIndex = 0;
-        _currentPlayingIndex = -1;
-        _selectionStart = -1;
-        _selectionEnd = -1;
-        _tapAnchorIndex = null;
-      });
-
-      final List<int> bytes;
-      try {
-        if (result.files.single.path != null) {
-          bytes = await File(result.files.single.path!).readAsBytes();
-        } else if (result.files.single.bytes != null) {
-          bytes = result.files.single.bytes!;
-        } else {
-          throw Exception('Could not read file data.');
-        }
-      } catch (e) {
-        throw Exception('Failed to read file from storage: $e');
-      }
-
-      final Archive archive;
-      try {
-        archive = ZipDecoder().decodeBytes(bytes);
-      } on FormatException {
-        throw Exception(
-            'Invalid GP format. Ensure you are using a Guitar Pro 7/8 (.gp) '
-            'file, not an older .gpx or .gp5 file.');
-      } catch (e) {
-        throw Exception('Could not unzip file: $e');
-      }
-
-      ArchiveFile? gpifFile;
-      for (final file in archive) {
-        final String baseName = file.name.split('/').last.toLowerCase();
-        if (baseName == 'score.gpif' || baseName == 'main.xml') {
-          gpifFile = file;
-          break;
-        }
-      }
-
-      if (gpifFile == null) {
-        throw Exception(
-            'Invalid .gp file: Could not find score.gpif or main.xml inside the archive.');
-      }
-
-      final String gpifContent =
-          String.fromCharCodes(gpifFile.content as List<int>);
-      final XmlDocument document = XmlDocument.parse(gpifContent);
-
-      final String title =
-          document.findAllElements('Title').firstOrNull?.innerText ??
-              'Unknown Title';
-      final String artist =
-          document.findAllElements('Artist').firstOrNull?.innerText ??
-              'Unknown Artist';
-
-      int notesPerMeasure = 16;
-      final String? firstTime = document
-          .findAllElements('MasterBar')
-          .firstOrNull
-          ?.findElements('Time')
-          .firstOrNull
-          ?.innerText;
-
-      if (firstTime != null) {
-        final List<String> parts = firstTime.split('/');
-        if (parts.length == 2) {
-          final int? num = int.tryParse(parts[0]);
-          if (num != null && num > 0) notesPerMeasure = num * 4;
-        }
-      }
-
-      int parsedTempo = 120;
-      final tempoElem = document.findAllElements('Automation').where(
-        (e) => e.findElements('Type').firstOrNull?.innerText == 'Tempo'
-      ).firstOrNull?.findElements('Value').firstOrNull?.innerText;
-      
-      if (tempoElem != null) {
-        final parts = tempoElem.split(' ');
-        if (parts.isNotEmpty) {
-          parsedTempo = int.tryParse(parts[0]) ?? 120;
-        }
-      }
-
-      final List<GpTrack> parsedTracks = _parseTracksFromDocument(document);
-
-      setState(() {
-        _songTitle = title;
-        _artist = artist;
-        _tracks = parsedTracks;
-        _selectedTrackIndex = 0;
-        _notesPerMeasure = notesPerMeasure;
-        _tempo = parsedTempo;
+        _notesPerMeasure = score.notesPerMeasure;
+        _tempo = score.tempo;
         _isLoading = false;
       });
     } catch (e) {
@@ -247,199 +238,23 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
     }
   }
 
-  List<GpTrack> _parseTracksFromDocument(XmlDocument document) {
-    final List<XmlElement> trackElements =
-        document.findAllElements('Track').toList();
-    final List<String> trackNames = trackElements
-        .map((t) =>
-            t.findElements('Name').firstOrNull?.innerText.trim() ?? 'Track')
-        .toList();
-
-    if (trackNames.isEmpty) trackNames.add('All Tracks');
-
-    final Map<String, double> rhythmMap = {};
-    final Map<String, bool> rhythmIs8th = {};
-    final rhythmsElement = document.findAllElements('Rhythms').firstOrNull;
-
-    if (rhythmsElement != null) {
-      for (final rhythm in rhythmsElement.findAllElements('Rhythm')) {
-        final id = rhythm.getAttribute('id') ?? '';
-        final noteVal = rhythm.findElements('NoteValue').firstOrNull?.innerText ?? 'Quarter';
-        
-        double val = 1.0;
-        switch (noteVal) {
-          case 'Whole': val = 4.0; break;
-          case 'Half': val = 2.0; break;
-          case 'Quarter': val = 1.0; break;
-          case '8th':
-          case 'Eighth': val = 0.5; break;
-          case '16th': val = 0.25; break;
-          case '32nd': val = 0.125; break;
-          case '64th': val = 0.0625; break;
-          default: val = 1.0;
-        }
-
-        final dot = rhythm.findElements('AugmentationDot').firstOrNull?.getAttribute('count');
-        final bool hasDot = dot != null && dot.isNotEmpty;
-        if (dot == '1') val *= 1.5;
-        if (dot == '2') val *= 1.75;
-
-        final tuplet = rhythm.findElements('PrimaryTuplet').firstOrNull;
-        final bool hasTuplet = tuplet != null;
-        if (tuplet != null) {
-          final numStr = tuplet.getAttribute('num') ?? '3';
-          final denStr = tuplet.getAttribute('den') ?? '2';
-          val *= (int.parse(denStr) / int.parse(numStr));
-        }
-
-        rhythmMap[id] = val;
-        rhythmIs8th[id] = (noteVal == '8th' || noteVal == 'Eighth') && !hasDot && !hasTuplet;
-      }
-    }
-
-    final Map<String, List<int>> noteIdToNote = {};
-    for (final XmlElement note in document.findAllElements('Note')) {
-      final String id = note.getAttribute('id') ?? '';
-      if (id.isEmpty) continue;
-
-      final XmlElement? strNode = note.findAllElements('String').firstOrNull ?? note.findAllElements('Str').firstOrNull;
-      final XmlElement? fretNode = note.findAllElements('Fret').firstOrNull ?? note.findAllElements('FretNum').firstOrNull;
-      if (strNode == null || fretNode == null) continue;
-
-      final int? stringNum = int.tryParse(strNode.innerText.trim());
-      final int? fretNum = int.tryParse(fretNode.innerText.trim());
-      if (stringNum == null || fretNum == null) continue;
-
-      final int displayString = stringNum + 1;
-      if (displayString >= 1 && displayString <= 8) {
-        noteIdToNote[id] = [displayString, fretNum];
-      }
-    }
-
-    final Map<String, dynamic> beatIdToBeat = {};
-    for (final XmlElement beat in document.findAllElements('Beat')) {
-      final String id = beat.getAttribute('id') ?? '';
-      if (id.isEmpty) continue;
-      
-      final String rhythmRef = beat.findElements('Rhythm').firstOrNull?.getAttribute('ref') ?? '';
-      final double beatDuration = rhythmMap[rhythmRef] ?? 1.0;
-      final bool is8th = rhythmIs8th[rhythmRef] ?? false;
-      
-      final String notesText = beat.findElements('Notes').firstOrNull?.innerText ?? '';
-      final List<List<int>> notes = notesText
-          .trim()
-          .split(' ')
-          .where((s) => s.isNotEmpty && noteIdToNote.containsKey(s))
-          .map((nid) => noteIdToNote[nid]!)
-          .toList();
-          
-      if (notes.isEmpty) {
-        notes.add([-1, -1]); // Rest
-      }
-      
-      beatIdToBeat[id] = {'notes': notes, 'rhythm': beatDuration, 'is8th': is8th};
-    }
-
-    final Map<String, List<dynamic>> voiceIdToBeats = {};
-    for (final XmlElement voice in document.findAllElements('Voice')) {
-      final String id = voice.getAttribute('id') ?? '';
-      if (id.isEmpty) continue;
-
-      final String beatsText = voice.findElements('Beats').firstOrNull?.innerText ?? '';
-      final List<dynamic> beats = [];
-      for (final String bid in beatsText.trim().split(' ').where((s) => s.isNotEmpty)) {
-        if (beatIdToBeat.containsKey(bid)) {
-          beats.add(beatIdToBeat[bid]);
-        }
-      }
-      voiceIdToBeats[id] = beats;
-    }
-
-    final Map<String, List<dynamic>> barIdToBeats = {};
-    final Map<String, bool> barShuffleMap = {};
-    for (final XmlElement bar in document.findAllElements('Bar')) {
-      final String id = bar.getAttribute('id') ?? '';
-      if (id.isEmpty) continue;
-
-      final String tf = bar.findElements('TripletFeel').firstOrNull?.innerText.toLowerCase() ?? '';
-      final String sh = bar.findElements('Shuffle').firstOrNull?.innerText.toLowerCase() ?? '';
-      if (tf.contains('8th') || tf.contains('triplet') || tf.contains('shuffle') || sh.isNotEmpty) {
-        barShuffleMap[id] = true;
-      }
-
-      final String voicesText = bar.findElements('Voices').firstOrNull?.innerText ?? '';
-      final List<String> voiceIds = voicesText.trim().split(' ').where((s) => s.isNotEmpty).toList();
-      barIdToBeats[id] = voiceIds.isNotEmpty ? (voiceIdToBeats[voiceIds[0]] ?? []) : [];
-    }
-
-    final List<List<List<int>>> trackNotes = List.generate(trackNames.length, (_) => []);
-    final List<List<double>> trackRhythms = List.generate(trackNames.length, (_) => []);
-    
-    for (final XmlElement masterBar in document.findAllElements('MasterBar')) {
-      final String tf = masterBar.findElements('TripletFeel').firstOrNull?.innerText.toLowerCase() ?? '';
-      final String sh = masterBar.findElements('Shuffle').firstOrNull?.innerText.toLowerCase() ?? '';
-      final bool masterBarShuffle = tf.contains('8th') || tf.contains('triplet') || tf.contains('shuffle') || sh.isNotEmpty;
-
-      final String barsText = masterBar.findElements('Bars').firstOrNull?.innerText ?? '';
-      final List<String> barIds = barsText.trim().split(' ').where((s) => s.isNotEmpty).toList();
-
-      for (int i = 0; i < barIds.length && i < trackNotes.length; i++) {
-        final String barId = barIds[i];
-        final bool isShuffle = masterBarShuffle || (barShuffleMap[barId] == true);
-        final List<dynamic> barBeats = barIdToBeats[barId] ?? [];
-
-        int eighthIndexInBar = 0;
-        for (final beat in barBeats) {
-          final List<List<int>> beatNotes = beat['notes'];
-          double rhythm = beat['rhythm'];
-          final bool is8th = beat['is8th'] == true;
-
-          if (isShuffle && is8th) {
-            if (eighthIndexInBar % 2 == 0) {
-              rhythm = 0.5 * (4.0 / 3.0);
-            } else {
-              rhythm = 0.5 * (2.0 / 3.0);
-            }
-            eighthIndexInBar++;
-          } else if (!is8th) {
-            eighthIndexInBar += (rhythm / 0.5).round();
-          }
-
-          for (int n = 0; n < beatNotes.length; n++) {
-            trackNotes[i].add(beatNotes[n]);
-            trackRhythms[i].add(n == beatNotes.length - 1 ? rhythm : 0.0);
-          }
-        }
-      }
-    }
-
-    if (trackNotes.any((t) => t.isNotEmpty)) {
-      return [
-        for (int i = 0; i < trackNames.length; i++)
-          GpTrack(id: '$i', name: trackNames[i], notes: trackNotes[i], rhythms: trackRhythms[i]),
-      ];
-    }
-
-    final List<List<int>> flatNotes = [];
-    final List<double> flatRhythms = [];
-    for (final XmlElement note in document.findAllElements('Note')) {
-      final XmlElement? strNode = note.findAllElements('String').firstOrNull ?? note.findAllElements('Str').firstOrNull;
-      final XmlElement? fretNode = note.findAllElements('Fret').firstOrNull ?? note.findAllElements('FretNum').firstOrNull;
-      if (strNode == null || fretNode == null) continue;
-
-      final int? stringNum = int.tryParse(strNode.innerText.trim());
-      final int? fretNum = int.tryParse(fretNode.innerText.trim());
-      if (stringNum == null || fretNum == null) continue;
-
-      final int displayString = stringNum + 1;
-      if (displayString >= 1 && displayString <= 8) {
-        flatNotes.add([displayString, fretNum]);
-        flatRhythms.add(0.25);
-      }
-    }
-
-    return [GpTrack(id: '0', name: 'All Tracks', notes: flatNotes, rhythms: flatRhythms)];
+  void _closeFile() {
+    _stopPlayback(resetPosition: true);
+    setState(() {
+      _fileName = null;
+      _songTitle = '';
+      _artist = '';
+      _tracks = [];
+      _selectionStart = -1;
+      _selectionEnd = -1;
+      _tapAnchorIndex = null;
+      _currentPlayingIndex = -1;
+    });
   }
+
+  // ---------------------------------------------------------------------------
+  // Track selection & menu
+  // ---------------------------------------------------------------------------
 
   void _selectTrack(int index) {
     if (index == _selectedTrackIndex) return;
@@ -452,6 +267,41 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
     });
   }
 
+  void _showTracksMenu() {
+    showGpxTrackMenu(
+      context,
+      tracks: _tracks,
+      selectedTrackIndex: _selectedTrackIndex,
+      soloedTracks: _soloedTracks,
+      mutedTracks: _mutedTracks,
+      onSelectTrack: _selectTrack,
+      onToggleSolo: (i) {
+        setState(() {
+          if (_soloedTracks.contains(i)) {
+            _soloedTracks.remove(i);
+          } else {
+            _soloedTracks.add(i);
+            _mutedTracks.remove(i);
+          }
+        });
+      },
+      onToggleMute: (i) {
+        setState(() {
+          if (_mutedTracks.contains(i)) {
+            _mutedTracks.remove(i);
+          } else {
+            _mutedTracks.add(i);
+            _soloedTracks.remove(i);
+          }
+        });
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Playback
+  // ---------------------------------------------------------------------------
+
   void _onPlayPause() {
     if (_isPlaying) {
       _pausePlayback();
@@ -463,21 +313,30 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
   void _rewind() {
     final bool wasPlaying = _isPlaying;
     _stopPlayback(resetPosition: false);
+
+    // Force index to -1 first to guarantee a state change to InteractiveTabDisplay
     setState(() {
-      _currentPlayingIndex = 0;
+      _currentPlayingIndex = -1;
       _isPaused = false;
     });
-    if (wasPlaying) {
-      _startPlayback();
-    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        setState(() => _currentPlayingIndex = 0);
+        if (wasPlaying) {
+          _startPlayback();
+        }
+      }
+    });
   }
 
-  // FIX: Background track independent playback loop
-  Future<void> _playBackgroundTrack(int tIdx, int token, int startIdx, int endIdx) async {
+  /// Background track independent playback loop.
+  Future<void> _playBackgroundTrack(
+      int tIdx, int token, int startIdx, int endIdx) async {
     final track = _tracks[tIdx];
     final seq = track.notes;
     final rhythms = track.rhythms;
-    
+
     if (seq.isEmpty) return;
 
     int i = startIdx.clamp(0, seq.length - 1);
@@ -486,16 +345,22 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
 
     while (i <= actualEnd) {
       if (!mounted || _playbackToken != token || !_isPlaying) return;
-      
+
       if (i < seq.length) {
         final note = seq[i];
-        final double rhythmMultiplier = (i < rhythms.length) ? rhythms[i] : 0.25;
+        final double rhythmMultiplier =
+            (i < rhythms.length) ? rhythms[i] : 0.25;
         final double effectiveTempo = _tempo * _speedMultiplier;
-        final int msDelay = (rhythmMultiplier * (60000 / effectiveTempo)).round();
+        final int msDelay =
+            (rhythmMultiplier * (60000 / effectiveTempo)).round();
 
-        if (note[0] != -1) {
+        bool shouldPlay = _soloedTracks.isNotEmpty
+            ? _soloedTracks.contains(tIdx)
+            : !_mutedTracks.contains(tIdx);
+
+        if (note[0] != -1 && shouldPlay) {
           final int pitch = (_standardTuning[note[0]] ?? 40) + note[1];
-          _midiPro.playMidiNote(midi: pitch, velocity: 80); // Lower velocity for backing tracks
+          _midiPro.playMidiNote(midi: pitch, velocity: 80);
           activePitches.add(pitch);
         }
 
@@ -518,17 +383,21 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
 
     final bool isSingleNoteSelected =
         _selectionStart != -1 && _selectionStart == _selectionEnd;
-    final bool isRangeSelected =
-        _selectionStart != -1 && _selectionEnd != -1 && _selectionStart != _selectionEnd;
+    final bool isRangeSelected = _selectionStart != -1 &&
+        _selectionEnd != -1 &&
+        _selectionStart != _selectionEnd;
 
-    final int selMin = isRangeSelected ? min(_selectionStart, _selectionEnd) : _selectionStart;
-    final int selMax = isRangeSelected ? max(_selectionStart, _selectionEnd) : _selectionEnd;
+    final int selMin =
+        isRangeSelected ? min(_selectionStart, _selectionEnd) : _selectionStart;
+    final int selMax = isRangeSelected
+        ? (max(_selectionStart, _selectionEnd) + _endRests)
+        : _selectionEnd;
 
     final int startIdx;
     if (_isPaused &&
         _currentPlayingIndex >= 0 &&
         _currentPlayingIndex < seq.length) {
-      startIdx = _currentPlayingIndex; 
+      startIdx = _currentPlayingIndex;
     } else if (isSingleNoteSelected) {
       startIdx = _selectionStart.clamp(0, seq.length - 1);
     } else if (isRangeSelected) {
@@ -558,7 +427,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
             ? _selectionEnd.clamp(0, seq.length - 1)
             : seq.length - 1);
 
-    // FIX: Spawn independent timing loops for all unselected backing tracks
+    // Spawn independent timing loops for all unselected backing tracks.
     for (int tIdx = 0; tIdx < _tracks.length; tIdx++) {
       if (tIdx != _selectedTrackIndex) {
         _playBackgroundTrack(tIdx, token, startIdx, endIdx);
@@ -572,13 +441,19 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
       if (!mounted || _playbackToken != token || !_isPlaying) return;
 
       final List<int> note = seq[i];
-      final double rhythmMultiplier = (i < rhythms.length) ? rhythms[i] : 0.25;
+      final double rhythmMultiplier =
+          (i < rhythms.length) ? rhythms[i] : 0.25;
       final double effectiveTempo = _tempo * _speedMultiplier;
-      final int msDelay = (rhythmMultiplier * (60000 / effectiveTempo)).round();
+      final int msDelay =
+          (rhythmMultiplier * (60000 / effectiveTempo)).round();
 
       if (mounted) setState(() => _currentPlayingIndex = i);
 
-      if (note[0] != -1) {
+      bool shouldPlayMain = _soloedTracks.isNotEmpty
+          ? _soloedTracks.contains(_selectedTrackIndex)
+          : !_mutedTracks.contains(_selectedTrackIndex);
+
+      if (note[0] != -1 && shouldPlayMain) {
         final int pitch = (_standardTuning[note[0]] ?? 40) + note[1];
         _midiPro.playMidiNote(midi: pitch, velocity: 110);
         activePitches.add(pitch);
@@ -615,13 +490,13 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
             break;
         }
 
-        // IF LOOPING: Restart background tracks at the same time
+        // Restart background tracks when looping.
         if (_loopMode != LoopMode.off) {
-           for (int tIdx = 0; tIdx < _tracks.length; tIdx++) {
-             if (tIdx != _selectedTrackIndex) {
-               _playBackgroundTrack(tIdx, token, i, endIdx);
-             }
-           }
+          for (int tIdx = 0; tIdx < _tracks.length; tIdx++) {
+            if (tIdx != _selectedTrackIndex) {
+              _playBackgroundTrack(tIdx, token, i, endIdx);
+            }
+          }
         }
       }
     }
@@ -635,14 +510,24 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
     });
   }
 
-  void _stopPlayback({bool resetPosition = false}) {
+  void _stopPlayback({bool resetPosition = true}) {
     _playbackToken++;
     _isPaused = false;
+
     if (mounted) {
       setState(() {
         _isPlaying = false;
-        if (resetPosition) _currentPlayingIndex = -1;
+        if (resetPosition) {
+          _currentPlayingIndex = -1;
+        }
       });
+
+      // If we have a selection, snap the playhead back to it after the frame.
+      if (resetPosition && _selectionStart != -1) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() => _currentPlayingIndex = _selectionStart);
+        });
+      }
     }
     _midiPro.loadSoundfont(sf2Path: 'assets/guitar.sf2', instrumentIndex: 27);
   }
@@ -688,11 +573,27 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
       _selectionStart = -1;
       _selectionEnd = -1;
       _tapAnchorIndex = null;
+      if (!_isPlaying) {
+        _currentPlayingIndex = -1;
+      }
     });
+
+    if (!_isPlaying) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _parsedSequence.isNotEmpty) {
+          setState(() => _currentPlayingIndex = 0);
+        }
+      });
+    }
   }
+
+  // ---------------------------------------------------------------------------
+  // Build
+  // ---------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final List<List<int>> seq = _parsedSequence;
     final bool hasFile = _fileName != null && !_isLoading;
     final bool hasSelection = _selectionStart != -1 && _selectionEnd != -1;
@@ -714,18 +615,47 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
                 ),
                 if (hasFile) ...[
                   const SizedBox(height: 6),
-                  Text(
-                    _songTitle.isNotEmpty ? '$_songTitle - $_artist' : _artist,
-                    style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blueAccent),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    _fileName!,
-                    style: const TextStyle(fontSize: 11, color: Colors.grey),
-                    overflow: TextOverflow.ellipsis,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _songTitle.isNotEmpty
+                                  ? '$_songTitle - $_artist'
+                                  : _artist,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blueAccent,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              _fileName!,
+                              style: const TextStyle(
+                                  fontSize: 11, color: Colors.grey),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (_tracks.isNotEmpty)
+                        IconButton(
+                          icon: const Icon(Icons.tune,
+                              color: Colors.amberAccent),
+                          tooltip: 'Tracks & Instruments',
+                          onPressed: _showTracksMenu,
+                        ),
+                      IconButton(
+                        icon: const Icon(Icons.close,
+                            color: Colors.redAccent),
+                        tooltip: 'Close File',
+                        onPressed: _closeFile,
+                      ),
+                    ],
                   ),
                 ],
               ],
@@ -736,46 +666,14 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
             const Expanded(
                 child: Center(child: CircularProgressIndicator()))
           else if (!hasFile)
-            const Expanded(
-              child: Center(
-                child: Text(
-                  'No GP file loaded yet.\nTap "Open .gp File" to start.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey, fontSize: 14),
-                ),
+            Expanded(
+              child: GpxRecentFilesView(
+                recentFiles: _recentFiles,
+                onOpen: _openRecentFile,
+                onRemove: _removeRecentFile,
               ),
             )
           else ...[
-            if (_tracks.length > 1) ...[
-              SizedBox(
-                height: 38,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  itemCount: _tracks.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 6),
-                  itemBuilder: (ctx, i) {
-                    final bool selected = _selectedTrackIndex == i;
-                    return ChoiceChip(
-                      label: Text(
-                        _tracks[i].name,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: selected
-                              ? Colors.white
-                              : Colors.grey.shade300,
-                        ),
-                      ),
-                      selected: selected,
-                      onSelected: (_) => _selectTrack(i),
-                      selectedColor: Colors.blueAccent,
-                      backgroundColor: Colors.grey.shade800,
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 6),
-            ],
             Expanded(
               child: seq.isEmpty
                   ? Center(
@@ -801,6 +699,8 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
             ),
             Container(
               color: const Color(0xFF1A1A1A),
+              padding: const EdgeInsets.only(
+                  bottom: 24.0), // Padding to clear virtual element
               child: PlaybackControlBar(
                 isPlaying: _isPlaying,
                 isMidiReady: _isMidiReady,
@@ -812,8 +712,8 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
                 onPlay: _onPlayPause,
                 onStop: () => _stopPlayback(resetPosition: true),
                 onToggleLoop: _cycleLoopMode,
-                onSave: () {}, 
-                onCopy: () {}, 
+                onSave: () {},
+                onCopy: () {},
                 onClearSelection: _clearSelection,
                 isPaused: _isPaused,
                 gpLoopMode: _loopMode,
