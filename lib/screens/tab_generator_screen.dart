@@ -148,6 +148,51 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     super.dispose();
   }
 
+  // --- Linked Direction & String Controls ---
+
+  void _onDirectionChanged(String newDir) {
+    bool needsSwap = false;
+    if (newDir.contains("Ascend") && !newDir.startsWith("Descend -> Ascend")) {
+      if (_startString < _endString) needsSwap = true;
+    } else if (newDir.contains("Descend") && !newDir.startsWith("Ascend -> Descend")) {
+      if (_startString > _endString) needsSwap = true;
+    }
+    setState(() {
+      _selectedDirection = newDir;
+      if (needsSwap) {
+        int temp = _startString;
+        _startString = _endString;
+        _endString = temp;
+      }
+      _motifTokens = _motifTokens.reversed.toList();
+    });
+    _generateTab();
+  }
+
+  void _swapStrings() {
+    setState(() {
+      int temp = _startString;
+      _startString = _endString;
+      _endString = temp;
+
+      if (_startString > _endString) {
+        if (_selectedDirection.contains("Descend") && !_selectedDirection.startsWith("Descend -> Ascend")) {
+          _selectedDirection = "One-Way (Ascend)";
+        } else if (_selectedDirection == "Descend -> Ascend") {
+          _selectedDirection = "Ascend -> Descend";
+        }
+      } else if (_startString < _endString) {
+        if (_selectedDirection.contains("Ascend") && !_selectedDirection.startsWith("Ascend -> Ascend")) {
+          _selectedDirection = "One-Way (Descend)";
+        } else if (_selectedDirection == "Ascend -> Descend") {
+          _selectedDirection = "Descend -> Ascend";
+        }
+      }
+      _motifTokens = _motifTokens.reversed.toList();
+    });
+    _generateTab();
+  }
+
   // --- Storage Operations ---
 
   Future<void> _loadPresetsFromDisk() async {
@@ -174,11 +219,12 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       name: name,
       key: _selectedKey, scale: _selectedScale, tuning: _selectedTuning,
       system: _selectedSystem,
-      fragment: _selectedSystem == "Single String Horizontal" ? _singleStringTarget.toString() : _customSequenceController.text,
+      // Fix: Preserve exact boundaries rather than overriding fragment with the user's generic string indices
+      fragment: _selectedSystem == "Single String Horizontal" ? _singleStringTarget.toString() : "$_startString-$_endString",
       customNps: _customNpsProfile,
       startFret: _startFret,
       pathway: _selectedPathway, direction: _selectedDirection,
-      motifString: _motifTokens.map((e) => e.value).join(','),
+      motifString: _selectedPathway == "Custom Sequence (Indices)" ? _customSequenceController.text : _motifTokens.map((e) => e.value).join(','),
       rhythm: _selectedRhythmPattern, customRhythmString: _customRhythmController.text,
       customAccentString: _customAccentController.text,
       timeSignature: _selectedTimeSignature, tempo: _tempo,
@@ -206,15 +252,34 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       _selectedSystem = p.system; _customNpsProfile = p.customNps ?? "3,4,3,4,3,3";
       _customNpsController.text = _customNpsProfile; _startFret = p.startFret;
       _selectedPathway = p.pathway; _selectedDirection = p.direction;
-      _motifTokens = (p.motifString ?? "").split(',').where((s) => s.isNotEmpty).map((s) => MotifToken(UniqueKey().toString(), s)).toList();
+      
       _selectedRhythmPattern = p.rhythm; _customRhythmController.text = p.customRhythmString ?? "";
       _customAccentController.text = p.customAccentString ?? "";
       _selectedTimeSignature = p.timeSignature; _tempo = p.tempo;
       _measuresPerLine = p.measuresPerLine; _breakInterval = p.breakInterval;
       _breakLength = p.breakLength; _endRests = p.endRests;
       _manualTabController.text = p.manualTabString;
-      _singleStringTarget = int.tryParse(p.fragment) ?? 1;
-      _customSequenceController.text = p.fragment;
+
+      // Extract properties mapping directly to UI
+      if (p.system == "Single String Horizontal") {
+        _singleStringTarget = int.tryParse(p.fragment) ?? 1;
+      } else {
+        if (p.fragment.contains('-') && !p.fragment.contains('Strings')) {
+          var parts = p.fragment.split('-');
+          _startString = (int.tryParse(parts[0]) ?? 6).clamp(1, 8);
+          _endString = (int.tryParse(parts[1]) ?? 1).clamp(1, 8);
+        } else {
+          _startString = 6; _endString = 1;
+        }
+      }
+
+      if (p.pathway == "Custom Sequence (Indices)") {
+        _customSequenceController.text = p.motifString.isNotEmpty ? p.motifString : p.fragment;
+        _motifTokens = [];
+      } else {
+        _motifTokens = (p.motifString ?? "").split(',').where((s) => s.isNotEmpty).map((s) => MotifToken(UniqueKey().toString(), s)).toList();
+      }
+
       if (p.instrumentIndex != null) _changeGuitarSound(p.instrumentIndex!);
       _selectionStart = -1; _selectionEnd = -1; _tapAnchorIndex = null;
     });
@@ -599,7 +664,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                             onSingleStringTargetChanged: (v) { setState(() => _singleStringTarget = int.parse(v!)); _generateTab(); },
                             onStartStringChanged: (v) { setState(() => _startString = int.parse(v!)); _generateTab(); },
                             onEndStringChanged: (v) { setState(() => _endString = int.parse(v!)); _generateTab(); },
-                            onSwapStrings: () { setState(() { int t = _startString; _startString = _endString; _endString = t; }); _generateTab(); },
+                            onSwapStrings: _swapStrings,
                             onCustomNpsChanged: (v) { _customNpsProfile = v; _generateTab(); },
                             onStartFretChanged: (v) { setState(() => _startFret = v); _generateTab(); },
                           ),
@@ -613,7 +678,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                               selectedPathway: _selectedPathway, availablePathways: _pathways, selectedDirection: _selectedDirection, availableDirections: _directions,
                               selectedSystem: _selectedSystem, motifTokens: _motifTokens, customSequenceController: _customSequenceController,
                               onPathwayChanged: (v) { setState(() => _selectedPathway = v!); _generateTab(); },
-                              onDirectionChanged: (v) { setState(() => _selectedDirection = v!); _generateTab(); },
+                              onDirectionChanged: (v) { if (v != null) _onDirectionChanged(v); },
                               onMotifAdded: (n) { setState(() => _motifTokens.add(MotifToken(UniqueKey().toString(), n))); _generateTab(); },
                               onMotifRemoved: (i) { setState(() => _motifTokens.removeAt(i)); _generateTab(); },
                               onMotifReordered: (o, n) { setState(() { if(o<n)n--; _motifTokens.insert(n, _motifTokens.removeAt(o)); }); _generateTab(); },

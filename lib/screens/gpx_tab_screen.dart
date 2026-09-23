@@ -16,7 +16,6 @@ import '../widgets/gpx_viewer/gpx_recent_files_view.dart';
 import '../widgets/interactive_tab_display.dart';
 import '../widgets/playback_control_bar.dart';
 
-/// A scheduled musical beat (chord, single note, or rest) event for timeline playback.
 class _ScheduledBeatEvent implements Comparable<_ScheduledBeatEvent> {
   final int trackIndex;
   final int beatIndexInTrack;
@@ -38,7 +37,6 @@ class _ScheduledBeatEvent implements Comparable<_ScheduledBeatEvent> {
   int compareTo(_ScheduledBeatEvent other) {
     final cmp = startMs.compareTo(other.startMs);
     if (cmp != 0) return cmp;
-    // Tie-breaker: main track visual updates evaluated first
     if (isMainTrack && !other.isMainTrack) return -1;
     if (!isMainTrack && other.isMainTrack) return 1;
     return trackIndex.compareTo(other.trackIndex);
@@ -52,43 +50,34 @@ class GpxTabScreen extends StatefulWidget {
   State<GpxTabScreen> createState() => _GpxTabScreenState();
 }
 
-class _GpxTabScreenState extends State<GpxTabScreen>
-    with AutomaticKeepAliveClientMixin {
-  // Preserve state when switching tabs
+class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
 
-  // File / Song metadata
   String? _fileName;
   String _songTitle = '';
   String _artist = '';
   bool _isLoading = false;
 
-  // Track data & Solo/Mute States
   List<GpTrack> _tracks = [];
   List<MasterBarEvent> _masterBars = [];
   int _selectedTrackIndex = 0;
   Set<int> _soloedTracks = {};
   Set<int> _mutedTracks = {};
-
-  // Recent Files
   List<Map<String, String>> _recentFiles = [];
 
-  // Dynamic Rests & Speed
   int _endRests = 0;
   double _speedMultiplier = 1.0;
 
   List<GpBeat> get _parsedBeats {
     if (_tracks.isEmpty) return [];
-    final List<GpBeat> baseBeats =
-        List<GpBeat>.from(_tracks[_selectedTrackIndex].beats);
+    final List<GpBeat> baseBeats = List<GpBeat>.from(_tracks[_selectedTrackIndex].beats);
 
     if (_endRests > 0) {
       if (_selectionStart != -1 && _selectionEnd != -1) {
         int insertIdx = max(_selectionStart, _selectionEnd) + 1;
         insertIdx = insertIdx.clamp(0, baseBeats.length);
-        baseBeats.insertAll(
-            insertIdx, List.generate(_endRests, (_) => GpBeat.rest(duration: 0.25)));
+        baseBeats.insertAll(insertIdx, List.generate(_endRests, (_) => GpBeat.rest(duration: 0.25)));
       } else {
         baseBeats.addAll(List.generate(_endRests, (_) => GpBeat.rest(duration: 0.25)));
       }
@@ -101,10 +90,8 @@ class _GpxTabScreenState extends State<GpxTabScreen>
     return _tracks[_selectedTrackIndex].measureEndIndices;
   }
 
-  // Playback state
   final MidiPro _midiPro = MidiPro();
   static const MethodChannel _nativeMidiChannel = MethodChannel('flutter_midi_pro');
-  
   bool _isMidiReady = false;
   bool _isPlaying = false;
   bool _isPaused = false;
@@ -113,17 +100,14 @@ class _GpxTabScreenState extends State<GpxTabScreen>
   int _currentBendToken = 0;
   LoopMode _loopMode = LoopMode.off;
 
-  // Active sounding pitch tracking (for tie chains & panic stops)
   final Set<int> _activeSoundingPitches = {};
 
-  // Note selection
   int _selectionStart = -1;
   int _selectionEnd = -1;
   int? _tapAnchorIndex;
 
-  // Visualizer layout
   int _notesPerMeasure = 16;
-  static const int _measuresPerLine = 2;
+  int _measuresPerLine = 3; 
   int _tempo = 120;
 
   final Map<int, int> _standardTuning = {
@@ -152,23 +136,17 @@ class _GpxTabScreenState extends State<GpxTabScreen>
 
   Future<void> _loadSoundFont() async {
     try {
-      await _midiPro.loadSoundfont(
-          sf2Path: 'assets/guitar.sf2', instrumentIndex: 27);
+      await _midiPro.loadSoundfont(sf2Path: 'assets/guitar.sf2', instrumentIndex: 27);
       if (mounted) setState(() => _isMidiReady = true);
     } catch (e) {
       debugPrint('GP Viewer MIDI setup error: $e');
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // MIDI Pitch Bend & CC Communication
-  // ---------------------------------------------------------------------------
-
   Future<void> _sendPitchBend(int value, {int channel = 0}) async {
     final int clamped = value.clamp(0, 16383);
     final int lsb = clamped & 0x7F;
     final int msb = (clamped >> 7) & 0x7F;
-
     try {
       await _nativeMidiChannel.invokeMethod('sendMidiEvent', {
         'status': 0xE0 | (channel & 0x0F),
@@ -181,9 +159,7 @@ class _GpxTabScreenState extends State<GpxTabScreen>
           'value': clamped,
           'channel': channel,
         });
-      } catch (_) {
-        // Platform channel fallback: ignore if native side doesn't implement raw bend
-      }
+      } catch (_) {}
     }
   }
 
@@ -195,7 +171,6 @@ class _GpxTabScreenState extends State<GpxTabScreen>
     if (envelope.isEmpty) return 0.0;
     if (progress <= envelope.first.position) return envelope.first.offset;
     if (progress >= envelope.last.position) return envelope.last.offset;
-
     for (int i = 0; i < envelope.length - 1; i++) {
       final p0 = envelope[i];
       final p1 = envelope[i + 1];
@@ -209,82 +184,53 @@ class _GpxTabScreenState extends State<GpxTabScreen>
     return envelope.last.offset;
   }
 
-  void _spawnBendLoop(
-    GpBend bend,
-    double durationMs,
-    int token,
-    int bendToken,
-  ) {
+  void _spawnBendLoop(GpBend bend, double durationMs, int token, int bendToken) {
     final Stopwatch bendTimer = Stopwatch()..start();
     const int stepIntervalMs = 16;
-
     Future.doWhile(() async {
       if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
         await _resetPitchBend();
         return false;
       }
-
       final double elapsed = bendTimer.elapsedMilliseconds.toDouble();
       if (elapsed >= durationMs) {
         await _resetPitchBend();
         return false;
       }
-
       final double progress = (elapsed / durationMs).clamp(0.0, 1.0);
       final double offsetSemitones = _interpolateBend(bend.envelope, progress);
-
-      // Standard pitch bend range is +-2 semitones: 8192 is center, 16383 is +2 semitones
-      final int bendValue =
-          (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
-
+      final int bendValue = (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
       await _sendPitchBend(bendValue);
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
       return true;
     });
   }
 
-  void _spawnVibratoLoop(
-    GpVibrato vibrato,
-    double durationMs,
-    int token,
-    int bendToken,
-  ) {
+  void _spawnVibratoLoop(GpVibrato vibrato, double durationMs, int token, int bendToken) {
     final Stopwatch vibTimer = Stopwatch()..start();
     const int stepIntervalMs = 16;
     final double sustainStartMs = durationMs * 0.2;
-
     Future.doWhile(() async {
       if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
         await _resetPitchBend();
         return false;
       }
-
       final double elapsed = vibTimer.elapsedMilliseconds.toDouble();
       if (elapsed >= durationMs) {
         await _resetPitchBend();
         return false;
       }
-
       if (elapsed >= sustainStartMs) {
         final double tSec = (elapsed - sustainStartMs) / 1000.0;
         final double lfo = sin(2 * pi * vibrato.frequency * tSec);
-        
-        // Modulate with amplitude around center (~0.4 semitone depth)
         final double offsetSemitones = lfo * (vibrato.amplitude * 0.4);
-        final int bendValue =
-            (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
-
+        final int bendValue = (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
         await _sendPitchBend(bendValue);
       }
-
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
       return true;
     });
   }
-
-  // ---------------------------------------------------------------------------
-  // Recent Files
-  // ---------------------------------------------------------------------------
 
   Future<void> _loadRecentFiles() async {
     final files = await RecentFilesService.load();
@@ -317,10 +263,6 @@ class _GpxTabScreenState extends State<GpxTabScreen>
     await _processFile(name, path, null);
   }
 
-  // ---------------------------------------------------------------------------
-  // GP Parsing
-  // ---------------------------------------------------------------------------
-
   Future<void> _pickAndParseGp() async {
     _stopPlayback(resetPosition: true);
     final FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -328,24 +270,20 @@ class _GpxTabScreenState extends State<GpxTabScreen>
       withData: true,
     );
     if (result == null || result.files.isEmpty) return;
-    
     final file = result.files.single;
     if (!file.name.toLowerCase().endsWith('.gp')) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text(
-              'Invalid file type. Please select a Guitar Pro 7/8 (.gp) file.'),
+          content: Text('Invalid file type. Please select a Guitar Pro 7/8 (.gp) file.'),
           backgroundColor: Colors.redAccent,
         ));
       }
       return;
     }
-
     await _processFile(file.name, file.path, file.bytes);
   }
 
-  Future<void> _processFile(
-      String name, String? path, List<int>? bytesData) async {
+  Future<void> _processFile(String name, String? path, List<int>? bytesData) async {
     setState(() {
       _isLoading = true;
       _fileName = name;
@@ -354,7 +292,7 @@ class _GpxTabScreenState extends State<GpxTabScreen>
       _tracks = [];
       _masterBars = [];
       _selectedTrackIndex = 0;
-      _soloedTracks = {0}; // Default: solo the first instrument
+      _soloedTracks = {0}; 
       _mutedTracks = {};
       _currentPlayingIndex = -1;
       _selectionStart = -1;
@@ -367,7 +305,6 @@ class _GpxTabScreenState extends State<GpxTabScreen>
       if (path != null) {
         await _addRecentFile(name, path);
       }
-
       setState(() {
         _songTitle = score.title;
         _artist = score.artist;
@@ -402,10 +339,6 @@ class _GpxTabScreenState extends State<GpxTabScreen>
       _currentPlayingIndex = -1;
     });
   }
-
-  // ---------------------------------------------------------------------------
-  // Track selection & menu
-  // ---------------------------------------------------------------------------
 
   void _selectTrack(int index) {
     if (index == _selectedTrackIndex) return;
@@ -449,10 +382,6 @@ class _GpxTabScreenState extends State<GpxTabScreen>
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Centralized Master Clock Playback Engine with Chord Support
-  // ---------------------------------------------------------------------------
-
   void _onPlayPause() {
     if (_isPlaying) {
       _pausePlayback();
@@ -464,12 +393,10 @@ class _GpxTabScreenState extends State<GpxTabScreen>
   void _rewind() {
     final bool wasPlaying = _isPlaying;
     _stopPlayback(resetPosition: false);
-    
     setState(() {
       _currentPlayingIndex = -1;
       _isPaused = false;
     });
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         setState(() => _currentPlayingIndex = 0);
@@ -480,8 +407,6 @@ class _GpxTabScreenState extends State<GpxTabScreen>
     });
   }
 
-  /// Calculates deterministic timeline start and duration timestamps for all
-  /// beats (chords, notes, rests) in [trackBeats], honoring tempo automations.
   List<_ScheduledBeatEvent> _buildTrackSchedule({
     required int trackIndex,
     required List<GpBeat> trackBeats,
@@ -494,11 +419,9 @@ class _GpxTabScreenState extends State<GpxTabScreen>
 
     int currentMeasureIndex = 0;
     double currentMeasureStartMs = 0.0;
-    
     int measureTempo = (_masterBars.isNotEmpty && currentMeasureIndex < _masterBars.length)
         ? _masterBars[currentMeasureIndex].tempo
         : _tempo;
-
     double beatAccumulatorInMeasureMs = 0.0;
 
     for (int i = 0; i < trackBeats.length; i++) {
@@ -518,18 +441,16 @@ class _GpxTabScreenState extends State<GpxTabScreen>
 
       beatAccumulatorInMeasureMs += beatDurationMs;
 
-      // Check measure boundary advance
       if (measureEnds.contains(i)) {
         currentMeasureStartMs += beatAccumulatorInMeasureMs;
         beatAccumulatorInMeasureMs = 0.0;
         currentMeasureIndex++;
-        
+
         if (_masterBars.isNotEmpty && currentMeasureIndex < _masterBars.length) {
           measureTempo = _masterBars[currentMeasureIndex].tempo;
         }
       }
     }
-
     return events;
   }
 
@@ -579,14 +500,11 @@ class _GpxTabScreenState extends State<GpxTabScreen>
       _currentPlayingIndex = startIdx;
     });
 
-    // Soundfont wake-up ping
     _midiPro.playMidiNote(midi: 12, velocity: 1);
     await Future.delayed(const Duration(milliseconds: 100));
     _midiPro.stopMidiNote(midi: 12);
-
     if (!mounted || _playbackToken != token || !_isPlaying) return;
 
-    // 1. Build timeline events for the main track using absolute offsets
     final mainEvents = _buildTrackSchedule(
       trackIndex: _selectedTrackIndex,
       trackBeats: mainBeats,
@@ -594,37 +512,34 @@ class _GpxTabScreenState extends State<GpxTabScreen>
       isMainTrack: true,
       speedMultiplier: _speedMultiplier,
     );
+
     if (mainEvents.isEmpty) return;
 
-    // Time window based on selection
-    final double originStartMs = (startIdx < mainEvents.length) 
-        ? mainEvents[startIdx].startMs 
+    final double originStartMs = (startIdx < mainEvents.length)
+        ? mainEvents[startIdx].startMs
         : 0.0;
-    final double originEndMs = (endIdx < mainEvents.length) 
-        ? (mainEvents[endIdx].startMs + mainEvents[endIdx].durationMs) 
+    final double originEndMs = (endIdx < mainEvents.length)
+        ? (mainEvents[endIdx].startMs + mainEvents[endIdx].durationMs)
         : mainEvents.last.startMs;
 
-    // 2. Assemble unified multi-track timeline for ZERO DRIFT across all tracks
     List<_ScheduledBeatEvent> unifiedTimeline = [];
-    
-    // Add main track events in window
+
     for (final ev in mainEvents) {
       if (ev.beatIndexInTrack >= startIdx && ev.beatIndexInTrack <= endIdx) {
         unifiedTimeline.add(_ScheduledBeatEvent(
           trackIndex: ev.trackIndex,
           beatIndexInTrack: ev.beatIndexInTrack,
           beat: ev.beat,
-          startMs: ev.startMs - originStartMs, // Normalized to 0.0
+          startMs: ev.startMs - originStartMs,
           durationMs: ev.durationMs,
           isMainTrack: true,
         ));
       }
     }
 
-    // Unify background tracks directly into the Master Clock timeline
     for (int tIdx = 0; tIdx < _tracks.length; tIdx++) {
       if (tIdx == _selectedTrackIndex) continue;
-      
+
       final bTrack = _tracks[tIdx];
       final bEvents = _buildTrackSchedule(
         trackIndex: tIdx,
@@ -633,7 +548,7 @@ class _GpxTabScreenState extends State<GpxTabScreen>
         isMainTrack: false,
         speedMultiplier: _speedMultiplier,
       );
-      
+
       for (final ev in bEvents) {
         if (ev.startMs >= originStartMs && ev.startMs <= originEndMs) {
           unifiedTimeline.add(_ScheduledBeatEvent(
@@ -648,14 +563,11 @@ class _GpxTabScreenState extends State<GpxTabScreen>
       }
     }
 
-    // Sort strictly by startMs to interleave all tracks chronologically
     unifiedTimeline.sort();
 
-    // 3. Execute Synchronized Master Clock Loop
     while (true) {
       if (!mounted || _playbackToken != token || !_isPlaying) return;
-      
-      // Absolute timeline tracker
+
       final Stopwatch masterClock = Stopwatch()..start();
       int eventIndex = 0;
 
@@ -668,8 +580,7 @@ class _GpxTabScreenState extends State<GpxTabScreen>
         final ev = unifiedTimeline[eventIndex];
         final double targetMs = ev.startMs;
         final double elapsedMs = masterClock.elapsedMicroseconds / 1000.0;
-        
-        // Calculate absolute wait time to eliminate relative drift
+
         final int waitMs = (targetMs - elapsedMs).round();
 
         if (waitMs > 0) {
@@ -680,20 +591,17 @@ class _GpxTabScreenState extends State<GpxTabScreen>
           }
         }
 
-        // Process all events scheduled at or before this exact moment (handling simultaneous multi-track chords)
         while (eventIndex < unifiedTimeline.length &&
             unifiedTimeline[eventIndex].startMs <= (masterClock.elapsedMicroseconds / 1000.0) + 2.0) {
-          
           _dispatchBeatEvent(unifiedTimeline[eventIndex], token);
           eventIndex++;
         }
       }
 
-      // Wait for the final trailing beat sustain before looping/terminating
       final double totalSongMs = originEndMs - originStartMs;
       final double currentElapsed = masterClock.elapsedMicroseconds / 1000.0;
       final int trailingWaitMs = (totalSongMs - currentElapsed).round();
-      
+
       if (trailingWaitMs > 0) {
         await Future.delayed(Duration(milliseconds: trailingWaitMs));
       }
@@ -701,7 +609,6 @@ class _GpxTabScreenState extends State<GpxTabScreen>
       _cleanUpMidiState();
       if (!mounted || _playbackToken != token || !_isPlaying) return;
 
-      // Handle loop modes
       switch (_loopMode) {
         case LoopMode.off:
           setState(() {
@@ -711,7 +618,6 @@ class _GpxTabScreenState extends State<GpxTabScreen>
           return;
         case LoopMode.all:
         case LoopMode.selection:
-          // Proceed to next iteration of the while(true) loop 
           break;
       }
     }
@@ -721,53 +627,42 @@ class _GpxTabScreenState extends State<GpxTabScreen>
     final beat = ev.beat;
     final int tIdx = ev.trackIndex;
 
-    // Visualizer playhead update for main track
     if (ev.isMainTrack && mounted) {
       setState(() => _currentPlayingIndex = ev.beatIndexInTrack);
     }
 
-    // Check Solo / Mute rules
     final bool shouldPlay = _soloedTracks.isNotEmpty
         ? _soloedTracks.contains(tIdx)
         : !_mutedTracks.contains(tIdx);
 
     if (!shouldPlay || beat.isRest) return;
 
-    // -> Simultaneous Chord Triggering <-
     for (final note in beat.notes) {
       if (note.isRest) continue;
-
       final int pitch = note.pitch != -1
           ? note.pitch
           : ((_standardTuning[note.stringNum] ?? 40) + note.fretNum);
 
-      // 1. Ties: do NOT retrigger Note-On if tied from previous note
       if (note.isTie && _activeSoundingPitches.contains(pitch)) {
         continue;
       }
 
-      // 2. Velocity and Sustain modifications for Palm Mute & Dead Notes
       int velocity = ev.isMainTrack ? 110 : 80;
       double playDurationMs = ev.durationMs;
 
       if (note.isMuted) {
-        // Dead Note ('X'): severely attenuated velocity, short clamp
         velocity = 20;
         playDurationMs = min(ev.durationMs, 30.0);
       } else if (note.isPalmMute) {
-        // Palm Mute: 60% velocity, 50% truncated sustain
         velocity = (velocity * 0.6).round();
         playDurationMs = ev.durationMs * 0.5;
       } else if (note.isLetRing) {
-        // Let Ring: extend duration
         playDurationMs = max(ev.durationMs, 800.0);
       }
 
-      // Trigger Note-On for this note in the chord
       _midiPro.playMidiNote(midi: pitch, velocity: velocity);
       _activeSoundingPitches.add(pitch);
 
-      // 3. Pitch Bend & Vibrato micro-loop articulation
       if (note.bend != null) {
         final int bendToken = ++_currentBendToken;
         _spawnBendLoop(note.bend!, playDurationMs, token, bendToken);
@@ -776,7 +671,6 @@ class _GpxTabScreenState extends State<GpxTabScreen>
         _spawnVibratoLoop(note.vibrato!, playDurationMs, token, bendToken);
       }
 
-      // Schedule Note-Off after calculated sustain
       final int delayMs = max(15, playDurationMs.round());
       Future.delayed(Duration(milliseconds: delayMs)).then((_) {
         if (_playbackToken == token && _activeSoundingPitches.contains(pitch)) {
@@ -808,7 +702,6 @@ class _GpxTabScreenState extends State<GpxTabScreen>
     _playbackToken++;
     _cleanUpMidiState();
     _isPaused = false;
-    
     if (mounted) {
       setState(() {
         _isPlaying = false;
@@ -816,7 +709,6 @@ class _GpxTabScreenState extends State<GpxTabScreen>
           _currentPlayingIndex = -1;
         }
       });
-
       if (resetPosition && _selectionStart != -1) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) setState(() => _currentPlayingIndex = _selectionStart);
@@ -870,7 +762,6 @@ class _GpxTabScreenState extends State<GpxTabScreen>
         _currentPlayingIndex = -1;
       }
     });
-    
     if (!_isPlaying) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _parsedBeats.isNotEmpty) {
@@ -880,14 +771,9 @@ class _GpxTabScreenState extends State<GpxTabScreen>
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Build
-  // ---------------------------------------------------------------------------
-
   @override
   Widget build(BuildContext context) {
     super.build(context);
-
     final List<GpBeat> beats = _parsedBeats;
     final bool hasFile = _fileName != null && !_isLoading;
     final bool hasSelection = _selectionStart != -1 && _selectionEnd != -1;
@@ -944,8 +830,7 @@ class _GpxTabScreenState extends State<GpxTabScreen>
                           onPressed: _showTracksMenu,
                         ),
                       IconButton(
-                        icon: const Icon(Icons.close,
-                            color: Colors.redAccent),
+                        icon: const Icon(Icons.close, color: Colors.redAccent),
                         tooltip: 'Close File',
                         onPressed: _closeFile,
                       ),
@@ -957,8 +842,7 @@ class _GpxTabScreenState extends State<GpxTabScreen>
           ),
           const SizedBox(height: 6),
           if (_isLoading)
-            const Expanded(
-                child: Center(child: CircularProgressIndicator()))
+            const Expanded(child: Center(child: CircularProgressIndicator()))
           else if (!hasFile)
             Expanded(
               child: GpxRecentFilesView(
@@ -976,27 +860,81 @@ class _GpxTabScreenState extends State<GpxTabScreen>
                             ? 'No notes found for "${_tracks[_selectedTrackIndex].name}".'
                             : 'No tracks found in this file.',
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
-                            color: Colors.grey, fontSize: 13),
+                        style: const TextStyle(color: Colors.grey, fontSize: 13),
                       ),
                     )
-                  : InteractiveTabDisplay(
-                      sequence: beats,
-                      notesPerMeasure: _notesPerMeasure,
-                      measuresPerLine: _measuresPerLine,
-                      currentPlayingIndex: _currentPlayingIndex,
-                      selectionStart: _selectionStart,
-                      selectionEnd: _selectionEnd,
-                      tuningStr: 'Standard E',
-                      onBeatTapped: _onBeatTapped,
-                      measureEndIndices: _parsedMeasureEnds,
-                      masterBars: _masterBars,
+                  : Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.black87,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey.shade800),
+                      ),
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade900,
+                              borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+                              border: Border(bottom: BorderSide(color: Colors.blueGrey.shade800)),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  "Time Signature: ${_masterBars.isNotEmpty ? '${_masterBars.first.numerator}/${_masterBars.first.denominator}' : 'Auto'} | Tempo: $_tempo",
+                                  style: const TextStyle(fontSize: 11, color: Colors.amberAccent, fontWeight: FontWeight.bold),
+                                ),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text("Bars/Row: ", style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                    GestureDetector(
+                                      onTap: () {
+                                        if (_measuresPerLine > 1) {
+                                          setState(() => _measuresPerLine--);
+                                        }
+                                      },
+                                      child: const Icon(Icons.remove_circle_outline, size: 16, color: Colors.white70),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                                      child: Text("$_measuresPerLine", style: const TextStyle(fontSize: 12, color: Colors.white)),
+                                    ),
+                                    GestureDetector(
+                                      onTap: () => setState(() => _measuresPerLine++),
+                                      child: const Icon(Icons.add_circle_outline, size: 16, color: Colors.white70),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: InteractiveTabDisplay(
+                                sequence: beats,
+                                notesPerMeasure: _notesPerMeasure,
+                                measuresPerLine: _measuresPerLine <= 0 ? 999 : _measuresPerLine,
+                                currentPlayingIndex: _currentPlayingIndex,
+                                selectionStart: _selectionStart,
+                                selectionEnd: _selectionEnd,
+                                tuningStr: 'Standard E',
+                                onBeatTapped: _onBeatTapped,
+                                measureEndIndices: _parsedMeasureEnds,
+                                masterBars: _masterBars,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
             ),
             Container(
               color: const Color(0xFF1A1A1A),
-              padding: const EdgeInsets.only(
-                  bottom: 24.0), // Padding to clear virtual element
+              padding: const EdgeInsets.only(bottom: 24.0),
               child: PlaybackControlBar(
                 isPlaying: _isPlaying,
                 isMidiReady: _isMidiReady,

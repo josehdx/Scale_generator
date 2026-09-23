@@ -1,4 +1,5 @@
 import 'dart:math';
+
 import '../models/gp_beat.dart';
 import '../models/gp_note.dart';
 import '../models/lick_preset.dart';
@@ -10,7 +11,7 @@ class TabSequenceBuilder {
 
   TabSequenceBuilder({required this.engine});
 
-  // ── Rhythm & Accent Parsing ────────────────────────────────────────────────
+  // --- Rhythm & Accent Parsing ---
 
   /// Returns `true` if the accent string signifies auto-generation.
   bool isAutoAccent(String accentStr) =>
@@ -49,7 +50,7 @@ class TabSequenceBuilder {
     }
   }
 
-  // ── Manual Tab Parser ──────────────────────────────────────────────────────
+  // --- Manual Tab Parser ---
 
   /// Parses manual tab syntax "str:fret, str:fret" or chords "str:fret+str:fret" into a sequence.
   List<List<int>> parseManualTab(String input) {
@@ -130,11 +131,10 @@ class TabSequenceBuilder {
     }).toList();
   }
 
-  // ── Sequence Generation ────────────────────────────────────────────────────
+  // --- Sequence Generation ---
 
   /// Rebuilds a note sequence precisely as saved in a [LickPreset].
-  /// If a note selection range is provided, [_endRests] are inserted dynamically
-  /// immediately after the selected range instead of at the end of the sequence.
+  /// Honors start/end string boundaries and directional orientation.
   List<List<int>> buildSequenceForPreset(
     LickPreset preset, {
     int selectionStart = -1,
@@ -158,23 +158,37 @@ class TabSequenceBuilder {
 
     // 2. Setup environment
     engine.tunings[preset.tuning] ??= engine.openStrings;
-    int rootPitch = engine.noteMap[preset.key] ?? 0;
-    List<int> formula = engine.scaleFormulas[preset.scale] ?? engine.scaleFormulas["Minor Pentatonic"]!;
     
-    // 3. Build Base Dict
+    // Dynamically extract start and end strings honoring orientation
+    int stStr = 6;
+    int enStr = 1;
+    if (preset.system != "Single String Horizontal" && preset.fragment.contains('-') && !preset.fragment.contains('Strings')) {
+      var parts = preset.fragment.split('-');
+      stStr = (int.tryParse(parts[0]) ?? 6).clamp(1, 8);
+      enStr = (int.tryParse(parts[1]) ?? 1).clamp(1, 8);
+    }
+
+    List<int> targetStrings = [];
+    if (preset.system != "Single String Horizontal") {
+      int minStr = min(stStr, enStr);
+      int maxStr = max(stStr, enStr);
+      targetStrings = [for (int i = minStr; i <= maxStr; i++) i];
+    }
+
+    // 3. Build Base Dict explicitly using the restricted target strings
     Map<int, List<int>> boxDict;
     if (preset.system == "Single String Horizontal") {
       boxDict = engine.getScaleNotesSingleString(preset.key, preset.scale, preset.startFret, int.tryParse(preset.fragment) ?? 1);
     } else if (preset.system == "3-Note-Per-String (3NPS)") {
-      boxDict = engine.getScaleNotes3NPS(preset.key, preset.scale, preset.startFret, [1, 2, 3, 4, 5, 6]);
+      boxDict = engine.getScaleNotes3NPS(preset.key, preset.scale, preset.startFret, targetStrings.isEmpty ? [1,2,3,4,5,6] : targetStrings);
     } else if (preset.system == "Custom Notes-Per-String") {
       List<int> npsProfile = (preset.customNps).split(',').map((e) => int.tryParse(e.trim()) ?? 3).toList();
-      boxDict = engine.getScaleNotesCustomNPS(preset.key, preset.scale, preset.startFret, [1, 2, 3, 4, 5, 6], npsProfile);
+      boxDict = engine.getScaleNotesCustomNPS(preset.key, preset.scale, preset.startFret, targetStrings.isEmpty ? [1,2,3,4,5,6] : targetStrings, npsProfile);
     } else {
-      boxDict = engine.getScaleNotesBox(preset.key, preset.scale, preset.startFret, [1, 2, 3, 4, 5, 6]);
+      boxDict = engine.getScaleNotesBox(preset.key, preset.scale, preset.startFret, targetStrings.isEmpty ? [1,2,3,4,5,6] : targetStrings);
     }
 
-    // 4. Generate Core Sequence
+    // 4. Generate Core Sequence using boundaries
     List<List<int>> currentSequence = [];
     if (preset.system == "Single String Horizontal") {
        int target = int.tryParse(preset.fragment) ?? 1;
@@ -185,18 +199,20 @@ class TabSequenceBuilder {
     } else {
       if (preset.pathway == "Custom Motif Builder") {
          List<String> tokens = (preset.motifString).split(',').where((s) => s.isNotEmpty).toList();
-         currentSequence = engine.buildCustomMotif(boxDict, tokens.join(','), 6, 1);
+         currentSequence = engine.buildCustomMotif(boxDict, tokens.join(','), stStr, enStr);
       } else {
-         List<List<int>> baseNotes = engine.flattenBoxDict(boxDict, 6, 1);
+         List<List<int>> baseNotes = engine.flattenBoxDict(boxDict, stStr, enStr);
          if (preset.pathway == "Custom Sequence (Indices)") {
-           currentSequence = engine.buildCustomSequence(baseNotes, preset.fragment);
+           // Graceful fallback protecting against previous JSON saves where sequence was overwriting fragment bounds
+           String sequenceStr = preset.motifString.isNotEmpty ? preset.motifString : preset.fragment;
+           currentSequence = engine.buildCustomSequence(baseNotes, sequenceStr);
          } else {
             List<List<int>> patternNotes;
             if (preset.pathway == "3-Step Triplet") patternNotes = engine.apply3StepSequence(baseNotes);
             else if (preset.pathway == "4-Step 16th") patternNotes = engine.apply4StepSequence(baseNotes);
             else if (preset.pathway == "Note Skipping") patternNotes = engine.applyNoteSkipping(baseNotes);
             else patternNotes = baseNotes;
-            
+                         
             if (preset.direction.startsWith("One-Way")) currentSequence = patternNotes;
             else currentSequence = [...patternNotes, ...patternNotes.reversed.skip(1).toList()];
          }
@@ -234,10 +250,7 @@ class TabSequenceBuilder {
     List<String> parsed = parsePatternString(rhythm, customRhythmOverride: customRhythm);
     if (parsed.isEmpty) return 16;
     
-    // In actual implementation, Auto attempts to group motifs if possible
-    // Here we just return a sensible default for visual chunking
     if (parsed.length == 3 && parsed[0] == "8th") return 12; // triplets
     return 16; // default 4/4 16ths
   }
 }
-

@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+
 import '../models/gp_beat.dart';
 import '../models/master_bar_event.dart';
 
@@ -64,8 +65,8 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
         if (mEnd >= widget.sequence.length) {
           mEnd = widget.sequence.length - 1;
         }
-        currentMeasureInSystem++;
 
+        currentMeasureInSystem++;
         if (currentMeasureInSystem == widget.measuresPerLine || m == ends.length - 1) {
           int sysEnd = mEnd + 1;
           if (m == ends.length - 1 && sysEnd < widget.sequence.length) {
@@ -74,6 +75,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
           systems.add((start: sysStart, end: sysEnd));
           sysStart = sysEnd;
           currentMeasureInSystem = 0;
+
           if (sysStart >= widget.sequence.length) break;
         }
       }
@@ -87,10 +89,12 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     // Default fixed-length measure division
     final int notesPerSystem = widget.notesPerMeasure * widget.measuresPerLine;
     final List<({int start, int end})> systems = [];
+
     for (int sysStart = 0; sysStart < widget.sequence.length; sysStart += notesPerSystem) {
       final int sysEnd = min(sysStart + notesPerSystem, widget.sequence.length);
       systems.add((start: sysStart, end: sysEnd));
     }
+
     return systems;
   }
 
@@ -104,6 +108,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
   @override
   void didUpdateWidget(covariant InteractiveTabDisplay oldWidget) {
     super.didUpdateWidget(oldWidget);
+
     final systems = _calculateSystems();
     final int totalSystems = systems.length;
 
@@ -135,7 +140,8 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     if (sysIndex == -1) return;
 
     if (_verticalController.hasClients) {
-      double vertOffset = sysIndex * 115.0;
+      // Must match the exact vertical size forced by SizedBox downstream
+      double vertOffset = sysIndex * 115.0; 
       _verticalController.animateTo(
         vertOffset,
         duration: const Duration(milliseconds: 150),
@@ -146,7 +152,13 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     if (sysIndex < _horizontalControllers.length &&
         _horizontalControllers[sysIndex].hasClients) {
       double horizOffset = max(0.0, (noteIndexInSys - 2) * 25.0);
-      _horizontalControllers[sysIndex].jumpTo(horizOffset);
+      
+      // Changed back to animateTo with swift interpolation to remove UI snapping/tearing
+      _horizontalControllers[sysIndex].animateTo(
+        horizOffset,
+        duration: const Duration(milliseconds: 100),
+        curve: Curves.easeOut,
+      );
     }
   }
 
@@ -174,7 +186,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
         int effectiveEnd = (widget.selectionStart != -1 && widget.selectionEnd != -1)
             ? max(widget.selectionStart, widget.selectionEnd)
             : -1;
-
+            
         if (effectiveEnd != -1 && beatIndex > effectiveEnd && beat.isRest) {
           bool allRests = true;
           for (int r = effectiveEnd + 1; r <= beatIndex; r++) {
@@ -190,8 +202,9 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
             effectiveEnd != -1 &&
             beatIndex >= min(widget.selectionStart, widget.selectionEnd) &&
             beatIndex <= effectiveEnd);
-
+            
         final bool isMeasureEnd = _isMeasureEnd(beatIndex);
+
         final bool hasDoubleDigitFret =
             beat.notes.any((n) => !n.isRest && n.fretNum >= 10);
         final int colWidth = hasDoubleDigitFret ? 4 : 3;
@@ -217,8 +230,8 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                     children: List.generate(6, (strIdx) {
                       final int strNum = strIdx + 1;
                       final noteOnString = beat.noteOnString(strNum);
-
                       String text;
+
                       if (noteOnString != null && !noteOnString.isRest) {
                         if (colWidth == 4) {
                           text = noteOnString.fretNum >= 10
@@ -286,34 +299,37 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
       rowChildren.add(const SizedBox(width: 48.0));
 
       systemWidgets.add(
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12.0),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Column(
-                children: stringLabels
-                    .map(
-                      (lbl) => Text(
-                        "$lbl|",
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.amberAccent,
+        SizedBox(
+          height: 115.0, // Forced vertical height restricts vertical displacement bugs across systems
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 12.0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Column(
+                  children: stringLabels
+                      .map(
+                        (lbl) => Text(
+                          "$lbl|",
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.amberAccent,
+                          ),
                         ),
-                      ),
-                    )
-                    .toList(),
-              ),
-              Expanded(
-                child: SingleChildScrollView(
-                  controller: _horizontalControllers[sIdx],
-                  scrollDirection: Axis.horizontal,
-                  child: Row(children: rowChildren),
+                      )
+                      .toList(),
                 ),
-              ),
-            ],
+                Expanded(
+                  child: SingleChildScrollView(
+                    controller: _horizontalControllers[sIdx],
+                    scrollDirection: Axis.horizontal,
+                    child: Row(children: rowChildren),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       );
