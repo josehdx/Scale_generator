@@ -319,7 +319,14 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
                           ),
                           title: Row(
                             children: [
-                              Expanded(child: Text(preset.name, style: const TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+                              Expanded(
+                                child: Text(
+                                  preset.name, 
+                                  style: const TextStyle(fontWeight: FontWeight.bold), 
+                                  maxLines: 3, 
+                                  overflow: TextOverflow.ellipsis
+                                )
+                              ),
                               if (hasMisalignment) ...[
                                 const SizedBox(width: 8),
                                 Tooltip(
