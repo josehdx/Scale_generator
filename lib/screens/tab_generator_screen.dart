@@ -152,19 +152,20 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
 
   void _onDirectionChanged(String newDir) {
     bool needsSwap = false;
-    if (newDir.contains("Ascend") && !newDir.startsWith("Descend -> Ascend")) {
-      if (_startString < _endString) needsSwap = true;
-    } else if (newDir.contains("Descend") && !newDir.startsWith("Ascend -> Descend")) {
-      if (_startString > _endString) needsSwap = true;
+    if (newDir == "One-Way (Ascend)" || newDir == "Ascend -> Descend") {
+      if (_startString < _endString) needsSwap = true; // 6 to 1 is Ascending
+    } else if (newDir == "One-Way (Descend)" || newDir == "Descend -> Ascend") {
+      if (_startString > _endString) needsSwap = true; // 1 to 6 is Descending
     }
+    
     setState(() {
       _selectedDirection = newDir;
       if (needsSwap) {
         int temp = _startString;
         _startString = _endString;
         _endString = temp;
+        _motifTokens = _motifTokens.reversed.toList();
       }
-      _motifTokens = _motifTokens.reversed.toList();
     });
     _generateTab();
   }
@@ -176,13 +177,15 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       _endString = temp;
 
       if (_startString > _endString) {
-        if (_selectedDirection.contains("Descend") && !_selectedDirection.startsWith("Descend -> Ascend")) {
+        // Now physically Ascending (e.g. 6 to 1)
+        if (_selectedDirection == "One-Way (Descend)") {
           _selectedDirection = "One-Way (Ascend)";
         } else if (_selectedDirection == "Descend -> Ascend") {
           _selectedDirection = "Ascend -> Descend";
         }
       } else if (_startString < _endString) {
-        if (_selectedDirection.contains("Ascend") && !_selectedDirection.startsWith("Ascend -> Ascend")) {
+        // Now physically Descending (e.g. 1 to 6)
+        if (_selectedDirection == "One-Way (Ascend)") {
           _selectedDirection = "One-Way (Descend)";
         } else if (_selectedDirection == "Ascend -> Descend") {
           _selectedDirection = "Descend -> Ascend";
@@ -219,7 +222,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       name: name,
       key: _selectedKey, scale: _selectedScale, tuning: _selectedTuning,
       system: _selectedSystem,
-      // Fix: Preserve exact boundaries rather than overriding fragment with the user's generic string indices
       fragment: _selectedSystem == "Single String Horizontal" ? _singleStringTarget.toString() : "$_startString-$_endString",
       customNps: _customNpsProfile,
       startFret: _startFret,
@@ -260,7 +262,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       _breakLength = p.breakLength; _endRests = p.endRests;
       _manualTabController.text = p.manualTabString;
 
-      // Extract properties mapping directly to UI
       if (p.system == "Single String Horizontal") {
         _singleStringTarget = int.tryParse(p.fragment) ?? 1;
       } else {
@@ -345,7 +346,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     final bool wasPlaying = _isPlaying;
     _stopPlayback(resetPosition: false);
     
-    // Force index to -1 first to guarantee a state change to the InteractiveTabDisplay
     _activeNoteNotifier.value = null;
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -439,14 +439,11 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         int msDelay = max(20, ((60000 / tempo) * beatMultiplier).round());
         await Future.delayed(Duration(milliseconds: msDelay));
 
-        // CRITICAL FIX: Always stop the pitch upon waking to prevent leakage,
-        // even if the token has already been pre-empted by user input.
         if (pitch != -1) {
           _midiPro.stopMidiNote(midi: pitch);
           _activeMidiNotes.remove(pitch);
         }
 
-        // Now safely check for pre-emption.
         if (_playbackToken != currentToken) return;
       }
     } while ((isPreview ? _isPreviewLooping : _isLooping) && mounted && _playbackToken == currentToken && ((isPreview && _isPreviewPlaying) || (!isPreview && _isPlaying)));
@@ -461,8 +458,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     
     if (resetPosition) {
       if (_selectionStart != -1 && _currentSequence.isNotEmpty) {
-        // Return tab pointer to the selected note upon stop
-        _activeNoteNotifier.value = null; // force state change
+        _activeNoteNotifier.value = null; 
         int targetIdx = min(_selectionStart, _currentSequence.length - 1);
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
@@ -532,7 +528,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     });
     
     if (!_isPlaying && _currentSequence.isNotEmpty) {
-      _activeNoteNotifier.value = null; // Force state change
+      _activeNoteNotifier.value = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _activeNoteNotifier.value = {

@@ -140,25 +140,46 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     if (sysIndex == -1) return;
 
     if (_verticalController.hasClients) {
-      // Must match the exact vertical size forced by SizedBox downstream
-      double vertOffset = sysIndex * 115.0; 
-      _verticalController.animateTo(
-        vertOffset,
-        duration: const Duration(milliseconds: 150),
-        curve: Curves.easeInOut,
-      );
+      final position = _verticalController.position;
+      if (position.hasViewportDimension) {
+        double vertOffset = sysIndex * 115.0;
+        double currentVOffset = position.pixels;
+        double vViewport = position.viewportDimension;
+        
+        // Edge boundary tracking logic: only jump if the system leaves the viewing area
+        if (vertOffset < currentVOffset || vertOffset + 115.0 > currentVOffset + vViewport) {
+          _verticalController.animateTo(
+            vertOffset,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+          );
+        }
+      }
     }
 
     if (sysIndex < _horizontalControllers.length &&
         _horizontalControllers[sysIndex].hasClients) {
-      double horizOffset = max(0.0, (noteIndexInSys - 2) * 25.0);
-      
-      // Changed back to animateTo with swift interpolation to remove UI snapping/tearing
-      _horizontalControllers[sysIndex].animateTo(
-        horizOffset,
-        duration: const Duration(milliseconds: 100),
-        curve: Curves.easeOut,
-      );
+          
+      final position = _horizontalControllers[sysIndex].position;
+      if (position.hasViewportDimension) {
+        double currentOffset = position.pixels;
+        double viewportWidth = position.viewportDimension;
+        double targetNotePos = noteIndexInSys * 28.0; // Approx column width tracking
+        
+        // Horizontal Edge boundary tracking logic: only jump if playhead leaves the middle 80% screen space
+        if (targetNotePos < currentOffset + 20.0 || targetNotePos > currentOffset + viewportWidth - 40.0) {
+          double horizOffset = max(0.0, targetNotePos - (viewportWidth / 2));
+          _horizontalControllers[sysIndex].animateTo(
+            horizOffset,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+          );
+        }
+      } else {
+        // Safe layout fallback if viewport dims aren't attached yet
+        double horizOffset = max(0.0, (noteIndexInSys - 2) * 25.0);
+        _horizontalControllers[sysIndex].jumpTo(horizOffset);
+      }
     }
   }
 
@@ -182,7 +203,6 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
         final beat = widget.sequence[beatIndex];
         final bool isPlaying = (beatIndex == widget.currentPlayingIndex);
 
-        // Highlight extension check for inserted rests
         int effectiveEnd = (widget.selectionStart != -1 && widget.selectionEnd != -1)
             ? max(widget.selectionStart, widget.selectionEnd)
             : -1;
@@ -300,7 +320,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
       systemWidgets.add(
         SizedBox(
-          height: 115.0, // Forced vertical height restricts vertical displacement bugs across systems
+          height: 115.0,
           child: Padding(
             padding: const EdgeInsets.only(bottom: 12.0),
             child: Row(
@@ -335,20 +355,12 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
       );
     }
 
-    return Container(
-      margin: const EdgeInsets.all(8),
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: Colors.black87,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade800),
-      ),
-      child: SingleChildScrollView(
-        controller: _verticalController,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: systemWidgets,
-        ),
+    // Returning standard SingleChildScrollView (removed double-boxing borders so Studio & GP Viewer align perfectly)
+    return SingleChildScrollView(
+      controller: _verticalController,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: systemWidgets,
       ),
     );
   }
