@@ -24,13 +24,17 @@ import 'gpx_tab_screen.dart';
 class KeepAliveWrapper extends StatefulWidget {
   final Widget child;
   const KeepAliveWrapper({super.key, required this.child});
+
   @override
   State<KeepAliveWrapper> createState() => _KeepAliveWrapperState();
 }
 
 class _KeepAliveWrapperState extends State<KeepAliveWrapper> with AutomaticKeepAliveClientMixin {
-  @override bool get wantKeepAlive => true;
-  @override Widget build(BuildContext context) {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
     super.build(context);
     return widget.child;
   }
@@ -38,6 +42,7 @@ class _KeepAliveWrapperState extends State<KeepAliveWrapper> with AutomaticKeepA
 
 class TabGeneratorScreen extends StatefulWidget {
   const TabGeneratorScreen({super.key});
+
   @override
   State<TabGeneratorScreen> createState() => _TabGeneratorScreenState();
 }
@@ -378,7 +383,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
 
         // Now safely check for pre-emption.
         if (_playbackToken != currentToken) return;
-
       }
     } while ((isPreview ? _isPreviewLooping : _isLooping) && mounted && _playbackToken == currentToken && ((isPreview && _isPreviewPlaying) || (!isPreview && _isPlaying)));
     
@@ -644,7 +648,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                           isExpanded: _isTabExpanded,
                           onToggle: () => setState(() => _isTabExpanded = !_isTabExpanded),
                           child: TabOutputSection(
-                            currentSequence: _currentSequence, generatedTab: _generatedTab, autoTimeSignature: "4/4",
+                            currentSequence: _builder.sequenceToBeats(_currentSequence), generatedTab: _generatedTab, autoTimeSignature: "4/4",
                             activeNoteNotifier: _activeNoteNotifier, notesPerMeasure: _builder.calculateNotesPerMeasure(_selectedTimeSignature, _selectedRhythmPattern, customRhythm: _customRhythmController.text),
                             rhythmStr: _builder.parsePatternString(_selectedRhythmPattern, customRhythmOverride: _customRhythmController.text).first, measuresPerLine: _measuresPerLine,
                             selectionStart: _selectionStart, selectionEnd: _selectionEnd, selectedTuning: _selectedTuning,

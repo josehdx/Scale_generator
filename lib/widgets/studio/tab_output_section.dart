@@ -1,9 +1,9 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
+import '../../models/gp_beat.dart';
 import '../interactive_tab_display.dart';
 
 class TabOutputSection extends StatelessWidget {
-  final List<List<int>> currentSequence;
+  final List<GpBeat> currentSequence;
   final String generatedTab;
   final String autoTimeSignature;
   final ValueNotifier<Map<String, dynamic>?> activeNoteNotifier;
@@ -38,7 +38,7 @@ class TabOutputSection extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8)),
         width: double.infinity,
-        child: Text(generatedTab, style: const TextStyle(fontFamily: 'monospace', color: Colors.greenAccent))
+        child: Text(generatedTab, style: const TextStyle(fontFamily: 'monospace', color: Colors.greenAccent)),
       );
     }
     

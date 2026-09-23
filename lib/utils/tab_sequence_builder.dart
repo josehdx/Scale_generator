@@ -1,4 +1,6 @@
 import 'dart:math';
+import '../models/gp_beat.dart';
+import '../models/gp_note.dart';
 import '../models/lick_preset.dart';
 import '../scale_engine.dart';
 
@@ -49,7 +51,7 @@ class TabSequenceBuilder {
 
   // ── Manual Tab Parser ──────────────────────────────────────────────────────
 
-  /// Parses manual tab syntax "str:fret, str:fret" into a sequence.
+  /// Parses manual tab syntax "str:fret, str:fret" or chords "str:fret+str:fret" into a sequence.
   List<List<int>> parseManualTab(String input) {
     List<List<int>> sequence = [];
     List<String> parts = input.split(',');
@@ -60,16 +62,72 @@ class TabSequenceBuilder {
         sequence.add([-1, -1]);
         continue;
       }
-      List<String> sub = p.split(':');
-      if (sub.length == 2) {
-        int? s = int.tryParse(sub[0]);
-        int? f = int.tryParse(sub[1]);
-        if (s != null && f != null && s >= 1 && s <= 8 && f >= 0 && f <= 24) {
-          sequence.add([s, f]);
+      // Check for chord notation using '+' or '/'
+      List<String> noteTokens = (p.contains('+') || p.contains('/'))
+          ? p.split(RegExp(r'[+/]'))
+          : [p];
+      for (String token in noteTokens) {
+        List<String> sub = token.trim().split(':');
+        if (sub.length == 2) {
+          int? s = int.tryParse(sub[0]);
+          int? f = int.tryParse(sub[1]);
+          if (s != null && f != null && s >= 1 && s <= 8 && f >= 0 && f <= 24) {
+            sequence.add([s, f]);
+          }
         }
       }
     }
     return sequence;
+  }
+
+  /// Parses manual tab syntax into a list of [GpBeat] objects, grouping multiple
+  /// strings/frets separated by '+' into a single chord beat.
+  List<GpBeat> parseManualTabBeats(String input, {double defaultDuration = 0.25}) {
+    List<GpBeat> beats = [];
+    List<String> parts = input.split(',');
+    for (String p in parts) {
+      p = p.trim();
+      if (p.isEmpty) continue;
+      if (p.toLowerCase() == 'r') {
+        beats.add(GpBeat.rest(duration: defaultDuration));
+        continue;
+      }
+      List<String> noteTokens = (p.contains('+') || p.contains('/'))
+          ? p.split(RegExp(r'[+/]'))
+          : [p];
+      List<GpNote> chordNotes = [];
+      for (String token in noteTokens) {
+        List<String> sub = token.trim().split(':');
+        if (sub.length == 2) {
+          int? s = int.tryParse(sub[0]);
+          int? f = int.tryParse(sub[1]);
+          if (s != null && f != null && s >= 1 && s <= 8 && f >= 0 && f <= 24) {
+            chordNotes.add(GpNote(
+              stringNum: s,
+              fretNum: f,
+              duration: defaultDuration,
+            ));
+          }
+        }
+      }
+      if (chordNotes.isNotEmpty) {
+        beats.add(GpBeat(notes: chordNotes, duration: defaultDuration));
+      }
+    }
+    return beats;
+  }
+
+  /// Converts a flat `List<List<int>>` note sequence into a `List<GpBeat>` list.
+  List<GpBeat> sequenceToBeats(List<List<int>> sequence, {double defaultDuration = 0.25}) {
+    return sequence.map((note) {
+      if (note[0] == -1 || note[1] == -1) {
+        return GpBeat.rest(duration: defaultDuration);
+      }
+      return GpBeat.single(
+        GpNote(stringNum: note[0], fretNum: note[1], duration: defaultDuration),
+        duration: defaultDuration,
+      );
+    }).toList();
   }
 
   // ── Sequence Generation ────────────────────────────────────────────────────

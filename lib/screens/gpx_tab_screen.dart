@@ -1,16 +1,49 @@
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_midi_pro/flutter_midi_pro.dart';
 
+import '../models/gp_beat.dart';
+import '../models/gp_note.dart';
 import '../models/gp_track.dart';
+import '../models/master_bar_event.dart';
 import '../services/gpx_parser_service.dart';
 import '../services/recent_files_service.dart';
 import '../widgets/gpx_viewer/gpx_track_menu.dart';
 import '../widgets/gpx_viewer/gpx_recent_files_view.dart';
 import '../widgets/interactive_tab_display.dart';
 import '../widgets/playback_control_bar.dart';
+
+/// A scheduled musical beat (chord, single note, or rest) event for timeline playback.
+class _ScheduledBeatEvent implements Comparable<_ScheduledBeatEvent> {
+  final int trackIndex;
+  final int beatIndexInTrack;
+  final GpBeat beat;
+  final double startMs;
+  final double durationMs;
+  final bool isMainTrack;
+
+  const _ScheduledBeatEvent({
+    required this.trackIndex,
+    required this.beatIndexInTrack,
+    required this.beat,
+    required this.startMs,
+    required this.durationMs,
+    required this.isMainTrack,
+  });
+
+  @override
+  int compareTo(_ScheduledBeatEvent other) {
+    final cmp = startMs.compareTo(other.startMs);
+    if (cmp != 0) return cmp;
+    // Tie-breaker: main track visual updates evaluated first
+    if (isMainTrack && !other.isMainTrack) return -1;
+    if (!isMainTrack && other.isMainTrack) return 1;
+    return trackIndex.compareTo(other.trackIndex);
+  }
+}
 
 class GpxTabScreen extends StatefulWidget {
   const GpxTabScreen({super.key});
@@ -33,6 +66,7 @@ class _GpxTabScreenState extends State<GpxTabScreen>
 
   // Track data & Solo/Mute States
   List<GpTrack> _tracks = [];
+  List<MasterBarEvent> _masterBars = [];
   int _selectedTrackIndex = 0;
   Set<int> _soloedTracks = {};
   Set<int> _mutedTracks = {};
@@ -44,50 +78,43 @@ class _GpxTabScreenState extends State<GpxTabScreen>
   int _endRests = 0;
   double _speedMultiplier = 1.0;
 
-  List<List<int>> get _parsedSequence {
+  List<GpBeat> get _parsedBeats {
     if (_tracks.isEmpty) return [];
-    final List<List<int>> baseNotes =
-        List<List<int>>.from(_tracks[_selectedTrackIndex].notes);
+    final List<GpBeat> baseBeats =
+        List<GpBeat>.from(_tracks[_selectedTrackIndex].beats);
 
     if (_endRests > 0) {
       if (_selectionStart != -1 && _selectionEnd != -1) {
         int insertIdx = max(_selectionStart, _selectionEnd) + 1;
-        insertIdx = insertIdx.clamp(0, baseNotes.length);
-        baseNotes.insertAll(
-            insertIdx, List.generate(_endRests, (_) => [-1, -1]));
+        insertIdx = insertIdx.clamp(0, baseBeats.length);
+        baseBeats.insertAll(
+            insertIdx, List.generate(_endRests, (_) => GpBeat.rest(duration: 0.25)));
       } else {
-        baseNotes.addAll(List.generate(_endRests, (_) => [-1, -1]));
+        baseBeats.addAll(List.generate(_endRests, (_) => GpBeat.rest(duration: 0.25)));
       }
     }
-    return baseNotes;
+    return baseBeats;
   }
 
-  List<double> get _parsedRhythms {
-    if (_tracks.isEmpty) return [];
-    final List<double> baseRhythms =
-        List<double>.from(_tracks[_selectedTrackIndex].rhythms);
-
-    if (_endRests > 0) {
-      if (_selectionStart != -1 && _selectionEnd != -1) {
-        int insertIdx = max(_selectionStart, _selectionEnd) + 1;
-        insertIdx = insertIdx.clamp(0, baseRhythms.length);
-        baseRhythms.insertAll(
-            insertIdx, List.generate(_endRests, (_) => 0.25));
-      } else {
-        baseRhythms.addAll(List.generate(_endRests, (_) => 0.25));
-      }
-    }
-    return baseRhythms;
+  List<int> get _parsedMeasureEnds {
+    if (_tracks.isEmpty) return const [];
+    return _tracks[_selectedTrackIndex].measureEndIndices;
   }
 
   // Playback state
   final MidiPro _midiPro = MidiPro();
+  static const MethodChannel _nativeMidiChannel = MethodChannel('flutter_midi_pro');
+  
   bool _isMidiReady = false;
   bool _isPlaying = false;
   bool _isPaused = false;
   int _playbackToken = 0;
   int _currentPlayingIndex = -1;
+  int _currentBendToken = 0;
   LoopMode _loopMode = LoopMode.off;
+
+  // Active sounding pitch tracking (for tie chains & panic stops)
+  final Set<int> _activeSoundingPitches = {};
 
   // Note selection
   int _selectionStart = -1;
@@ -106,6 +133,8 @@ class _GpxTabScreenState extends State<GpxTabScreen>
     4: 50, // D3
     5: 45, // A2
     6: 40, // E2
+    7: 35, // B1
+    8: 30, // F#1
   };
 
   @override
@@ -129,6 +158,128 @@ class _GpxTabScreenState extends State<GpxTabScreen>
     } catch (e) {
       debugPrint('GP Viewer MIDI setup error: $e');
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // MIDI Pitch Bend & CC Communication
+  // ---------------------------------------------------------------------------
+
+  Future<void> _sendPitchBend(int value, {int channel = 0}) async {
+    final int clamped = value.clamp(0, 16383);
+    final int lsb = clamped & 0x7F;
+    final int msb = (clamped >> 7) & 0x7F;
+
+    try {
+      await _nativeMidiChannel.invokeMethod('sendMidiEvent', {
+        'status': 0xE0 | (channel & 0x0F),
+        'data1': lsb,
+        'data2': msb,
+      });
+    } catch (_) {
+      try {
+        await _nativeMidiChannel.invokeMethod('pitchBend', {
+          'value': clamped,
+          'channel': channel,
+        });
+      } catch (_) {
+        // Platform channel fallback: ignore if native side doesn't implement raw bend
+      }
+    }
+  }
+
+  Future<void> _resetPitchBend({int channel = 0}) async {
+    await _sendPitchBend(8192, channel: channel);
+  }
+
+  double _interpolateBend(List<BendPoint> envelope, double progress) {
+    if (envelope.isEmpty) return 0.0;
+    if (progress <= envelope.first.position) return envelope.first.offset;
+    if (progress >= envelope.last.position) return envelope.last.offset;
+
+    for (int i = 0; i < envelope.length - 1; i++) {
+      final p0 = envelope[i];
+      final p1 = envelope[i + 1];
+      if (progress >= p0.position && progress <= p1.position) {
+        final double range = p1.position - p0.position;
+        if (range <= 0.0001) return p0.offset;
+        final double t = (progress - p0.position) / range;
+        return p0.offset + t * (p1.offset - p0.offset);
+      }
+    }
+    return envelope.last.offset;
+  }
+
+  void _spawnBendLoop(
+    GpBend bend,
+    double durationMs,
+    int token,
+    int bendToken,
+  ) {
+    final Stopwatch bendTimer = Stopwatch()..start();
+    const int stepIntervalMs = 16;
+
+    Future.doWhile(() async {
+      if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
+        await _resetPitchBend();
+        return false;
+      }
+
+      final double elapsed = bendTimer.elapsedMilliseconds.toDouble();
+      if (elapsed >= durationMs) {
+        await _resetPitchBend();
+        return false;
+      }
+
+      final double progress = (elapsed / durationMs).clamp(0.0, 1.0);
+      final double offsetSemitones = _interpolateBend(bend.envelope, progress);
+
+      // Standard pitch bend range is +-2 semitones: 8192 is center, 16383 is +2 semitones
+      final int bendValue =
+          (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
+
+      await _sendPitchBend(bendValue);
+      await Future.delayed(const Duration(milliseconds: stepIntervalMs));
+      return true;
+    });
+  }
+
+  void _spawnVibratoLoop(
+    GpVibrato vibrato,
+    double durationMs,
+    int token,
+    int bendToken,
+  ) {
+    final Stopwatch vibTimer = Stopwatch()..start();
+    const int stepIntervalMs = 16;
+    final double sustainStartMs = durationMs * 0.2;
+
+    Future.doWhile(() async {
+      if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
+        await _resetPitchBend();
+        return false;
+      }
+
+      final double elapsed = vibTimer.elapsedMilliseconds.toDouble();
+      if (elapsed >= durationMs) {
+        await _resetPitchBend();
+        return false;
+      }
+
+      if (elapsed >= sustainStartMs) {
+        final double tSec = (elapsed - sustainStartMs) / 1000.0;
+        final double lfo = sin(2 * pi * vibrato.frequency * tSec);
+        
+        // Modulate with amplitude around center (~0.4 semitone depth)
+        final double offsetSemitones = lfo * (vibrato.amplitude * 0.4);
+        final int bendValue =
+            (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
+
+        await _sendPitchBend(bendValue);
+      }
+
+      await Future.delayed(const Duration(milliseconds: stepIntervalMs));
+      return true;
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -172,14 +323,12 @@ class _GpxTabScreenState extends State<GpxTabScreen>
 
   Future<void> _pickAndParseGp() async {
     _stopPlayback(resetPosition: true);
-
     final FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.any,
       withData: true,
     );
-
     if (result == null || result.files.isEmpty) return;
-
+    
     final file = result.files.single;
     if (!file.name.toLowerCase().endsWith('.gp')) {
       if (mounted) {
@@ -203,6 +352,7 @@ class _GpxTabScreenState extends State<GpxTabScreen>
       _songTitle = '';
       _artist = '';
       _tracks = [];
+      _masterBars = [];
       _selectedTrackIndex = 0;
       _soloedTracks = {0}; // Default: solo the first instrument
       _mutedTracks = {};
@@ -214,7 +364,6 @@ class _GpxTabScreenState extends State<GpxTabScreen>
 
     try {
       final score = await GpxParserService.parseGpFile(path, bytesData);
-
       if (path != null) {
         await _addRecentFile(name, path);
       }
@@ -223,6 +372,7 @@ class _GpxTabScreenState extends State<GpxTabScreen>
         _songTitle = score.title;
         _artist = score.artist;
         _tracks = score.tracks;
+        _masterBars = score.masterBars;
         _selectedTrackIndex = 0;
         _notesPerMeasure = score.notesPerMeasure;
         _tempo = score.tempo;
@@ -245,6 +395,7 @@ class _GpxTabScreenState extends State<GpxTabScreen>
       _songTitle = '';
       _artist = '';
       _tracks = [];
+      _masterBars = [];
       _selectionStart = -1;
       _selectionEnd = -1;
       _tapAnchorIndex = null;
@@ -299,7 +450,7 @@ class _GpxTabScreenState extends State<GpxTabScreen>
   }
 
   // ---------------------------------------------------------------------------
-  // Playback
+  // Centralized Master Clock Playback Engine with Chord Support
   // ---------------------------------------------------------------------------
 
   void _onPlayPause() {
@@ -313,8 +464,7 @@ class _GpxTabScreenState extends State<GpxTabScreen>
   void _rewind() {
     final bool wasPlaying = _isPlaying;
     _stopPlayback(resetPosition: false);
-
-    // Force index to -1 first to guarantee a state change to InteractiveTabDisplay
+    
     setState(() {
       _currentPlayingIndex = -1;
       _isPaused = false;
@@ -330,65 +480,62 @@ class _GpxTabScreenState extends State<GpxTabScreen>
     });
   }
 
-  /// Background track independent playback loop.
-  Future<void> _playBackgroundTrack(
-      int tIdx, int token, int startIdx, int endIdx) async {
-    final track = _tracks[tIdx];
-    final seq = track.notes;
-    final rhythms = track.rhythms;
-    if (seq.isEmpty) return;
+  /// Calculates deterministic timeline start and duration timestamps for all
+  /// beats (chords, notes, rests) in [trackBeats], honoring tempo automations.
+  List<_ScheduledBeatEvent> _buildTrackSchedule({
+    required int trackIndex,
+    required List<GpBeat> trackBeats,
+    required List<int> measureEnds,
+    required bool isMainTrack,
+    required double speedMultiplier,
+  }) {
+    final List<_ScheduledBeatEvent> events = [];
+    if (trackBeats.isEmpty) return events;
 
-    int i = startIdx.clamp(0, seq.length - 1);
-    final int actualEnd = endIdx.clamp(0, seq.length - 1);
-    final List<int> activePitches = [];
-    final Stopwatch driftTimer = Stopwatch()..start();
+    int currentMeasureIndex = 0;
+    double currentMeasureStartMs = 0.0;
+    
+    int measureTempo = (_masterBars.isNotEmpty && currentMeasureIndex < _masterBars.length)
+        ? _masterBars[currentMeasureIndex].tempo
+        : _tempo;
 
-    while (i <= actualEnd) {
-      if (!mounted || _playbackToken != token || !_isPlaying) {
-        // Guarantee note-off before early exit to prevent stuck notes.
-        for (var p in activePitches) _midiPro.stopMidiNote(midi: p);
-        return;
-      }
+    double beatAccumulatorInMeasureMs = 0.0;
 
-      if (i < seq.length) {
-        final note = seq[i];
-        final double rhythmMultiplier =
-            (i < rhythms.length) ? rhythms[i] : 0.25;
-        final double effectiveTempo = _tempo * _speedMultiplier;
-        final int targetMsDelay =
-            (rhythmMultiplier * (60000 / effectiveTempo)).round();
+    for (int i = 0; i < trackBeats.length; i++) {
+      final beat = trackBeats[i];
+      final double effectiveTempo = measureTempo * speedMultiplier;
+      final double beatDurationMs = beat.duration * (60000.0 / effectiveTempo);
+      final double beatStartMs = currentMeasureStartMs + beatAccumulatorInMeasureMs;
 
-        bool shouldPlay = _soloedTracks.isNotEmpty
-            ? _soloedTracks.contains(tIdx)
-            : !_mutedTracks.contains(tIdx);
+      events.add(_ScheduledBeatEvent(
+        trackIndex: trackIndex,
+        beatIndexInTrack: i,
+        beat: beat,
+        startMs: beatStartMs,
+        durationMs: beatDurationMs,
+        isMainTrack: isMainTrack,
+      ));
 
-        if (note[0] != -1 && shouldPlay) {
-          final int pitch = (_standardTuning[note[0]] ?? 40) + note[1];
-          _midiPro.playMidiNote(midi: pitch, velocity: 80);
-          activePitches.add(pitch);
-        }
+      beatAccumulatorInMeasureMs += beatDurationMs;
 
-        if (targetMsDelay > 0) {
-          driftTimer.reset();
-          await Future.delayed(Duration(milliseconds: targetMsDelay));
-
-          // CRITICAL: Stop notes immediately upon waking, regardless of token
-          // state, to prevent notes from ringing through a stop/pause event.
-          for (var p in activePitches) _midiPro.stopMidiNote(midi: p);
-          activePitches.clear();
-
-          if (_playbackToken != token) return;
+      // Check measure boundary advance
+      if (measureEnds.contains(i)) {
+        currentMeasureStartMs += beatAccumulatorInMeasureMs;
+        beatAccumulatorInMeasureMs = 0.0;
+        currentMeasureIndex++;
+        
+        if (_masterBars.isNotEmpty && currentMeasureIndex < _masterBars.length) {
+          measureTempo = _masterBars[currentMeasureIndex].tempo;
         }
       }
-      i++;
     }
+
+    return events;
   }
 
   Future<void> _startPlayback() async {
-    final List<List<int>> seq = _parsedSequence;
-    final List<double> rhythms = _parsedRhythms;
-
-    if (!_isMidiReady || seq.isEmpty) return;
+    final List<GpBeat> mainBeats = _parsedBeats;
+    if (!_isMidiReady || mainBeats.isEmpty) return;
 
     final bool isSingleNoteSelected =
         _selectionStart != -1 && _selectionStart == _selectionEnd;
@@ -405,17 +552,23 @@ class _GpxTabScreenState extends State<GpxTabScreen>
     final int startIdx;
     if (_isPaused &&
         _currentPlayingIndex >= 0 &&
-        _currentPlayingIndex < seq.length) {
+        _currentPlayingIndex < mainBeats.length) {
       startIdx = _currentPlayingIndex;
     } else if (isSingleNoteSelected) {
-      startIdx = _selectionStart.clamp(0, seq.length - 1);
+      startIdx = _selectionStart.clamp(0, mainBeats.length - 1);
     } else if (isRangeSelected) {
-      startIdx = selMin.clamp(0, seq.length - 1);
+      startIdx = selMin.clamp(0, mainBeats.length - 1);
     } else if (_loopMode == LoopMode.selection && _selectionStart != -1) {
-      startIdx = _selectionStart.clamp(0, seq.length - 1);
+      startIdx = _selectionStart.clamp(0, mainBeats.length - 1);
     } else {
       startIdx = 0;
     }
+
+    final int endIdx = isRangeSelected
+        ? selMax.clamp(0, mainBeats.length - 1)
+        : ((_loopMode == LoopMode.selection && _selectionEnd != -1)
+            ? _selectionEnd.clamp(0, mainBeats.length - 1)
+            : mainBeats.length - 1);
 
     _isPaused = false;
     _playbackToken++;
@@ -426,93 +579,225 @@ class _GpxTabScreenState extends State<GpxTabScreen>
       _currentPlayingIndex = startIdx;
     });
 
+    // Soundfont wake-up ping
     _midiPro.playMidiNote(midi: 12, velocity: 1);
-    await Future.delayed(const Duration(milliseconds: 150));
+    await Future.delayed(const Duration(milliseconds: 100));
     _midiPro.stopMidiNote(midi: 12);
 
-    final int endIdx = isRangeSelected
-        ? selMax.clamp(0, seq.length - 1)
-        : ((_loopMode == LoopMode.selection && _selectionEnd != -1)
-            ? _selectionEnd.clamp(0, seq.length - 1)
-            : seq.length - 1);
+    if (!mounted || _playbackToken != token || !_isPlaying) return;
 
-    // Spawn independent timing loops for all unselected backing tracks.
-    for (int tIdx = 0; tIdx < _tracks.length; tIdx++) {
-      if (tIdx != _selectedTrackIndex) {
-        _playBackgroundTrack(tIdx, token, startIdx, endIdx);
+    // 1. Build timeline events for the main track using absolute offsets
+    final mainEvents = _buildTrackSchedule(
+      trackIndex: _selectedTrackIndex,
+      trackBeats: mainBeats,
+      measureEnds: _parsedMeasureEnds,
+      isMainTrack: true,
+      speedMultiplier: _speedMultiplier,
+    );
+    if (mainEvents.isEmpty) return;
+
+    // Time window based on selection
+    final double originStartMs = (startIdx < mainEvents.length) 
+        ? mainEvents[startIdx].startMs 
+        : 0.0;
+    final double originEndMs = (endIdx < mainEvents.length) 
+        ? (mainEvents[endIdx].startMs + mainEvents[endIdx].durationMs) 
+        : mainEvents.last.startMs;
+
+    // 2. Assemble unified multi-track timeline for ZERO DRIFT across all tracks
+    List<_ScheduledBeatEvent> unifiedTimeline = [];
+    
+    // Add main track events in window
+    for (final ev in mainEvents) {
+      if (ev.beatIndexInTrack >= startIdx && ev.beatIndexInTrack <= endIdx) {
+        unifiedTimeline.add(_ScheduledBeatEvent(
+          trackIndex: ev.trackIndex,
+          beatIndexInTrack: ev.beatIndexInTrack,
+          beat: ev.beat,
+          startMs: ev.startMs - originStartMs, // Normalized to 0.0
+          durationMs: ev.durationMs,
+          isMainTrack: true,
+        ));
       }
     }
 
-    int i = startIdx;
-    final List<int> activePitches = [];
+    // Unify background tracks directly into the Master Clock timeline
+    for (int tIdx = 0; tIdx < _tracks.length; tIdx++) {
+      if (tIdx == _selectedTrackIndex) continue;
+      
+      final bTrack = _tracks[tIdx];
+      final bEvents = _buildTrackSchedule(
+        trackIndex: tIdx,
+        trackBeats: bTrack.beats,
+        measureEnds: bTrack.measureEndIndices,
+        isMainTrack: false,
+        speedMultiplier: _speedMultiplier,
+      );
+      
+      for (final ev in bEvents) {
+        if (ev.startMs >= originStartMs && ev.startMs <= originEndMs) {
+          unifiedTimeline.add(_ScheduledBeatEvent(
+            trackIndex: ev.trackIndex,
+            beatIndexInTrack: ev.beatIndexInTrack,
+            beat: ev.beat,
+            startMs: ev.startMs - originStartMs,
+            durationMs: ev.durationMs,
+            isMainTrack: false,
+          ));
+        }
+      }
+    }
 
+    // Sort strictly by startMs to interleave all tracks chronologically
+    unifiedTimeline.sort();
+
+    // 3. Execute Synchronized Master Clock Loop
     while (true) {
       if (!mounted || _playbackToken != token || !_isPlaying) return;
+      
+      // Absolute timeline tracker
+      final Stopwatch masterClock = Stopwatch()..start();
+      int eventIndex = 0;
 
-      final List<int> note = seq[i];
-      final double rhythmMultiplier =
-          (i < rhythms.length) ? rhythms[i] : 0.25;
-      final double effectiveTempo = _tempo * _speedMultiplier;
-      final int msDelay =
-          (rhythmMultiplier * (60000 / effectiveTempo)).round();
-
-      if (mounted) setState(() => _currentPlayingIndex = i);
-
-      bool shouldPlayMain = _soloedTracks.isNotEmpty
-          ? _soloedTracks.contains(_selectedTrackIndex)
-          : !_mutedTracks.contains(_selectedTrackIndex);
-
-      if (note[0] != -1 && shouldPlayMain) {
-        final int pitch = (_standardTuning[note[0]] ?? 40) + note[1];
-        _midiPro.playMidiNote(midi: pitch, velocity: 110);
-        activePitches.add(pitch);
-      }
-
-      if (msDelay > 0) {
-        await Future.delayed(Duration(milliseconds: msDelay));
-        if (_playbackToken != token) return;
-        for (var p in activePitches) {
-          _midiPro.stopMidiNote(midi: p);
+      while (eventIndex < unifiedTimeline.length) {
+        if (!mounted || _playbackToken != token || !_isPlaying) {
+          _cleanUpMidiState();
+          return;
         }
-        activePitches.clear();
-      }
 
-      i++;
+        final ev = unifiedTimeline[eventIndex];
+        final double targetMs = ev.startMs;
+        final double elapsedMs = masterClock.elapsedMicroseconds / 1000.0;
+        
+        // Calculate absolute wait time to eliminate relative drift
+        final int waitMs = (targetMs - elapsedMs).round();
 
-      if (i > endIdx) {
-        switch (_loopMode) {
-          case LoopMode.off:
-            if (mounted && _playbackToken == token) {
-              setState(() {
-                _isPlaying = false;
-                _currentPlayingIndex = -1;
-              });
-            }
+        if (waitMs > 0) {
+          await Future.delayed(Duration(milliseconds: waitMs));
+          if (!mounted || _playbackToken != token || !_isPlaying) {
+            _cleanUpMidiState();
             return;
-          case LoopMode.all:
-            i = isRangeSelected ? selMin : 0;
-            break;
-          case LoopMode.selection:
-            i = isRangeSelected
-                ? selMin
-                : ((_selectionStart != -1) ? _selectionStart : 0);
-            break;
-        }
-
-        // Restart background tracks when looping.
-        if (_loopMode != LoopMode.off) {
-          for (int tIdx = 0; tIdx < _tracks.length; tIdx++) {
-            if (tIdx != _selectedTrackIndex) {
-              _playBackgroundTrack(tIdx, token, i, endIdx);
-            }
           }
         }
+
+        // Process all events scheduled at or before this exact moment (handling simultaneous multi-track chords)
+        while (eventIndex < unifiedTimeline.length &&
+            unifiedTimeline[eventIndex].startMs <= (masterClock.elapsedMicroseconds / 1000.0) + 2.0) {
+          
+          _dispatchBeatEvent(unifiedTimeline[eventIndex], token);
+          eventIndex++;
+        }
+      }
+
+      // Wait for the final trailing beat sustain before looping/terminating
+      final double totalSongMs = originEndMs - originStartMs;
+      final double currentElapsed = masterClock.elapsedMicroseconds / 1000.0;
+      final int trailingWaitMs = (totalSongMs - currentElapsed).round();
+      
+      if (trailingWaitMs > 0) {
+        await Future.delayed(Duration(milliseconds: trailingWaitMs));
+      }
+
+      _cleanUpMidiState();
+      if (!mounted || _playbackToken != token || !_isPlaying) return;
+
+      // Handle loop modes
+      switch (_loopMode) {
+        case LoopMode.off:
+          setState(() {
+            _isPlaying = false;
+            _currentPlayingIndex = -1;
+          });
+          return;
+        case LoopMode.all:
+        case LoopMode.selection:
+          // Proceed to next iteration of the while(true) loop 
+          break;
       }
     }
   }
 
+  void _dispatchBeatEvent(_ScheduledBeatEvent ev, int token) {
+    final beat = ev.beat;
+    final int tIdx = ev.trackIndex;
+
+    // Visualizer playhead update for main track
+    if (ev.isMainTrack && mounted) {
+      setState(() => _currentPlayingIndex = ev.beatIndexInTrack);
+    }
+
+    // Check Solo / Mute rules
+    final bool shouldPlay = _soloedTracks.isNotEmpty
+        ? _soloedTracks.contains(tIdx)
+        : !_mutedTracks.contains(tIdx);
+
+    if (!shouldPlay || beat.isRest) return;
+
+    // -> Simultaneous Chord Triggering <-
+    for (final note in beat.notes) {
+      if (note.isRest) continue;
+
+      final int pitch = note.pitch != -1
+          ? note.pitch
+          : ((_standardTuning[note.stringNum] ?? 40) + note.fretNum);
+
+      // 1. Ties: do NOT retrigger Note-On if tied from previous note
+      if (note.isTie && _activeSoundingPitches.contains(pitch)) {
+        continue;
+      }
+
+      // 2. Velocity and Sustain modifications for Palm Mute & Dead Notes
+      int velocity = ev.isMainTrack ? 110 : 80;
+      double playDurationMs = ev.durationMs;
+
+      if (note.isMuted) {
+        // Dead Note ('X'): severely attenuated velocity, short clamp
+        velocity = 20;
+        playDurationMs = min(ev.durationMs, 30.0);
+      } else if (note.isPalmMute) {
+        // Palm Mute: 60% velocity, 50% truncated sustain
+        velocity = (velocity * 0.6).round();
+        playDurationMs = ev.durationMs * 0.5;
+      } else if (note.isLetRing) {
+        // Let Ring: extend duration
+        playDurationMs = max(ev.durationMs, 800.0);
+      }
+
+      // Trigger Note-On for this note in the chord
+      _midiPro.playMidiNote(midi: pitch, velocity: velocity);
+      _activeSoundingPitches.add(pitch);
+
+      // 3. Pitch Bend & Vibrato micro-loop articulation
+      if (note.bend != null) {
+        final int bendToken = ++_currentBendToken;
+        _spawnBendLoop(note.bend!, playDurationMs, token, bendToken);
+      } else if (note.vibrato != null) {
+        final int bendToken = ++_currentBendToken;
+        _spawnVibratoLoop(note.vibrato!, playDurationMs, token, bendToken);
+      }
+
+      // Schedule Note-Off after calculated sustain
+      final int delayMs = max(15, playDurationMs.round());
+      Future.delayed(Duration(milliseconds: delayMs)).then((_) {
+        if (_playbackToken == token && _activeSoundingPitches.contains(pitch)) {
+          _midiPro.stopMidiNote(midi: pitch);
+          _activeSoundingPitches.remove(pitch);
+        }
+      });
+    }
+  }
+
+  void _cleanUpMidiState() {
+    for (final p in _activeSoundingPitches) {
+      _midiPro.stopMidiNote(midi: p);
+    }
+    _activeSoundingPitches.clear();
+    _resetPitchBend();
+  }
+
   void _pausePlayback() {
     _playbackToken++;
+    _cleanUpMidiState();
     setState(() {
       _isPlaying = false;
       _isPaused = true;
@@ -521,8 +806,9 @@ class _GpxTabScreenState extends State<GpxTabScreen>
 
   void _stopPlayback({bool resetPosition = true}) {
     _playbackToken++;
+    _cleanUpMidiState();
     _isPaused = false;
-
+    
     if (mounted) {
       setState(() {
         _isPlaying = false;
@@ -531,14 +817,12 @@ class _GpxTabScreenState extends State<GpxTabScreen>
         }
       });
 
-      // If we have a selection, snap the playhead back to it after the frame.
       if (resetPosition && _selectionStart != -1) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) setState(() => _currentPlayingIndex = _selectionStart);
         });
       }
     }
-    _midiPro.loadSoundfont(sf2Path: 'assets/guitar.sf2', instrumentIndex: 27);
   }
 
   void _cycleLoopMode() {
@@ -586,10 +870,10 @@ class _GpxTabScreenState extends State<GpxTabScreen>
         _currentPlayingIndex = -1;
       }
     });
-
+    
     if (!_isPlaying) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _parsedSequence.isNotEmpty) {
+        if (mounted && _parsedBeats.isNotEmpty) {
           setState(() => _currentPlayingIndex = 0);
         }
       });
@@ -603,7 +887,8 @@ class _GpxTabScreenState extends State<GpxTabScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final List<List<int>> seq = _parsedSequence;
+
+    final List<GpBeat> beats = _parsedBeats;
     final bool hasFile = _fileName != null && !_isLoading;
     final bool hasSelection = _selectionStart != -1 && _selectionEnd != -1;
 
@@ -684,7 +969,7 @@ class _GpxTabScreenState extends State<GpxTabScreen>
             )
           else ...[
             Expanded(
-              child: seq.isEmpty
+              child: beats.isEmpty
                   ? Center(
                       child: Text(
                         _tracks.isNotEmpty
@@ -696,7 +981,7 @@ class _GpxTabScreenState extends State<GpxTabScreen>
                       ),
                     )
                   : InteractiveTabDisplay(
-                      sequence: seq,
+                      sequence: beats,
                       notesPerMeasure: _notesPerMeasure,
                       measuresPerLine: _measuresPerLine,
                       currentPlayingIndex: _currentPlayingIndex,
@@ -704,6 +989,8 @@ class _GpxTabScreenState extends State<GpxTabScreen>
                       selectionEnd: _selectionEnd,
                       tuningStr: 'Standard E',
                       onBeatTapped: _onBeatTapped,
+                      measureEndIndices: _parsedMeasureEnds,
+                      masterBars: _masterBars,
                     ),
             ),
             Container(
@@ -714,7 +1001,7 @@ class _GpxTabScreenState extends State<GpxTabScreen>
                 isPlaying: _isPlaying,
                 isMidiReady: _isMidiReady,
                 isLooping: _loopMode != LoopMode.off,
-                hasSequence: seq.isNotEmpty,
+                hasSequence: beats.isNotEmpty,
                 hasSelection: hasSelection,
                 selectionStart: _selectionStart,
                 selectionEnd: _selectionEnd,
