@@ -80,6 +80,12 @@ class _StudioNumberFieldState extends State<StudioNumberField> {
   late TextEditingController _controller;
   late FocusNode _focusNode;
 
+  void _onFocusChange() {
+    if (!_focusNode.hasFocus) {
+      _commitValue();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -87,11 +93,7 @@ class _StudioNumberFieldState extends State<StudioNumberField> {
     _focusNode = FocusNode();
     
     // Defer state update until user is completely done typing
-    _focusNode.addListener(() {
-      if (!_focusNode.hasFocus) {
-        _commitValue();
-      }
-    });
+    _focusNode.addListener(_onFocusChange);
   }
 
   @override
@@ -107,6 +109,7 @@ class _StudioNumberFieldState extends State<StudioNumberField> {
 
   @override
   void dispose() {
+    _focusNode.removeListener(_onFocusChange);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -171,17 +174,19 @@ class _StudioStepperFieldState extends State<StudioStepperField> {
   Timer? _repeatTimer;
   Timer? _delayTimer;
 
+  void _onFocusChange() {
+    if (!_focusNode.hasFocus) {
+      _commitValue();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.value.toString());
     _focusNode = FocusNode();
     
-    _focusNode.addListener(() {
-      if (!_focusNode.hasFocus) {
-        _commitValue();
-      }
-    });
+    _focusNode.addListener(_onFocusChange);
   }
 
   @override
@@ -194,6 +199,8 @@ class _StudioStepperFieldState extends State<StudioStepperField> {
 
   @override
   void dispose() {
+    _stopHold();
+    _focusNode.removeListener(_onFocusChange);
     _delayTimer?.cancel();
     _repeatTimer?.cancel();
     _controller.dispose();
@@ -231,6 +238,7 @@ class _StudioStepperFieldState extends State<StudioStepperField> {
     
     _delayTimer = Timer(const Duration(milliseconds: 400), () {
       _repeatTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+        if (!mounted) { _stopHold(); return; }
         _updateValue(delta * 5);
       });
     });

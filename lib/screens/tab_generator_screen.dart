@@ -151,14 +151,14 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   // --- Linked Direction & String Controls ---
 
   void _onDirectionChanged(String newDir) {
-    bool needsSwap = false;
-    if (newDir == "One-Way (Ascend)" || newDir == "Ascend -> Descend") {
-      if (_startString < _endString) needsSwap = true; // 6 to 1 is Ascending
-    } else if (newDir == "One-Way (Descend)" || newDir == "Descend -> Ascend") {
-      if (_startString > _endString) needsSwap = true; // 1 to 6 is Descending
-    }
-    
     setState(() {
+      bool needsSwap = false;
+      if (newDir == "One-Way (Ascend)" || newDir == "Ascend -> Descend") {
+        if (_startString < _endString) needsSwap = true; // 6 to 1 is Ascending
+      } else if (newDir == "One-Way (Descend)" || newDir == "Descend -> Ascend") {
+        if (_startString > _endString) needsSwap = true; // 1 to 6 is Descending
+      }
+      
       _selectedDirection = newDir;
       if (needsSwap) {
         int temp = _startString;

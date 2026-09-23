@@ -100,7 +100,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   int _currentBendToken = 0;
   LoopMode _loopMode = LoopMode.off;
 
-  final Set<int> _activeSoundingPitches = {};
+  final Map<int, Set<int>> _activeSoundingPitches = {for (int i = 0; i <= 6; i++) i: {}};
 
   int _selectionStart = -1;
   int _selectionEnd = -1;
@@ -140,6 +140,30 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       if (mounted) setState(() => _isMidiReady = true);
     } catch (e) {
       debugPrint('GP Viewer MIDI setup error: $e');
+    }
+  }
+
+  Future<void> _sendRawNoteOn(int pitch, int velocity, int channel) async {
+    try {
+      await _nativeMidiChannel.invokeMethod('sendMidiEvent', {
+        'status': 0x90 | (channel & 0x0F),
+        'data1': pitch,
+        'data2': velocity,
+      });
+    } catch (_) {
+      _midiPro.playMidiNote(midi: pitch, velocity: velocity);
+    }
+  }
+
+  Future<void> _sendRawNoteOff(int pitch, int channel) async {
+    try {
+      await _nativeMidiChannel.invokeMethod('sendMidiEvent', {
+        'status': 0x80 | (channel & 0x0F),
+        'data1': pitch,
+        'data2': 0,
+      });
+    } catch (_) {
+      _midiPro.stopMidiNote(midi: pitch);
     }
   }
 
@@ -184,40 +208,40 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     return envelope.last.offset;
   }
 
-  void _spawnBendLoop(GpBend bend, double durationMs, int token, int bendToken) {
+  void _spawnBendLoop(GpBend bend, double durationMs, int token, int bendToken, int channel) {
     final Stopwatch bendTimer = Stopwatch()..start();
     const int stepIntervalMs = 16;
     Future.doWhile(() async {
       if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
-        await _resetPitchBend();
+        await _resetPitchBend(channel: channel);
         return false;
       }
       final double elapsed = bendTimer.elapsedMilliseconds.toDouble();
       if (elapsed >= durationMs) {
-        await _resetPitchBend();
+        await _resetPitchBend(channel: channel);
         return false;
       }
       final double progress = (elapsed / durationMs).clamp(0.0, 1.0);
       final double offsetSemitones = _interpolateBend(bend.envelope, progress);
       final int bendValue = (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
-      await _sendPitchBend(bendValue);
+      await _sendPitchBend(bendValue, channel: channel);
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
       return true;
     });
   }
 
-  void _spawnVibratoLoop(GpVibrato vibrato, double durationMs, int token, int bendToken) {
+  void _spawnVibratoLoop(GpVibrato vibrato, double durationMs, int token, int bendToken, int channel) {
     final Stopwatch vibTimer = Stopwatch()..start();
     const int stepIntervalMs = 16;
     final double sustainStartMs = durationMs * 0.2;
     Future.doWhile(() async {
       if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
-        await _resetPitchBend();
+        await _resetPitchBend(channel: channel);
         return false;
       }
       final double elapsed = vibTimer.elapsedMilliseconds.toDouble();
       if (elapsed >= durationMs) {
-        await _resetPitchBend();
+        await _resetPitchBend(channel: channel);
         return false;
       }
       if (elapsed >= sustainStartMs) {
@@ -225,7 +249,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         final double lfo = sin(2 * pi * vibrato.frequency * tSec);
         final double offsetSemitones = lfo * (vibrato.amplitude * 0.4);
         final int bendValue = (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
-        await _sendPitchBend(bendValue);
+        await _sendPitchBend(bendValue, channel: channel);
       }
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
       return true;
@@ -643,7 +667,9 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
           ? note.pitch
           : ((_standardTuning[note.stringNum] ?? 40) + note.fretNum);
 
-      if (note.isTie && _activeSoundingPitches.contains(pitch)) {
+      int targetChannel = note.stringNum.clamp(1, 6);
+
+      if (note.isTie && _activeSoundingPitches[targetChannel]?.contains(pitch) == true) {
         continue;
       }
 
@@ -660,33 +686,37 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         playDurationMs = max(ev.durationMs, 800.0);
       }
 
-      _midiPro.playMidiNote(midi: pitch, velocity: velocity);
-      _activeSoundingPitches.add(pitch);
+      _sendRawNoteOn(pitch, velocity, targetChannel);
+      _activeSoundingPitches[targetChannel]?.add(pitch);
 
       if (note.bend != null) {
         final int bendToken = ++_currentBendToken;
-        _spawnBendLoop(note.bend!, playDurationMs, token, bendToken);
+        _spawnBendLoop(note.bend!, playDurationMs, token, bendToken, targetChannel);
       } else if (note.vibrato != null) {
         final int bendToken = ++_currentBendToken;
-        _spawnVibratoLoop(note.vibrato!, playDurationMs, token, bendToken);
+        _spawnVibratoLoop(note.vibrato!, playDurationMs, token, bendToken, targetChannel);
       }
 
       final int delayMs = max(15, playDurationMs.round());
       Future.delayed(Duration(milliseconds: delayMs)).then((_) {
-        if (_playbackToken == token && _activeSoundingPitches.contains(pitch)) {
-          _midiPro.stopMidiNote(midi: pitch);
-          _activeSoundingPitches.remove(pitch);
+        if (_playbackToken == token && _activeSoundingPitches[targetChannel]?.contains(pitch) == true) {
+          _sendRawNoteOff(pitch, targetChannel);
+          _activeSoundingPitches[targetChannel]?.remove(pitch);
         }
       });
     }
   }
 
   void _cleanUpMidiState() {
-    for (final p in _activeSoundingPitches) {
-      _midiPro.stopMidiNote(midi: p);
+    for (int channel = 0; channel <= 6; channel++) {
+      if (_activeSoundingPitches[channel] != null) {
+        for (final p in _activeSoundingPitches[channel]!) {
+          _sendRawNoteOff(p, channel);
+        }
+        _activeSoundingPitches[channel]!.clear();
+      }
+      _resetPitchBend(channel: channel);
     }
-    _activeSoundingPitches.clear();
-    _resetPitchBend();
   }
 
   void _pausePlayback() {
