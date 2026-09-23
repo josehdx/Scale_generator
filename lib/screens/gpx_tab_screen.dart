@@ -98,7 +98,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   bool _isPaused = false;
   int _playbackToken = 0;
   
-  // Independent channel tokens to prevent multiple bending notes from cancelling each other
   final Map<int, int> _bendTokens = {for (int i = 0; i <= 15; i++) i: 0};
   
   int _currentPlayingIndex = -1;
@@ -138,9 +137,34 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     super.dispose();
   }
 
+  Future<void> _setInstrumentOnAllChannels(int instrumentIndex) async {
+    for (int ch = 0; ch <= 15; ch++) {
+      try {
+        await _nativeMidiChannel.invokeMethod('sendMidiEvent', {
+          'status': 0xC0 | (ch & 0x0F), // Program Change
+          'data1': instrumentIndex,
+          'data2': 0,
+        });
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _setPitchBendRange(int semitones) async {
+    for (int ch = 0; ch <= 15; ch++) {
+      try {
+        await _nativeMidiChannel.invokeMethod('sendMidiEvent', {'status': 0xB0 | ch, 'data1': 101, 'data2': 0}); // RPN MSB
+        await _nativeMidiChannel.invokeMethod('sendMidiEvent', {'status': 0xB0 | ch, 'data1': 100, 'data2': 0}); // RPN LSB
+        await _nativeMidiChannel.invokeMethod('sendMidiEvent', {'status': 0xB0 | ch, 'data1': 6, 'data2': semitones}); // Data Entry MSB
+        await _nativeMidiChannel.invokeMethod('sendMidiEvent', {'status': 0xB0 | ch, 'data1': 38, 'data2': 0}); // Data Entry LSB
+      } catch (_) {}
+    }
+  }
+
   Future<void> _loadSoundFont() async {
     try {
       await _midiPro.loadSoundfont(sf2Path: 'assets/guitar.sf2', instrumentIndex: 27);
+      await _setInstrumentOnAllChannels(27);
+      await _setPitchBendRange(12); // Extends strict 2-semitone native limit to +/- 12 semitones
       if (mounted) setState(() => _isMidiReady = true);
     } catch (e) {
       debugPrint('GP Viewer MIDI setup error: $e');
@@ -181,14 +205,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         'data1': lsb,
         'data2': msb,
       });
-    } catch (_) {
-      try {
-        await _nativeMidiChannel.invokeMethod('pitchBend', {
-          'value': clamped,
-          'channel': channel,
-        });
-      } catch (_) {}
-    }
+    } catch (_) {}
   }
 
   Future<void> _resetPitchBend({int channel = 0}) async {
@@ -231,7 +248,35 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
       final double progress = (elapsed / durationMs).clamp(0.0, 1.0);
       final double offsetSemitones = _interpolateBend(bend.envelope, progress);
-      final int bendValue = (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
+      // Math adjusted for +/- 12 semitones RPN range
+      final int bendValue = (8192 + (offsetSemitones / 12.0) * 8191).clamp(0, 16383).round();
+      
+      await _sendPitchBend(bendValue, channel: channel);
+      await Future.delayed(const Duration(milliseconds: stepIntervalMs));
+      return true;
+    });
+  }
+
+  void _spawnSlideLoop(double semitonesDiff, double durationMs, int token, int bendToken, int channel) {
+    final Stopwatch slideTimer = Stopwatch()..start();
+    const int stepIntervalMs = 16;
+
+    Future.doWhile(() async {
+      if (!mounted || _playbackToken != token || _bendTokens[channel] != bendToken || !_isPlaying) {
+        await _resetPitchBend(channel: channel);
+        return false;
+      }
+
+      final double elapsed = slideTimer.elapsedMilliseconds.toDouble();
+      if (elapsed >= durationMs) {
+        // Slide reached destination. Hold bend until note physically stops.
+        final int bendValue = (8192 + (semitonesDiff / 12.0) * 8191).clamp(0, 16383).round();
+        await _sendPitchBend(bendValue, channel: channel);
+        return false; 
+      }
+
+      final double progress = (elapsed / durationMs).clamp(0.0, 1.0);
+      final int bendValue = (8192 + ((semitonesDiff * progress) / 12.0) * 8191).clamp(0, 16383).round();
       
       await _sendPitchBend(bendValue, channel: channel);
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
@@ -260,13 +305,21 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         final double tSec = (elapsed - sustainStartMs) / 1000.0;
         final double lfo = sin(2 * pi * vibrato.frequency * tSec);
         final double offsetSemitones = lfo * (vibrato.amplitude * 0.4);
-        final int bendValue = (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
+        final int bendValue = (8192 + (offsetSemitones / 12.0) * 8191).clamp(0, 16383).round();
         await _sendPitchBend(bendValue, channel: channel);
       }
 
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
       return true;
     });
+  }
+
+  GpNote? _findNextNoteOnString(int startBeatIdx, int stringNum) {
+    for (int i = startBeatIdx + 1; i < _parsedBeats.length; i++) {
+      final n = _parsedBeats[i].noteOnString(stringNum);
+      if (n != null && !n.isRest) return n;
+    }
+    return null;
   }
 
   Future<void> _loadRecentFiles() async {
@@ -697,6 +750,11 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       int velocity = ev.isMainTrack ? 110 : 80;
       double playDurationMs = ev.durationMs;
 
+      // Drop attack velocity by 25% for Legato (Hammer-ons / Pull-offs) to simulate un-picked execution
+      if (note.isLegato) {
+        velocity = (velocity * 0.75).round();
+      }
+
       if (note.isMuted) {
         velocity = 20;
         playDurationMs = min(ev.durationMs, 30.0);
@@ -710,8 +768,15 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       _sendRawNoteOn(pitch, velocity, targetChannel);
       _activeSoundingPitches[targetChannel]?.add(pitch);
 
-      // Replaced ++map! to prevent Dart compilation errors on null-asserted r-values
-      if (note.bend != null) {
+      if (note.slideType != SlideType.none) {
+        final targetNote = _findNextNoteOnString(ev.beatIndexInTrack, note.stringNum);
+        if (targetNote != null) {
+          final int pitchDiff = targetNote.pitch - pitch; 
+          _bendTokens[targetChannel] = (_bendTokens[targetChannel] ?? 0) + 1;
+          final int bendToken = _bendTokens[targetChannel]!;
+          _spawnSlideLoop(pitchDiff.toDouble(), playDurationMs, token, bendToken, targetChannel);
+        }
+      } else if (note.bend != null) {
         _bendTokens[targetChannel] = (_bendTokens[targetChannel] ?? 0) + 1;
         final int bendToken = _bendTokens[targetChannel]!;
         _spawnBendLoop(note.bend!, playDurationMs, token, bendToken, targetChannel);
@@ -740,7 +805,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         _activeSoundingPitches[channel]!.clear();
       }
       _resetPitchBend(channel: channel);
-      _bendTokens[channel] = (_bendTokens[channel] ?? 0) + 1; // Instantly aborts any hanging doWhile pitch bend loops
+      _bendTokens[channel] = (_bendTokens[channel] ?? 0) + 1; 
     }
   }
 
