@@ -16,7 +16,6 @@ class FormattingSection extends StatelessWidget {
   final int breakInterval;
   final int breakLength;
   final int endRests;
-
   final ValueChanged<String?> onRhythmChanged;
   final ValueChanged<String?> onTimeSignatureChanged;
   final ValueChanged<int> onTempoChanged;
@@ -64,9 +63,9 @@ class FormattingSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
-              flex: 4,
+              flex: 5, // Increased flex to give the rhythm dropdown more breathing room
               child: StudioDropdown(
-                label: 'Rhythm Pattern', 
+                label: 'Rhythm', // Shortened label to prevent horizontal clipping
                 value: selectedRhythmPattern, 
                 items: availableRhythmPatterns, 
                 onChanged: onRhythmChanged,
@@ -76,17 +75,22 @@ class FormattingSection extends StatelessWidget {
             Expanded(
               flex: 3,
               child: StudioDropdown(
-                label: 'Time Signature', 
+                label: 'Time Sig.', // Shortened label to prevent horizontal clipping
                 value: selectedTimeSignature, 
                 items: availableTimeSignatures, 
                 onChanged: onTimeSignatureChanged,
               ),
             ),
-            const SizedBox(width: 8),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
             Expanded(
               flex: 5,
               child: StudioStepperField(
-                label: 'Tempo BPM', 
+                label: 'Tempo', 
                 value: tempo, 
                 min: 40,
                 max: 300,

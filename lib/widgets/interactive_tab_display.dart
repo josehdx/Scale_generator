@@ -146,7 +146,6 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
         double currentVOffset = position.pixels;
         double vViewport = position.viewportDimension;
         
-        // Edge boundary tracking logic: only jump if the system leaves the viewing area
         if (vertOffset < currentVOffset || vertOffset + 115.0 > currentVOffset + vViewport) {
           _verticalController.animateTo(
             vertOffset,
@@ -164,9 +163,8 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
       if (position.hasViewportDimension) {
         double currentOffset = position.pixels;
         double viewportWidth = position.viewportDimension;
-        double targetNotePos = noteIndexInSys * 28.0; // Approx column width tracking
+        double targetNotePos = noteIndexInSys * 28.0; 
         
-        // Horizontal Edge boundary tracking logic: only jump if playhead leaves the middle 80% screen space
         if (targetNotePos < currentOffset + 20.0 || targetNotePos > currentOffset + viewportWidth - 40.0) {
           double horizOffset = max(0.0, targetNotePos - (viewportWidth / 2));
           _horizontalControllers[sysIndex].animateTo(
@@ -176,7 +174,6 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
           );
         }
       } else {
-        // Safe layout fallback if viewport dims aren't attached yet
         double horizOffset = max(0.0, (noteIndexInSys - 2) * 25.0);
         _horizontalControllers[sysIndex].jumpTo(horizOffset);
       }
@@ -242,7 +239,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                     color: isPlaying
                         ? Colors.amber.shade400
                         : (isSelected
-                            ? Colors.blue.shade700.withValues(alpha: 0.6)
+                            ? Colors.blue.shade700.withOpacity(0.6)
                             : Colors.transparent),
                     borderRadius: BorderRadius.circular(2),
                   ),
@@ -355,12 +352,18 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
       );
     }
 
-    // Returning standard SingleChildScrollView (removed double-boxing borders so Studio & GP Viewer align perfectly)
-    return SingleChildScrollView(
+    return Scrollbar(
       controller: _verticalController,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: systemWidgets,
+      thumbVisibility: true,
+      thickness: 6.0,
+      radius: const Radius.circular(4),
+      interactive: true,
+      child: SingleChildScrollView(
+        controller: _verticalController,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: systemWidgets,
+        ),
       ),
     );
   }

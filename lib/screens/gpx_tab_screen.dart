@@ -64,6 +64,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   int _selectedTrackIndex = 0;
   Set<int> _soloedTracks = {};
   Set<int> _mutedTracks = {};
+
   List<Map<String, String>> _recentFiles = [];
 
   int _endRests = 0;
@@ -96,11 +97,14 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   bool _isPlaying = false;
   bool _isPaused = false;
   int _playbackToken = 0;
+  
+  // Independent channel tokens to prevent multiple bending notes from cancelling each other
+  final Map<int, int> _bendTokens = {for (int i = 0; i <= 15; i++) i: 0};
+  
   int _currentPlayingIndex = -1;
-  int _currentBendToken = 0;
   LoopMode _loopMode = LoopMode.off;
 
-  final Map<int, Set<int>> _activeSoundingPitches = {for (int i = 0; i <= 6; i++) i: {}};
+  final Map<int, Set<int>> _activeSoundingPitches = {for (int i = 0; i <= 15; i++) i: {}};
 
   int _selectionStart = -1;
   int _selectionEnd = -1;
@@ -195,6 +199,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     if (envelope.isEmpty) return 0.0;
     if (progress <= envelope.first.position) return envelope.first.offset;
     if (progress >= envelope.last.position) return envelope.last.offset;
+
     for (int i = 0; i < envelope.length - 1; i++) {
       final p0 = envelope[i];
       final p1 = envelope[i + 1];
@@ -211,19 +216,23 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   void _spawnBendLoop(GpBend bend, double durationMs, int token, int bendToken, int channel) {
     final Stopwatch bendTimer = Stopwatch()..start();
     const int stepIntervalMs = 16;
+
     Future.doWhile(() async {
-      if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
+      if (!mounted || _playbackToken != token || _bendTokens[channel] != bendToken || !_isPlaying) {
         await _resetPitchBend(channel: channel);
         return false;
       }
+
       final double elapsed = bendTimer.elapsedMilliseconds.toDouble();
       if (elapsed >= durationMs) {
         await _resetPitchBend(channel: channel);
         return false;
       }
+
       final double progress = (elapsed / durationMs).clamp(0.0, 1.0);
       final double offsetSemitones = _interpolateBend(bend.envelope, progress);
       final int bendValue = (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
+      
       await _sendPitchBend(bendValue, channel: channel);
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
       return true;
@@ -234,16 +243,19 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     final Stopwatch vibTimer = Stopwatch()..start();
     const int stepIntervalMs = 16;
     final double sustainStartMs = durationMs * 0.2;
+
     Future.doWhile(() async {
-      if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
+      if (!mounted || _playbackToken != token || _bendTokens[channel] != bendToken || !_isPlaying) {
         await _resetPitchBend(channel: channel);
         return false;
       }
+
       final double elapsed = vibTimer.elapsedMilliseconds.toDouble();
       if (elapsed >= durationMs) {
         await _resetPitchBend(channel: channel);
         return false;
       }
+
       if (elapsed >= sustainStartMs) {
         final double tSec = (elapsed - sustainStartMs) / 1000.0;
         final double lfo = sin(2 * pi * vibrato.frequency * tSec);
@@ -251,6 +263,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         final int bendValue = (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
         await _sendPitchBend(bendValue, channel: channel);
       }
+
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
       return true;
     });
@@ -293,7 +306,9 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       type: FileType.any,
       withData: true,
     );
+
     if (result == null || result.files.isEmpty) return;
+
     final file = result.files.single;
     if (!file.name.toLowerCase().endsWith('.gp')) {
       if (mounted) {
@@ -304,6 +319,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       }
       return;
     }
+
     await _processFile(file.name, file.path, file.bytes);
   }
 
@@ -326,9 +342,11 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
     try {
       final score = await GpxParserService.parseGpFile(path, bytesData);
+
       if (path != null) {
         await _addRecentFile(name, path);
       }
+
       setState(() {
         _songTitle = score.title;
         _artist = score.artist;
@@ -421,6 +439,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       _currentPlayingIndex = -1;
       _isPaused = false;
     });
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         setState(() => _currentPlayingIndex = 0);
@@ -446,6 +465,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     int measureTempo = (_masterBars.isNotEmpty && currentMeasureIndex < _masterBars.length)
         ? _masterBars[currentMeasureIndex].tempo
         : _tempo;
+
     double beatAccumulatorInMeasureMs = 0.0;
 
     for (int i = 0; i < trackBeats.length; i++) {
@@ -469,7 +489,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         currentMeasureStartMs += beatAccumulatorInMeasureMs;
         beatAccumulatorInMeasureMs = 0.0;
         currentMeasureIndex++;
-
         if (_masterBars.isNotEmpty && currentMeasureIndex < _masterBars.length) {
           measureTempo = _masterBars[currentMeasureIndex].tempo;
         }
@@ -527,6 +546,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     _midiPro.playMidiNote(midi: 12, velocity: 1);
     await Future.delayed(const Duration(milliseconds: 100));
     _midiPro.stopMidiNote(midi: 12);
+
     if (!mounted || _playbackToken != token || !_isPlaying) return;
 
     final mainEvents = _buildTrackSchedule(
@@ -563,7 +583,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
     for (int tIdx = 0; tIdx < _tracks.length; tIdx++) {
       if (tIdx == _selectedTrackIndex) continue;
-
       final bTrack = _tracks[tIdx];
       final bEvents = _buildTrackSchedule(
         trackIndex: tIdx,
@@ -604,7 +623,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         final ev = unifiedTimeline[eventIndex];
         final double targetMs = ev.startMs;
         final double elapsedMs = masterClock.elapsedMicroseconds / 1000.0;
-
         final int waitMs = (targetMs - elapsedMs).round();
 
         if (waitMs > 0) {
@@ -631,6 +649,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       }
 
       _cleanUpMidiState();
+
       if (!mounted || _playbackToken != token || !_isPlaying) return;
 
       switch (_loopMode) {
@@ -663,11 +682,13 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
     for (final note in beat.notes) {
       if (note.isRest) continue;
+
       final int pitch = note.pitch != -1
           ? note.pitch
           : ((_standardTuning[note.stringNum] ?? 40) + note.fretNum);
 
-      int targetChannel = note.stringNum.clamp(1, 6);
+      // Route string output to specific channels to prevent pitch bends from collapsing chords
+      int targetChannel = note.stringNum.clamp(0, 15);
 
       if (note.isTie && _activeSoundingPitches[targetChannel]?.contains(pitch) == true) {
         continue;
@@ -689,11 +710,14 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       _sendRawNoteOn(pitch, velocity, targetChannel);
       _activeSoundingPitches[targetChannel]?.add(pitch);
 
+      // Replaced ++map! to prevent Dart compilation errors on null-asserted r-values
       if (note.bend != null) {
-        final int bendToken = ++_currentBendToken;
+        _bendTokens[targetChannel] = (_bendTokens[targetChannel] ?? 0) + 1;
+        final int bendToken = _bendTokens[targetChannel]!;
         _spawnBendLoop(note.bend!, playDurationMs, token, bendToken, targetChannel);
       } else if (note.vibrato != null) {
-        final int bendToken = ++_currentBendToken;
+        _bendTokens[targetChannel] = (_bendTokens[targetChannel] ?? 0) + 1;
+        final int bendToken = _bendTokens[targetChannel]!;
         _spawnVibratoLoop(note.vibrato!, playDurationMs, token, bendToken, targetChannel);
       }
 
@@ -708,7 +732,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   }
 
   void _cleanUpMidiState() {
-    for (int channel = 0; channel <= 6; channel++) {
+    for (int channel = 0; channel <= 15; channel++) {
       if (_activeSoundingPitches[channel] != null) {
         for (final p in _activeSoundingPitches[channel]!) {
           _sendRawNoteOff(p, channel);
@@ -716,6 +740,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         _activeSoundingPitches[channel]!.clear();
       }
       _resetPitchBend(channel: channel);
+      _bendTokens[channel] = (_bendTokens[channel] ?? 0) + 1; // Instantly aborts any hanging doWhile pitch bend loops
     }
   }
 
@@ -903,38 +928,57 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
                       child: Column(
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                             decoration: BoxDecoration(
                               color: Colors.grey.shade900,
                               borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-                              border: Border(bottom: BorderSide(color: Colors.blueGrey.shade800)),
+                              border: Border(bottom: BorderSide(color: Colors.blueGrey.shade800, width: 2)),
                             ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  "Time Signature: ${_masterBars.isNotEmpty ? '${_masterBars.first.numerator}/${_masterBars.first.denominator}' : 'Auto'} | Tempo: $_tempo",
-                                  style: const TextStyle(fontSize: 11, color: Colors.amberAccent, fontWeight: FontWeight.bold),
-                                ),
                                 Row(
-                                  mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const Text("Bars/Row: ", style: TextStyle(fontSize: 11, color: Colors.grey)),
-                                    GestureDetector(
-                                      onTap: () {
-                                        if (_measuresPerLine > 1) {
-                                          setState(() => _measuresPerLine--);
-                                        }
-                                      },
-                                      child: const Icon(Icons.remove_circle_outline, size: 16, color: Colors.white70),
+                                    const Icon(Icons.library_music, size: 14, color: Colors.cyanAccent),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        _tracks.isNotEmpty ? _tracks[_selectedTrackIndex].name : "No Track Selected",
+                                        style: const TextStyle(fontSize: 13, color: Colors.cyanAccent, fontWeight: FontWeight.bold),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6.0),
-                                      child: Text("$_measuresPerLine", style: const TextStyle(fontSize: 12, color: Colors.white)),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      "Time Sig: ${_masterBars.isNotEmpty ? '${_masterBars.first.numerator}/${_masterBars.first.denominator}' : 'Auto'}  |  Tempo: $_tempo",
+                                      style: const TextStyle(fontSize: 11, color: Colors.amberAccent, fontWeight: FontWeight.bold),
                                     ),
-                                    GestureDetector(
-                                      onTap: () => setState(() => _measuresPerLine++),
-                                      child: const Icon(Icons.add_circle_outline, size: 16, color: Colors.white70),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Text("Bars/Row: ", style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                        GestureDetector(
+                                          onTap: () {
+                                            if (_measuresPerLine > 1) {
+                                              setState(() => _measuresPerLine--);
+                                            }
+                                          },
+                                          child: const Icon(Icons.remove_circle_outline, size: 16, color: Colors.white70),
+                                        ),
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                                          child: Text("$_measuresPerLine", style: const TextStyle(fontSize: 12, color: Colors.white)),
+                                        ),
+                                        GestureDetector(
+                                          onTap: () => setState(() => _measuresPerLine++),
+                                          child: const Icon(Icons.add_circle_outline, size: 16, color: Colors.white70),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),

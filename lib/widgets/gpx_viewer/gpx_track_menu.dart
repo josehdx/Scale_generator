@@ -3,9 +3,6 @@ import '../../models/gp_track.dart';
 
 /// Shows a modal bottom sheet that lists all [tracks] with per-track Solo (S)
 /// and Mute (M) toggles.
-///
-/// The caller is responsible for holding the [soloedTracks] and [mutedTracks]
-/// sets in its own state and providing callbacks to mutate them.
 void showGpxTrackMenu(
   BuildContext context, {
   required List<GpTrack> tracks,
@@ -50,85 +47,81 @@ void showGpxTrackMenu(
                     final isSolo = soloedTracks.contains(i);
                     final isMuted = mutedTracks.contains(i);
 
-                    return ListTile(
-                      leading: Icon(
-                        Icons.music_note,
-                        color: isSelected ? Colors.blueAccent : Colors.grey,
+                    return Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: isSelected ? Colors.blueAccent.withOpacity(0.15) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                        border: isSelected ? Border.all(color: Colors.blueAccent.withOpacity(0.3)) : Border.all(color: Colors.transparent),
                       ),
-                      title: Text(
-                        track.name,
-                        style: TextStyle(
-                          color:
-                              isSelected ? Colors.blueAccent : Colors.white,
-                          fontWeight: isSelected
-                              ? FontWeight.bold
-                              : FontWeight.normal,
+                      child: ListTile(
+                        leading: Icon(
+                          Icons.music_note,
+                          color: isSelected ? Colors.blueAccent : Colors.grey,
                         ),
-                      ),
-                      onTap: () {
-                        onSelectTrack(i);
-                        setModalState(() {});
-                      },
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // ── Solo button ──────────────────────────────────
-                          GestureDetector(
-                            onTap: () {
-                              onToggleSolo(i);
-                              setModalState(() {});
-                            },
-                            child: Container(
-                              width: 32,
-                              height: 32,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: isSolo
-                                    ? Colors.amber
-                                    : Colors.transparent,
-                                border: Border.all(color: Colors.amber),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                'S',
-                                style: TextStyle(
-                                  color: isSolo ? Colors.black : Colors.amber,
-                                  fontWeight: FontWeight.bold,
+                        title: Text(
+                          track.name,
+                          style: TextStyle(
+                            color: isSelected ? Colors.blueAccent : Colors.white,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                        onTap: () {
+                          onSelectTrack(i);
+                          setModalState(() {});
+                        },
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            GestureDetector(
+                              onTap: () {
+                                onToggleSolo(i);
+                                setModalState(() {});
+                              },
+                              child: Container(
+                                width: 32,
+                                height: 32,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: isSolo ? Colors.amber : Colors.transparent,
+                                  border: Border.all(color: Colors.amber),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  'S',
+                                  style: TextStyle(
+                                    color: isSolo ? Colors.black : Colors.amber,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          // ── Mute button ──────────────────────────────────
-                          GestureDetector(
-                            onTap: () {
-                              onToggleMute(i);
-                              setModalState(() {});
-                            },
-                            child: Container(
-                              width: 32,
-                              height: 32,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: isMuted
-                                    ? Colors.redAccent
-                                    : Colors.transparent,
-                                border:
-                                    Border.all(color: Colors.redAccent),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                'M',
-                                style: TextStyle(
-                                  color: isMuted
-                                      ? Colors.white
-                                      : Colors.redAccent,
-                                  fontWeight: FontWeight.bold,
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () {
+                                onToggleMute(i);
+                                setModalState(() {});
+                              },
+                              child: Container(
+                                width: 32,
+                                height: 32,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: isMuted ? Colors.redAccent : Colors.transparent,
+                                  border: Border.all(color: Colors.redAccent),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  'M',
+                                  style: TextStyle(
+                                    color: isMuted ? Colors.white : Colors.redAccent,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     );
                   },
@@ -141,4 +134,3 @@ void showGpxTrackMenu(
     },
   );
 }
-
