@@ -1,6 +1,5 @@
 import 'dart:math';
 import '../models/lick_preset.dart';
-import '../models/motif_token.dart';
 import '../scale_engine.dart';
 
 /// Pure-dart utility for calculating note sequences, rhythms, and accents.
@@ -76,11 +75,27 @@ class TabSequenceBuilder {
   // ── Sequence Generation ────────────────────────────────────────────────────
 
   /// Rebuilds a note sequence precisely as saved in a [LickPreset].
-  List<List<int>> buildSequenceForPreset(LickPreset preset) {
+  /// If a note selection range is provided, [_endRests] are inserted dynamically
+  /// immediately after the selected range instead of at the end of the sequence.
+  List<List<int>> buildSequenceForPreset(
+    LickPreset preset, {
+    int selectionStart = -1,
+    int selectionEnd = -1,
+  }) {
     // 1. Initial manual sequence check
     if (preset.system == "Manual Entry") {
       List<List<int>> base = parseManualTab(preset.manualTabString ?? "");
-      return engine.applyIntervalBreaks(base, preset.breakInterval, preset.breakLength);
+      List<List<int>> seq = engine.applyIntervalBreaks(base, preset.breakInterval, preset.breakLength);
+      if (preset.endRests > 0) {
+        if (selectionStart != -1 && selectionEnd != -1) {
+          int insertIdx = max(selectionStart, selectionEnd) + 1;
+          insertIdx = insertIdx.clamp(0, seq.length);
+          seq.insertAll(insertIdx, List.generate(preset.endRests, (_) => [-1, -1]));
+        } else {
+          for (int i = 0; i < preset.endRests; i++) seq.add([-1, -1]);
+        }
+      }
+      return seq;
     }
 
     // 2. Setup environment
@@ -133,7 +148,15 @@ class TabSequenceBuilder {
     // 5. Apply intervals & rests
     if (currentSequence.isNotEmpty) {
       currentSequence = engine.applyIntervalBreaks(currentSequence, preset.breakInterval, preset.breakLength);
-      for (int i = 0; i < preset.endRests; i++) currentSequence.add([-1, -1]);
+      if (preset.endRests > 0) {
+        if (selectionStart != -1 && selectionEnd != -1) {
+          int insertIdx = max(selectionStart, selectionEnd) + 1;
+          insertIdx = insertIdx.clamp(0, currentSequence.length);
+          currentSequence.insertAll(insertIdx, List.generate(preset.endRests, (_) => [-1, -1]));
+        } else {
+          for (int i = 0; i < preset.endRests; i++) currentSequence.add([-1, -1]);
+        }
+      }
     }
     
     return currentSequence;

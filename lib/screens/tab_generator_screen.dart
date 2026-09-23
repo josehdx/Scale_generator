@@ -225,16 +225,11 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     _stopPlayback();
     
     LickPreset currentState = _createPresetObject("temp");
-    List<List<int>> sequence = _builder.buildSequenceForPreset(currentState);
-    
-    // Manual tab dynamic rests
-    if (_selectedSystem == "Manual Entry" && _selectionStart != -1 && _selectionEnd != -1) {
-      if (_endRests > 0) {
-        int insertIdx = max(_selectionStart, _selectionEnd) + 1;
-        insertIdx = insertIdx.clamp(0, sequence.length);
-        sequence.insertAll(insertIdx, List.generate(_endRests, (_) => [-1, -1]));
-      }
-    }
+    List<List<int>> sequence = _builder.buildSequenceForPreset(
+      currentState,
+      selectionStart: _selectionStart,
+      selectionEnd: _selectionEnd,
+    );
     
     setState(() {
       _currentSequence = sequence;
@@ -464,7 +459,30 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                     ),
                   ),
                 const SizedBox(height: 8),
-                PlaybackControlBar(isPlaying: _isPlaying, isMidiReady: _isMidiReady, isLooping: _isLooping, hasSequence: _currentSequence.isNotEmpty, hasSelection: _selectionStart != -1 && _selectionEnd != -1, selectionStart: _selectionStart, selectionEnd: _selectionEnd, onPlay: _playLick, onStop: _stopPlayback, onToggleLoop: () => setState(() => _isLooping = !_isLooping), onSave: _saveCurrentLick, onCopy: () => Clipboard.setData(ClipboardData(text: _generatedTab)), onClearSelection: () => setState((){ _selectionStart=-1; _selectionEnd=-1; _tapAnchorIndex=null; })),
+                PlaybackControlBar(
+                  isPlaying: _isPlaying,
+                  isMidiReady: _isMidiReady,
+                  isLooping: _isLooping,
+                  hasSequence: _currentSequence.isNotEmpty,
+                  hasSelection: _selectionStart != -1 && _selectionEnd != -1,
+                  selectionStart: _selectionStart,
+                  selectionEnd: _selectionEnd,
+                  endRests: _endRests,
+                  onEndRestsChanged: (v) {
+                    setState(() => _endRests = v);
+                    _generateTab();
+                  },
+                  onPlay: _playLick,
+                  onStop: _stopPlayback,
+                  onToggleLoop: () => setState(() => _isLooping = !_isLooping),
+                  onSave: _saveCurrentLick,
+                  onCopy: () => Clipboard.setData(ClipboardData(text: _generatedTab)),
+                  onClearSelection: () => setState(() {
+                    _selectionStart = -1;
+                    _selectionEnd = -1;
+                    _tapAnchorIndex = null;
+                  }),
+                ),
                 const SizedBox(height: 4),
                 Expanded(
                   child: SingleChildScrollView(

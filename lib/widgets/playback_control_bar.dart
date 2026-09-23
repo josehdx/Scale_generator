@@ -37,6 +37,21 @@ class PlaybackControlBar extends StatelessWidget {
   /// Required when [gpLoopMode] is non-null.
   final VoidCallback? onCycleLoopMode;
 
+  /// Rewinds playback position to note 0.
+  final VoidCallback? onRewind;
+
+  /// Current playback speed multiplier (e.g. 1.0).
+  final double? speedMultiplier;
+
+  /// Callback to change playback speed multiplier.
+  final ValueChanged<double>? onSpeedChanged;
+
+  /// Number of dynamic rests inserted at selection / end.
+  final int? endRests;
+
+  /// Callback to adjust rest count.
+  final ValueChanged<int>? onEndRestsChanged;
+
   const PlaybackControlBar({
     super.key,
     required this.isPlaying,
@@ -56,6 +71,11 @@ class PlaybackControlBar extends StatelessWidget {
     this.isPaused = false,
     this.gpLoopMode,
     this.onCycleLoopMode,
+    this.onRewind,
+    this.speedMultiplier,
+    this.onSpeedChanged,
+    this.endRests,
+    this.onEndRestsChanged,
   });
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -98,6 +118,120 @@ class PlaybackControlBar extends StatelessWidget {
 
   // ── Build ─────────────────────────────────────────────────────────────────
 
+  void _showSpeedDialog(BuildContext context) {
+    if (onSpeedChanged == null) return;
+    double current = speedMultiplier ?? 1.0;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF222222),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Playback Speed',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      Text(
+                        '${current.toStringAsFixed(1)}x',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blueAccent,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.remove_circle_outline, color: Colors.white70),
+                        onPressed: current > 0.15
+                            ? () {
+                                final next = ((current - 0.1) * 10).round() / 10.0;
+                                final clamped = next.clamp(0.1, 2.0);
+                                setModalState(() => current = clamped);
+                                onSpeedChanged!(clamped);
+                              }
+                            : null,
+                      ),
+                      Expanded(
+                        child: Slider(
+                          value: current.clamp(0.1, 2.0),
+                          min: 0.1,
+                          max: 2.0,
+                          divisions: 19,
+                          label: '${current.toStringAsFixed(1)}x',
+                          activeColor: Colors.blueAccent,
+                          inactiveColor: Colors.grey.shade800,
+                          onChanged: (val) {
+                            final snapped = ((val * 10).round() / 10.0).clamp(0.1, 2.0);
+                            setModalState(() => current = snapped);
+                            onSpeedChanged!(snapped);
+                          },
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.add_circle_outline, color: Colors.white70),
+                        onPressed: current < 1.95
+                            ? () {
+                                final next = ((current + 0.1) * 10).round() / 10.0;
+                                final clamped = next.clamp(0.1, 2.0);
+                                setModalState(() => current = clamped);
+                                onSpeedChanged!(clamped);
+                              }
+                            : null,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((preset) {
+                      final bool isSelected = (current - preset).abs() < 0.04;
+                      return ChoiceChip(
+                        label: Text(
+                          '${preset}x',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isSelected ? Colors.white : Colors.grey.shade300,
+                          ),
+                        ),
+                        selected: isSelected,
+                        selectedColor: Colors.blueAccent,
+                        backgroundColor: Colors.grey.shade800,
+                        onSelected: (_) {
+                          setModalState(() => current = preset);
+                          onSpeedChanged!(preset);
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool gpMode = gpLoopMode != null;
@@ -112,6 +246,17 @@ class PlaybackControlBar extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                // ── Rewind Button (reset to note 0) ─────────────────────────
+                if (onRewind != null) ...[
+                  IconButton(
+                    icon: const Icon(Icons.first_page),
+                    color: Colors.white,
+                    tooltip: 'Rewind to Beginning',
+                    onPressed: onRewind,
+                  ),
+                  const SizedBox(width: 4),
+                ],
+
                 // ── Play / Pause / Resume / Stop ────────────────────────────
                 if (isPlaying)
                   // GP mode → Pause; legacy mode → Stop
@@ -174,6 +319,45 @@ class PlaybackControlBar extends StatelessWidget {
                     onPressed: onToggleLoop,
                   ),
 
+                // ── Speed Multiplier Button ─────────────────────────────────
+                if (speedMultiplier != null) ...[
+                  const SizedBox(width: 4),
+                  InkWell(
+                    onTap: () => _showSpeedDialog(context),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade800,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: (speedMultiplier != 1.0)
+                              ? Colors.blueAccent
+                              : Colors.grey.shade700,
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.speed, size: 14, color: Colors.blueAccent),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${(speedMultiplier ?? 1.0).toStringAsFixed(1)}x',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: (speedMultiplier != 1.0)
+                                  ? Colors.blueAccent
+                                  : Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+
                 // ── Studio-only actions (hidden in GP mode) ──────────────────
                 if (!gpMode) ...[
                   IconButton(
@@ -205,7 +389,7 @@ class PlaybackControlBar extends StatelessWidget {
               ),
             ),
 
-          // ── Selection range indicator ──────────────────────────────────────
+          // ── Selection range indicator & Rest controls ──────────────────────
           if (hasSelection)
             Padding(
               padding: const EdgeInsets.only(top: 2.0),
@@ -217,6 +401,50 @@ class PlaybackControlBar extends StatelessWidget {
                     style: const TextStyle(
                         fontSize: 11, color: Colors.cyanAccent),
                   ),
+                  if (onEndRestsChanged != null) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade800,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('Rests: ', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                          Text(
+                            '${endRests ?? 0}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.amberAccent,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          GestureDetector(
+                            onTap: (endRests ?? 0) > 0
+                                ? () => onEndRestsChanged!((endRests ?? 0) - 1)
+                                : null,
+                            child: Icon(
+                              Icons.remove_circle_outline,
+                              size: 14,
+                              color: (endRests ?? 0) > 0 ? Colors.white70 : Colors.white24,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          GestureDetector(
+                            onTap: () => onEndRestsChanged!((endRests ?? 0) + 1),
+                            child: const Icon(
+                              Icons.add_circle_outline,
+                              size: 14,
+                              color: Colors.white70,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(width: 8),
                   GestureDetector(
                     onTap: onClearSelection,

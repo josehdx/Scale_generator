@@ -76,11 +76,8 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     if (sysIndex < _horizontalControllers.length &&
         _horizontalControllers[sysIndex].hasClients) {
       double horizOffset = max(0.0, (noteIndexInSys - 2) * 25.0);
-      _horizontalControllers[sysIndex].animateTo(
-        horizOffset,
-        duration: const Duration(milliseconds: 150),
-        curve: Curves.easeInOut,
-      );
+      // FIX: Replaced animateTo with instant jumpTo to prevent layout tearing on 0.0ms chords
+      _horizontalControllers[sysIndex].jumpTo(horizOffset);
     }
   }
 

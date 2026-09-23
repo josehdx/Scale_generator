@@ -1,14 +1,14 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:archive/archive.dart';
 import 'package:xml/xml.dart';
 import 'package:flutter_midi_pro/flutter_midi_pro.dart';
+
 import '../models/gp_track.dart';
 import '../widgets/interactive_tab_display.dart';
 import '../widgets/playback_control_bar.dart';
-
-// ─── Screen widget ────────────────────────────────────────────────────────────
 
 class GpxTabScreen extends StatefulWidget {
   const GpxTabScreen({super.key});
@@ -18,21 +18,53 @@ class GpxTabScreen extends StatefulWidget {
 }
 
 class _GpxTabScreenState extends State<GpxTabScreen> {
-  // ── File / Song metadata ──────────────────────────────────────────────────
+  // File / Song metadata
   String? _fileName;
   String _songTitle = '';
   String _artist = '';
   bool _isLoading = false;
 
-  // ── Track data ────────────────────────────────────────────────────────────
+  // Track data
   List<GpTrack> _tracks = [];
   int _selectedTrackIndex = 0;
 
-  /// Active note sequence derived from the selected track.
-  List<List<int>> get _parsedSequence =>
-      _tracks.isNotEmpty ? _tracks[_selectedTrackIndex].notes : [];
+  // Dynamic Rests & Speed
+  int _endRests = 0;
+  double _speedMultiplier = 1.0;
 
-  // ── Playback state ────────────────────────────────────────────────────────
+  List<List<int>> get _parsedSequence {
+    if (_tracks.isEmpty) return [];
+    final List<List<int>> baseNotes = List<List<int>>.from(_tracks[_selectedTrackIndex].notes);
+
+    if (_endRests > 0) {
+      if (_selectionStart != -1 && _selectionEnd != -1) {
+        int insertIdx = max(_selectionStart, _selectionEnd) + 1;
+        insertIdx = insertIdx.clamp(0, baseNotes.length);
+        baseNotes.insertAll(insertIdx, List.generate(_endRests, (_) => [-1, -1]));
+      } else {
+        baseNotes.addAll(List.generate(_endRests, (_) => [-1, -1]));
+      }
+    }
+    return baseNotes;
+  }
+
+  List<double> get _parsedRhythms {
+    if (_tracks.isEmpty) return [];
+    final List<double> baseRhythms = List<double>.from(_tracks[_selectedTrackIndex].rhythms);
+
+    if (_endRests > 0) {
+      if (_selectionStart != -1 && _selectionEnd != -1) {
+        int insertIdx = max(_selectionStart, _selectionEnd) + 1;
+        insertIdx = insertIdx.clamp(0, baseRhythms.length);
+        baseRhythms.insertAll(insertIdx, List.generate(_endRests, (_) => 0.25));
+      } else {
+        baseRhythms.addAll(List.generate(_endRests, (_) => 0.25));
+      }
+    }
+    return baseRhythms;
+  }
+
+  // Playback state
   final MidiPro _midiPro = MidiPro();
   bool _isMidiReady = false;
   bool _isPlaying = false;
@@ -41,17 +73,16 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
   int _currentPlayingIndex = -1;
   LoopMode _loopMode = LoopMode.off;
 
-  // ── Note selection ────────────────────────────────────────────────────────
+  // Note selection
   int _selectionStart = -1;
   int _selectionEnd = -1;
   int? _tapAnchorIndex;
 
-  // ── Visualizer layout ─────────────────────────────────────────────────────
-  /// Notes per measure calculated from the time signature (default: 4/4 × 4 = 16 sixteenth-notes).
+  // Visualizer layout
   int _notesPerMeasure = 16;
   static const int _measuresPerLine = 2;
+  int _tempo = 120;
 
-  /// Standard guitar tuning: string number (1=high-e) → open-string MIDI pitch.
   final Map<int, int> _standardTuning = {
     1: 64, // e4
     2: 59, // B3
@@ -60,8 +91,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
     5: 45, // A2
     6: 40, // E2
   };
-
-  // ─── Lifecycle ─────────────────────────────────────────────────────────────
 
   @override
   void initState() {
@@ -75,32 +104,27 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
     super.dispose();
   }
 
-  // ─── MIDI ──────────────────────────────────────────────────────────────────
-
   Future<void> _loadSoundFont() async {
     try {
       await _midiPro.loadSoundfont(
           sf2Path: 'assets/guitar.sf2', instrumentIndex: 27);
       if (mounted) setState(() => _isMidiReady = true);
     } catch (e) {
-      debugPrint('GP Viewer — MIDI setup error: $e');
+      debugPrint('GP Viewer MIDI setup error: $e');
     }
   }
-
-  // ─── FILE PICKING & PARSING ────────────────────────────────────────────────
 
   Future<void> _pickAndParseGp() async {
     try {
       _stopPlayback(resetPosition: true);
 
-      // ── Pick file ──
       final FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.any,
         withData: true,
       );
+
       if (result == null || result.files.isEmpty) return;
 
-      // ── Validate extension ──
       if (!result.files.single.name.toLowerCase().endsWith('.gp')) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -125,7 +149,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
         _tapAnchorIndex = null;
       });
 
-      // ── Read bytes (prefer path to avoid Android memory truncation) ──
       final List<int> bytes;
       try {
         if (result.files.single.path != null) {
@@ -139,7 +162,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
         throw Exception('Failed to read file from storage: $e');
       }
 
-      // ── Unzip ──
       final Archive archive;
       try {
         archive = ZipDecoder().decodeBytes(bytes);
@@ -151,7 +173,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
         throw Exception('Could not unzip file: $e');
       }
 
-      // ── Locate GPIF entry (handles subfolder layouts) ──
       ArchiveFile? gpifFile;
       for (final file in archive) {
         final String baseName = file.name.split('/').last.toLowerCase();
@@ -160,12 +181,12 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
           break;
         }
       }
+
       if (gpifFile == null) {
         throw Exception(
             'Invalid .gp file: Could not find score.gpif or main.xml inside the archive.');
       }
 
-      // ── Parse XML ──
       final String gpifContent =
           String.fromCharCodes(gpifFile.content as List<int>);
       final XmlDocument document = XmlDocument.parse(gpifContent);
@@ -177,7 +198,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
           document.findAllElements('Artist').firstOrNull?.innerText ??
               'Unknown Artist';
 
-      // Parse time signature → notesPerMeasure (assuming 16th-note granularity)
       int notesPerMeasure = 16;
       final String? firstTime = document
           .findAllElements('MasterBar')
@@ -185,11 +205,24 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
           ?.findElements('Time')
           .firstOrNull
           ?.innerText;
+
       if (firstTime != null) {
         final List<String> parts = firstTime.split('/');
         if (parts.length == 2) {
           final int? num = int.tryParse(parts[0]);
           if (num != null && num > 0) notesPerMeasure = num * 4;
+        }
+      }
+
+      int parsedTempo = 120;
+      final tempoElem = document.findAllElements('Automation').where(
+        (e) => e.findElements('Type').firstOrNull?.innerText == 'Tempo'
+      ).firstOrNull?.findElements('Value').firstOrNull?.innerText;
+      
+      if (tempoElem != null) {
+        final parts = tempoElem.split(' ');
+        if (parts.isNotEmpty) {
+          parsedTempo = int.tryParse(parts[0]) ?? 120;
         }
       }
 
@@ -201,6 +234,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
         _tracks = parsedTracks;
         _selectedTrackIndex = 0;
         _notesPerMeasure = notesPerMeasure;
+        _tempo = parsedTempo;
         _isLoading = false;
       });
     } catch (e) {
@@ -213,148 +247,199 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
     }
   }
 
-  // ─── GPIF MULTI-TRACK PARSER ───────────────────────────────────────────────
-
-  /// Parses [GpTrack] list from a GPIF [XmlDocument].
-  ///
-  /// **Strategy (structured walk):**
-  /// 1. Collect `<Track>` elements → names.
-  /// 2. Build `noteId → [string, fret]` map from `<Note>` elements.
-  /// 3. Build `beatId → notes` map via `<Beat>/<Notes>`.
-  /// 4. Build `voiceId → notes` map via `<Voice>/<Beats>` (primary voice only).
-  /// 5. Build `barId → notes` map via `<Bar>/<Voices>`.
-  /// 6. Assemble per-track note lists from `<MasterBar>/<Bars>` index (one bar ID per track).
-  ///
-  /// **Fallback:** if the structured walk produces no notes for any track
-  /// (schema variant), performs a flat `<Note>` scan under a single "All Tracks" pseudo-track.
   List<GpTrack> _parseTracksFromDocument(XmlDocument document) {
-    // ── 1. Track names ──
     final List<XmlElement> trackElements =
         document.findAllElements('Track').toList();
     final List<String> trackNames = trackElements
         .map((t) =>
             t.findElements('Name').firstOrNull?.innerText.trim() ?? 'Track')
         .toList();
+
     if (trackNames.isEmpty) trackNames.add('All Tracks');
 
-    // ── 2. noteId → [displayString (1-indexed), fretNum] ──
+    final Map<String, double> rhythmMap = {};
+    final Map<String, bool> rhythmIs8th = {};
+    final rhythmsElement = document.findAllElements('Rhythms').firstOrNull;
+
+    if (rhythmsElement != null) {
+      for (final rhythm in rhythmsElement.findAllElements('Rhythm')) {
+        final id = rhythm.getAttribute('id') ?? '';
+        final noteVal = rhythm.findElements('NoteValue').firstOrNull?.innerText ?? 'Quarter';
+        
+        double val = 1.0;
+        switch (noteVal) {
+          case 'Whole': val = 4.0; break;
+          case 'Half': val = 2.0; break;
+          case 'Quarter': val = 1.0; break;
+          case '8th':
+          case 'Eighth': val = 0.5; break;
+          case '16th': val = 0.25; break;
+          case '32nd': val = 0.125; break;
+          case '64th': val = 0.0625; break;
+          default: val = 1.0;
+        }
+
+        final dot = rhythm.findElements('AugmentationDot').firstOrNull?.getAttribute('count');
+        final bool hasDot = dot != null && dot.isNotEmpty;
+        if (dot == '1') val *= 1.5;
+        if (dot == '2') val *= 1.75;
+
+        final tuplet = rhythm.findElements('PrimaryTuplet').firstOrNull;
+        final bool hasTuplet = tuplet != null;
+        if (tuplet != null) {
+          final numStr = tuplet.getAttribute('num') ?? '3';
+          final denStr = tuplet.getAttribute('den') ?? '2';
+          val *= (int.parse(denStr) / int.parse(numStr));
+        }
+
+        rhythmMap[id] = val;
+        rhythmIs8th[id] = (noteVal == '8th' || noteVal == 'Eighth') && !hasDot && !hasTuplet;
+      }
+    }
+
     final Map<String, List<int>> noteIdToNote = {};
     for (final XmlElement note in document.findAllElements('Note')) {
       final String id = note.getAttribute('id') ?? '';
       if (id.isEmpty) continue;
 
-      final XmlElement? strNode =
-          note.findAllElements('String').firstOrNull ??
-              note.findAllElements('Str').firstOrNull;
-      final XmlElement? fretNode =
-          note.findAllElements('Fret').firstOrNull ??
-              note.findAllElements('FretNum').firstOrNull;
+      final XmlElement? strNode = note.findAllElements('String').firstOrNull ?? note.findAllElements('Str').firstOrNull;
+      final XmlElement? fretNode = note.findAllElements('Fret').firstOrNull ?? note.findAllElements('FretNum').firstOrNull;
       if (strNode == null || fretNode == null) continue;
 
       final int? stringNum = int.tryParse(strNode.innerText.trim());
       final int? fretNum = int.tryParse(fretNode.innerText.trim());
       if (stringNum == null || fretNum == null) continue;
 
-      // GPIF string is 0-indexed; display is 1-indexed (1 = high-e)
       final int displayString = stringNum + 1;
       if (displayString >= 1 && displayString <= 8) {
         noteIdToNote[id] = [displayString, fretNum];
       }
     }
 
-    // ── 3. beatId → notes ──
-    final Map<String, List<List<int>>> beatIdToNotes = {};
+    final Map<String, dynamic> beatIdToBeat = {};
     for (final XmlElement beat in document.findAllElements('Beat')) {
       final String id = beat.getAttribute('id') ?? '';
       if (id.isEmpty) continue;
-      final String notesText =
-          beat.findElements('Notes').firstOrNull?.innerText ?? '';
-      beatIdToNotes[id] = notesText
+      
+      final String rhythmRef = beat.findElements('Rhythm').firstOrNull?.getAttribute('ref') ?? '';
+      final double beatDuration = rhythmMap[rhythmRef] ?? 1.0;
+      final bool is8th = rhythmIs8th[rhythmRef] ?? false;
+      
+      final String notesText = beat.findElements('Notes').firstOrNull?.innerText ?? '';
+      final List<List<int>> notes = notesText
           .trim()
           .split(' ')
           .where((s) => s.isNotEmpty && noteIdToNote.containsKey(s))
           .map((nid) => noteIdToNote[nid]!)
           .toList();
+          
+      if (notes.isEmpty) {
+        notes.add([-1, -1]); // Rest
+      }
+      
+      beatIdToBeat[id] = {'notes': notes, 'rhythm': beatDuration, 'is8th': is8th};
     }
 
-    // ── 4. voiceId → notes (primary voice) ──
-    final Map<String, List<List<int>>> voiceIdToNotes = {};
+    final Map<String, List<dynamic>> voiceIdToBeats = {};
     for (final XmlElement voice in document.findAllElements('Voice')) {
       final String id = voice.getAttribute('id') ?? '';
       if (id.isEmpty) continue;
-      final String beatsText =
-          voice.findElements('Beats').firstOrNull?.innerText ?? '';
-      final List<List<int>> notes = [];
-      for (final String bid
-          in beatsText.trim().split(' ').where((s) => s.isNotEmpty)) {
-        notes.addAll(beatIdToNotes[bid] ?? []);
+
+      final String beatsText = voice.findElements('Beats').firstOrNull?.innerText ?? '';
+      final List<dynamic> beats = [];
+      for (final String bid in beatsText.trim().split(' ').where((s) => s.isNotEmpty)) {
+        if (beatIdToBeat.containsKey(bid)) {
+          beats.add(beatIdToBeat[bid]);
+        }
       }
-      voiceIdToNotes[id] = notes;
+      voiceIdToBeats[id] = beats;
     }
 
-    // ── 5. barId → notes (voice 0 only) ──
-    final Map<String, List<List<int>>> barIdToNotes = {};
+    final Map<String, List<dynamic>> barIdToBeats = {};
+    final Map<String, bool> barShuffleMap = {};
     for (final XmlElement bar in document.findAllElements('Bar')) {
       final String id = bar.getAttribute('id') ?? '';
       if (id.isEmpty) continue;
-      final String voicesText =
-          bar.findElements('Voices').firstOrNull?.innerText ?? '';
-      final List<String> voiceIds = voicesText
-          .trim()
-          .split(' ')
-          .where((s) => s.isNotEmpty)
-          .toList();
-      barIdToNotes[id] =
-          voiceIds.isNotEmpty ? (voiceIdToNotes[voiceIds[0]] ?? []) : [];
+
+      final String tf = bar.findElements('TripletFeel').firstOrNull?.innerText.toLowerCase() ?? '';
+      final String sh = bar.findElements('Shuffle').firstOrNull?.innerText.toLowerCase() ?? '';
+      if (tf.contains('8th') || tf.contains('triplet') || tf.contains('shuffle') || sh.isNotEmpty) {
+        barShuffleMap[id] = true;
+      }
+
+      final String voicesText = bar.findElements('Voices').firstOrNull?.innerText ?? '';
+      final List<String> voiceIds = voicesText.trim().split(' ').where((s) => s.isNotEmpty).toList();
+      barIdToBeats[id] = voiceIds.isNotEmpty ? (voiceIdToBeats[voiceIds[0]] ?? []) : [];
     }
 
-    // ── 6. Assemble per-track note lists from MasterBar.Bars index ──
-    final List<List<List<int>>> trackNotes =
-        List.generate(trackNames.length, (_) => []);
-    for (final XmlElement masterBar
-        in document.findAllElements('MasterBar')) {
-      final String barsText =
-          masterBar.findElements('Bars').firstOrNull?.innerText ?? '';
-      final List<String> barIds = barsText
-          .trim()
-          .split(' ')
-          .where((s) => s.isNotEmpty)
-          .toList();
+    final List<List<List<int>>> trackNotes = List.generate(trackNames.length, (_) => []);
+    final List<List<double>> trackRhythms = List.generate(trackNames.length, (_) => []);
+    
+    for (final XmlElement masterBar in document.findAllElements('MasterBar')) {
+      final String tf = masterBar.findElements('TripletFeel').firstOrNull?.innerText.toLowerCase() ?? '';
+      final String sh = masterBar.findElements('Shuffle').firstOrNull?.innerText.toLowerCase() ?? '';
+      final bool masterBarShuffle = tf.contains('8th') || tf.contains('triplet') || tf.contains('shuffle') || sh.isNotEmpty;
+
+      final String barsText = masterBar.findElements('Bars').firstOrNull?.innerText ?? '';
+      final List<String> barIds = barsText.trim().split(' ').where((s) => s.isNotEmpty).toList();
+
       for (int i = 0; i < barIds.length && i < trackNotes.length; i++) {
-        trackNotes[i].addAll(barIdToNotes[barIds[i]] ?? []);
+        final String barId = barIds[i];
+        final bool isShuffle = masterBarShuffle || (barShuffleMap[barId] == true);
+        final List<dynamic> barBeats = barIdToBeats[barId] ?? [];
+
+        int eighthIndexInBar = 0;
+        for (final beat in barBeats) {
+          final List<List<int>> beatNotes = beat['notes'];
+          double rhythm = beat['rhythm'];
+          final bool is8th = beat['is8th'] == true;
+
+          if (isShuffle && is8th) {
+            if (eighthIndexInBar % 2 == 0) {
+              rhythm = 0.5 * (4.0 / 3.0);
+            } else {
+              rhythm = 0.5 * (2.0 / 3.0);
+            }
+            eighthIndexInBar++;
+          } else if (!is8th) {
+            eighthIndexInBar += (rhythm / 0.5).round();
+          }
+
+          for (int n = 0; n < beatNotes.length; n++) {
+            trackNotes[i].add(beatNotes[n]);
+            trackRhythms[i].add(n == beatNotes.length - 1 ? rhythm : 0.0);
+          }
+        }
       }
     }
 
-    // Use structured result if at least one track has notes
     if (trackNotes.any((t) => t.isNotEmpty)) {
       return [
         for (int i = 0; i < trackNames.length; i++)
-          GpTrack(id: '$i', name: trackNames[i], notes: trackNotes[i]),
+          GpTrack(id: '$i', name: trackNames[i], notes: trackNotes[i], rhythms: trackRhythms[i]),
       ];
     }
 
-    // ── Fallback: flat Note scan → single pseudo-track ──
     final List<List<int>> flatNotes = [];
+    final List<double> flatRhythms = [];
     for (final XmlElement note in document.findAllElements('Note')) {
-      final XmlElement? strNode =
-          note.findAllElements('String').firstOrNull ??
-              note.findAllElements('Str').firstOrNull;
-      final XmlElement? fretNode =
-          note.findAllElements('Fret').firstOrNull ??
-              note.findAllElements('FretNum').firstOrNull;
+      final XmlElement? strNode = note.findAllElements('String').firstOrNull ?? note.findAllElements('Str').firstOrNull;
+      final XmlElement? fretNode = note.findAllElements('Fret').firstOrNull ?? note.findAllElements('FretNum').firstOrNull;
       if (strNode == null || fretNode == null) continue;
+
       final int? stringNum = int.tryParse(strNode.innerText.trim());
       final int? fretNum = int.tryParse(fretNode.innerText.trim());
       if (stringNum == null || fretNum == null) continue;
+
       final int displayString = stringNum + 1;
       if (displayString >= 1 && displayString <= 8) {
         flatNotes.add([displayString, fretNum]);
+        flatRhythms.add(0.25);
       }
     }
-    return [GpTrack(id: '0', name: 'All Tracks', notes: flatNotes)];
-  }
 
-  // ─── TRACK SWITCHING ───────────────────────────────────────────────────────
+    return [GpTrack(id: '0', name: 'All Tracks', notes: flatNotes, rhythms: flatRhythms)];
+  }
 
   void _selectTrack(int index) {
     if (index == _selectedTrackIndex) return;
@@ -367,9 +452,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
     });
   }
 
-  // ─── PLAYBACK ENGINE ───────────────────────────────────────────────────────
-
-  /// Toggles between Play and Pause. Wires up the PlaybackControlBar [onPlay] callback.
   void _onPlayPause() {
     if (_isPlaying) {
       _pausePlayback();
@@ -378,19 +460,81 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
     }
   }
 
-  /// Starts or resumes playback from the appropriate position.
+  void _rewind() {
+    final bool wasPlaying = _isPlaying;
+    _stopPlayback(resetPosition: false);
+    setState(() {
+      _currentPlayingIndex = 0;
+      _isPaused = false;
+    });
+    if (wasPlaying) {
+      _startPlayback();
+    }
+  }
+
+  // FIX: Background track independent playback loop
+  Future<void> _playBackgroundTrack(int tIdx, int token, int startIdx, int endIdx) async {
+    final track = _tracks[tIdx];
+    final seq = track.notes;
+    final rhythms = track.rhythms;
+    
+    if (seq.isEmpty) return;
+
+    int i = startIdx.clamp(0, seq.length - 1);
+    final int actualEnd = endIdx.clamp(0, seq.length - 1);
+    final List<int> activePitches = [];
+
+    while (i <= actualEnd) {
+      if (!mounted || _playbackToken != token || !_isPlaying) return;
+      
+      if (i < seq.length) {
+        final note = seq[i];
+        final double rhythmMultiplier = (i < rhythms.length) ? rhythms[i] : 0.25;
+        final double effectiveTempo = _tempo * _speedMultiplier;
+        final int msDelay = (rhythmMultiplier * (60000 / effectiveTempo)).round();
+
+        if (note[0] != -1) {
+          final int pitch = (_standardTuning[note[0]] ?? 40) + note[1];
+          _midiPro.playMidiNote(midi: pitch, velocity: 80); // Lower velocity for backing tracks
+          activePitches.add(pitch);
+        }
+
+        if (msDelay > 0) {
+          await Future.delayed(Duration(milliseconds: msDelay));
+          if (_playbackToken != token) return;
+          for (var p in activePitches) _midiPro.stopMidiNote(midi: p);
+          activePitches.clear();
+        }
+      }
+      i++;
+    }
+  }
+
   Future<void> _startPlayback() async {
     final List<List<int>> seq = _parsedSequence;
+    final List<double> rhythms = _parsedRhythms;
+
     if (!_isMidiReady || seq.isEmpty) return;
 
-    // Determine start index
+    final bool isSingleNoteSelected =
+        _selectionStart != -1 && _selectionStart == _selectionEnd;
+    final bool isRangeSelected =
+        _selectionStart != -1 && _selectionEnd != -1 && _selectionStart != _selectionEnd;
+
+    final int selMin = isRangeSelected ? min(_selectionStart, _selectionEnd) : _selectionStart;
+    final int selMax = isRangeSelected ? max(_selectionStart, _selectionEnd) : _selectionEnd;
+
     final int startIdx;
     if (_isPaused &&
         _currentPlayingIndex >= 0 &&
         _currentPlayingIndex < seq.length) {
-      startIdx = _currentPlayingIndex; // resume from paused position
+      startIdx = _currentPlayingIndex; 
+    } else if (isSingleNoteSelected) {
+      startIdx = _selectionStart.clamp(0, seq.length - 1);
+    } else if (isRangeSelected) {
+      startIdx = selMin.clamp(0, seq.length - 1);
     } else if (_loopMode == LoopMode.selection && _selectionStart != -1) {
-      startIdx = _selectionStart;
+      startIdx = _selectionStart.clamp(0, seq.length - 1);
     } else {
       startIdx = 0;
     }
@@ -404,36 +548,52 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
       _currentPlayingIndex = startIdx;
     });
 
-    // Wake up MIDI engine (silent warm-up note)
     _midiPro.playMidiNote(midi: 12, velocity: 1);
     await Future.delayed(const Duration(milliseconds: 150));
     _midiPro.stopMidiNote(midi: 12);
 
+    final int endIdx = isRangeSelected
+        ? selMax.clamp(0, seq.length - 1)
+        : ((_loopMode == LoopMode.selection && _selectionEnd != -1)
+            ? _selectionEnd.clamp(0, seq.length - 1)
+            : seq.length - 1);
+
+    // FIX: Spawn independent timing loops for all unselected backing tracks
+    for (int tIdx = 0; tIdx < _tracks.length; tIdx++) {
+      if (tIdx != _selectedTrackIndex) {
+        _playBackgroundTrack(tIdx, token, startIdx, endIdx);
+      }
+    }
+
     int i = startIdx;
+    final List<int> activePitches = [];
 
     while (true) {
       if (!mounted || _playbackToken != token || !_isPlaying) return;
 
       final List<int> note = seq[i];
-      final int stringNum = note[0];
-      final int fretNum = note[1];
-      final int pitch = (_standardTuning[stringNum] ?? 40) + fretNum;
+      final double rhythmMultiplier = (i < rhythms.length) ? rhythms[i] : 0.25;
+      final double effectiveTempo = _tempo * _speedMultiplier;
+      final int msDelay = (rhythmMultiplier * (60000 / effectiveTempo)).round();
 
-      // Highlight active note in visualizer
       if (mounted) setState(() => _currentPlayingIndex = i);
 
-      _midiPro.playMidiNote(midi: pitch, velocity: 100);
-      await Future.delayed(const Duration(milliseconds: 250));
-      if (_playbackToken != token) return;
-      _midiPro.stopMidiNote(midi: pitch);
+      if (note[0] != -1) {
+        final int pitch = (_standardTuning[note[0]] ?? 40) + note[1];
+        _midiPro.playMidiNote(midi: pitch, velocity: 110);
+        activePitches.add(pitch);
+      }
+
+      if (msDelay > 0) {
+        await Future.delayed(Duration(milliseconds: msDelay));
+        if (_playbackToken != token) return;
+        for (var p in activePitches) {
+          _midiPro.stopMidiNote(midi: p);
+        }
+        activePitches.clear();
+      }
 
       i++;
-
-      // Determine end bound for this loop pass
-      final int endIdx =
-          (_loopMode == LoopMode.selection && _selectionEnd != -1)
-              ? _selectionEnd
-              : seq.length - 1;
 
       if (i > endIdx) {
         switch (_loopMode) {
@@ -446,25 +606,35 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
             }
             return;
           case LoopMode.all:
-            i = 0;
+            i = isRangeSelected ? selMin : 0;
+            break;
           case LoopMode.selection:
-            i = (_selectionStart != -1) ? _selectionStart : 0;
+            i = isRangeSelected
+                ? selMin
+                : ((_selectionStart != -1) ? _selectionStart : 0);
+            break;
+        }
+
+        // IF LOOPING: Restart background tracks at the same time
+        if (_loopMode != LoopMode.off) {
+           for (int tIdx = 0; tIdx < _tracks.length; tIdx++) {
+             if (tIdx != _selectedTrackIndex) {
+               _playBackgroundTrack(tIdx, token, i, endIdx);
+             }
+           }
         }
       }
     }
   }
 
-  /// Pauses playback — preserves [_currentPlayingIndex] for resume.
   void _pausePlayback() {
     _playbackToken++;
     setState(() {
       _isPlaying = false;
       _isPaused = true;
-      // _currentPlayingIndex intentionally not reset
     });
   }
 
-  /// Stops playback. When [resetPosition] is true, clears the active note highlight.
   void _stopPlayback({bool resetPosition = false}) {
     _playbackToken++;
     _isPaused = false;
@@ -474,44 +644,37 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
         if (resetPosition) _currentPlayingIndex = -1;
       });
     }
-    // Hard-reset MIDI to silence any hanging notes
     _midiPro.loadSoundfont(sf2Path: 'assets/guitar.sf2', instrumentIndex: 27);
   }
 
-  /// Cycles the loop mode: off → all → selection → off.
   void _cycleLoopMode() {
     setState(() {
       switch (_loopMode) {
         case LoopMode.off:
           _loopMode = LoopMode.all;
+          break;
         case LoopMode.all:
           _loopMode = LoopMode.selection;
+          break;
         case LoopMode.selection:
           _loopMode = LoopMode.off;
+          break;
       }
     });
   }
 
-  // ─── NOTE SELECTION ────────────────────────────────────────────────────────
-
-  /// Handles a tap on [index] in the tab visualizer.
-  ///
-  /// * First tap → sets anchor + single-note selection.
-  /// * Second tap on same note → clears selection.
-  /// * Second tap on different note → completes range selection.
   void _onBeatTapped(int index) {
     setState(() {
+      _isPaused = false;
       if (_tapAnchorIndex == null) {
         _tapAnchorIndex = index;
         _selectionStart = index;
         _selectionEnd = index;
       } else if (_tapAnchorIndex == index) {
-        // Re-tapping the anchor clears selection
         _tapAnchorIndex = null;
         _selectionStart = -1;
         _selectionEnd = -1;
       } else {
-        // Complete range between anchor and this note
         final int anchor = _tapAnchorIndex!;
         _selectionStart = index < anchor ? index : anchor;
         _selectionEnd = index < anchor ? anchor : index;
@@ -528,8 +691,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
     });
   }
 
-  // ─── BUILD ─────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     final List<List<int>> seq = _parsedSequence;
@@ -541,7 +702,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ── Header bar ────────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
             child: Column(
@@ -555,7 +715,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
                 if (hasFile) ...[
                   const SizedBox(height: 6),
                   Text(
-                    _songTitle.isNotEmpty ? '$_songTitle  •  $_artist' : _artist,
+                    _songTitle.isNotEmpty ? '$_songTitle - $_artist' : _artist,
                     style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
@@ -571,10 +731,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
               ],
             ),
           ),
-
           const SizedBox(height: 6),
-
-          // ── Body ──────────────────────────────────────────────────────────
           if (_isLoading)
             const Expanded(
                 child: Center(child: CircularProgressIndicator()))
@@ -589,7 +746,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
               ),
             )
           else ...[
-            // ── Track switcher ────────────────────────────────────────────
             if (_tracks.length > 1) ...[
               SizedBox(
                 height: 38,
@@ -620,8 +776,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
               ),
               const SizedBox(height: 6),
             ],
-
-            // ── Tab visualizer ────────────────────────────────────────────
             Expanded(
               child: seq.isEmpty
                   ? Center(
@@ -645,8 +799,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
                       onBeatTapped: _onBeatTapped,
                     ),
             ),
-
-            // ── Playback controls ─────────────────────────────────────────
             Container(
               color: const Color(0xFF1A1A1A),
               child: PlaybackControlBar(
@@ -660,13 +812,18 @@ class _GpxTabScreenState extends State<GpxTabScreen> {
                 onPlay: _onPlayPause,
                 onStop: () => _stopPlayback(resetPosition: true),
                 onToggleLoop: _cycleLoopMode,
-                onSave: () {}, // not applicable in GP viewer
-                onCopy: () {}, // not applicable in GP viewer
+                onSave: () {}, 
+                onCopy: () {}, 
                 onClearSelection: _clearSelection,
-                // GP-viewer extensions
                 isPaused: _isPaused,
                 gpLoopMode: _loopMode,
                 onCycleLoopMode: _cycleLoopMode,
+                onRewind: _rewind,
+                speedMultiplier: _speedMultiplier,
+                onSpeedChanged: (s) =>
+                    setState(() => _speedMultiplier = s.clamp(0.1, 2.0)),
+                endRests: _endRests,
+                onEndRestsChanged: (v) => setState(() => _endRests = v),
               ),
             ),
           ],

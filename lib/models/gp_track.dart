@@ -22,11 +22,13 @@ class GpTrack {
   final String id;
   final String name;
   final List<List<int>> notes;
+  final List<double> rhythms;
 
   const GpTrack({
     required this.id,
     required this.name,
     required this.notes,
+    required this.rhythms,
   });
 }
 
