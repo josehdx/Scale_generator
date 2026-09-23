@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'package:archive/archive.dart';
 import 'package:xml/xml.dart';
 
@@ -17,8 +18,9 @@ class GpxParserService {
   // Public API
   // ---------------------------------------------------------------------------
 
-  /// Reads bytes from [path] or [bytesData], decodes the ZIP archive, parses
-  /// the GPIF XML, and returns a [GpScore].
+  /// Reads bytes from [path] or [bytesData], then offloads the heavy ZIP
+  /// decoding and XML parsing to a background [Isolate] to keep the UI thread
+  /// responsive.
   ///
   /// Exactly one of [path] or [bytesData] must be non-null.
   ///
@@ -36,6 +38,18 @@ class GpxParserService {
       throw Exception('Could not read file data.');
     }
 
+    // Offload the heavy ZIP decoding and XML parsing to a background isolate.
+    return Isolate.run(() => _processScoreData(bytes));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Isolate payload — no Flutter dependencies allowed here
+  // ---------------------------------------------------------------------------
+
+  /// Top-level-compatible static method that performs all CPU-intensive work
+  /// (ZIP decode + XML parse) inside the background isolate spawned by
+  /// [parseGpFile].
+  static GpScore _processScoreData(List<int> bytes) {
     final Archive archive;
     try {
       archive = ZipDecoder().decodeBytes(bytes);

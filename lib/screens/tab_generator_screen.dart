@@ -368,12 +368,17 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         
         int msDelay = max(20, ((60000 / tempo) * beatMultiplier).round());
         await Future.delayed(Duration(milliseconds: msDelay));
-        
-        if (_playbackToken != currentToken) return;
+
+        // CRITICAL FIX: Always stop the pitch upon waking to prevent leakage,
+        // even if the token has already been pre-empted by user input.
         if (pitch != -1) {
           _midiPro.stopMidiNote(midi: pitch);
           _activeMidiNotes.remove(pitch);
         }
+
+        // Now safely check for pre-emption.
+        if (_playbackToken != currentToken) return;
+
       }
     } while ((isPreview ? _isPreviewLooping : _isLooping) && mounted && _playbackToken == currentToken && ((isPreview && _isPreviewPlaying) || (!isPreview && _isPlaying)));
     

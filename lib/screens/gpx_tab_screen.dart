@@ -336,22 +336,26 @@ class _GpxTabScreenState extends State<GpxTabScreen>
     final track = _tracks[tIdx];
     final seq = track.notes;
     final rhythms = track.rhythms;
-
     if (seq.isEmpty) return;
 
     int i = startIdx.clamp(0, seq.length - 1);
     final int actualEnd = endIdx.clamp(0, seq.length - 1);
     final List<int> activePitches = [];
+    final Stopwatch driftTimer = Stopwatch()..start();
 
     while (i <= actualEnd) {
-      if (!mounted || _playbackToken != token || !_isPlaying) return;
+      if (!mounted || _playbackToken != token || !_isPlaying) {
+        // Guarantee note-off before early exit to prevent stuck notes.
+        for (var p in activePitches) _midiPro.stopMidiNote(midi: p);
+        return;
+      }
 
       if (i < seq.length) {
         final note = seq[i];
         final double rhythmMultiplier =
             (i < rhythms.length) ? rhythms[i] : 0.25;
         final double effectiveTempo = _tempo * _speedMultiplier;
-        final int msDelay =
+        final int targetMsDelay =
             (rhythmMultiplier * (60000 / effectiveTempo)).round();
 
         bool shouldPlay = _soloedTracks.isNotEmpty
@@ -364,11 +368,16 @@ class _GpxTabScreenState extends State<GpxTabScreen>
           activePitches.add(pitch);
         }
 
-        if (msDelay > 0) {
-          await Future.delayed(Duration(milliseconds: msDelay));
-          if (_playbackToken != token) return;
+        if (targetMsDelay > 0) {
+          driftTimer.reset();
+          await Future.delayed(Duration(milliseconds: targetMsDelay));
+
+          // CRITICAL: Stop notes immediately upon waking, regardless of token
+          // state, to prevent notes from ringing through a stop/pause event.
           for (var p in activePitches) _midiPro.stopMidiNote(midi: p);
           activePitches.clear();
+
+          if (_playbackToken != token) return;
         }
       }
       i++;
