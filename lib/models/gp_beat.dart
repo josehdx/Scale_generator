@@ -1,9 +1,13 @@
 import 'gp_note.dart';
 
+/// Strumming directions for guitar chords and beats.
+enum StrumDirection {
+  none,
+  down, // Pick/strum from low E to high e (string 6 -> string 1)
+  up,   // Pick/strum from high e to low E (string 1 -> string 6)
+}
+
 /// Represents a single rhythmic beat or chord column in a Guitar Pro track.
-///
-/// A [GpBeat] groups one or more [GpNote] instances that sound simultaneously
-/// at this beat position (e.g. a single note, a multi-string chord, or a musical rest).
 class GpBeat {
   /// All notes sounding simultaneously in this beat / chord.
   final List<GpNote> notes;
@@ -11,21 +15,27 @@ class GpBeat {
   /// Rhythmic duration multiplier (1.0 = quarter note, 0.5 = 8th note, 0.25 = 16th note).
   final double duration;
 
+  /// Strum direction (downstroke vs upstroke)
+  final StrumDirection strumDirection;
+
   const GpBeat({
     required this.notes,
     required this.duration,
+    this.strumDirection = StrumDirection.none,
   });
 
   /// Creates a musical rest beat with the specified [duration].
   factory GpBeat.rest({double duration = 0.25}) => GpBeat(
         notes: [GpNote.rest(duration: duration)],
         duration: duration,
+        strumDirection: StrumDirection.none,
       );
 
   /// Creates a single-note beat.
-  factory GpBeat.single(GpNote note, {double? duration}) => GpBeat(
+  factory GpBeat.single(GpNote note, {double? duration, StrumDirection strumDirection = StrumDirection.none}) => GpBeat(
         notes: [note],
         duration: duration ?? note.duration,
+        strumDirection: strumDirection,
       );
 
   /// True if this beat represents silence (empty notes list or only rest notes).
@@ -45,8 +55,7 @@ class GpBeat {
   @override
   String toString() {
     if (isRest) return 'GpBeat.rest(dur: $duration)';
-    if (isChord) return 'GpBeat.chord(${notes.length} notes, dur: $duration)';
+    if (isChord) return 'GpBeat.chord(${notes.length} notes, dur: $duration, strum: $strumDirection)';
     return 'GpBeat.single(${notes.first}, dur: $duration)';
   }
 }
-

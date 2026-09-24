@@ -6,6 +6,7 @@ enum SlideType {
   outDownwards,
   outUpwards,
   legato,
+  shift,
 }
 
 /// Types of harmonics.
@@ -40,6 +41,17 @@ class GpBend {
     required this.envelope,
   });
 
+  /// Returns true if the bend envelope rises and then returns back down.
+  bool get hasRelease {
+    if (envelope.length < 2) return false;
+    double maxVal = 0.0;
+    for (final p in envelope) {
+      if (p.offset > maxVal) maxVal = p.offset;
+    }
+    double finalVal = envelope.last.offset;
+    return maxVal > 0.25 && finalVal < maxVal - 0.25;
+  }
+
   @override
   String toString() => 'GpBend(max: $maximumPitchOffset, points: ${envelope.length})';
 }
@@ -64,15 +76,13 @@ class GpNote {
   final int fretNum;
   final int pitch;
   final double duration;
-  
   final bool isTie;
   final bool isLetRing;
   final bool isMuted;
   final bool isPalmMute;
   final bool isLegato;
   final bool isGhost;
-  final bool isTap; // <-- Added Tapping support
-  
+  final bool isTap;
   final HarmonicType harmonicType;
   final SlideType slideType;
   final GpBend? bend;
@@ -89,7 +99,7 @@ class GpNote {
     this.isPalmMute = false,
     this.isLegato = false,
     this.isGhost = false,
-    this.isTap = false, // <-- Added default value
+    this.isTap = false,
     this.harmonicType = HarmonicType.none,
     this.slideType = SlideType.none,
     this.bend,

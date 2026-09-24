@@ -256,7 +256,7 @@ class GpxParserService {
       
       final int pitch = (_standardTuning[displayString] ?? 40) + fretNum;
 
-      // Extract Flags
+      // Performance Flags Parsing
       bool isTie = note.findAllElements('Tie').isNotEmpty;
       bool isLetRing = note.findAllElements('LetRing').isNotEmpty;
       bool isMuted = note.findAllElements('Muted').isNotEmpty || note.findAllElements('Mute').isNotEmpty || note.findAllElements('Dead').isNotEmpty;
@@ -291,18 +291,40 @@ class GpxParserService {
         else if (pName == 'tap' || pName == 'tapping') isTap = true;
       }
 
+      // Advanced Multi-Schema Slide Extraction
       SlideType slideType = SlideType.none;
       final slideNode = note.findAllElements('Slide').firstOrNull;
       if (slideNode != null) {
-        final sVal = (slideNode.getAttribute('type') ?? slideNode.getAttribute('flags') ?? slideNode.innerText).toLowerCase();
-        if (sVal.contains('below') || sVal.contains('into_from_below')) slideType = SlideType.intoFromBelow;
-        else if (sVal.contains('above') || sVal.contains('into_from_above')) slideType = SlideType.intoFromAbove;
-        else if (sVal.contains('down') || sVal.contains('out_down')) slideType = SlideType.outDownwards;
-        else if (sVal.contains('up') || sVal.contains('out_up')) slideType = SlideType.outUpwards;
-        else slideType = SlideType.legato;
+        final sVal = (slideNode.getAttribute('type') ?? slideNode.getAttribute('flags') ?? slideNode.getAttribute('kind') ?? slideNode.innerText).toLowerCase();
+        final int flags = int.tryParse(sVal) ?? 0;
+
+        if (sVal.contains('below') || sVal.contains('into_from_below') || (flags & 16 != 0)) {
+          slideType = SlideType.intoFromBelow;
+        } else if (sVal.contains('above') || sVal.contains('into_from_above') || (flags & 32 != 0)) {
+          slideType = SlideType.intoFromAbove;
+        } else if (sVal.contains('down') || sVal.contains('out_down') || (flags & 4 != 0)) {
+          slideType = SlideType.outDownwards;
+        } else if (sVal.contains('up') || sVal.contains('out_up') || (flags & 8 != 0)) {
+          slideType = SlideType.outUpwards;
+        } else if (sVal.contains('shift') || (flags & 1 != 0)) {
+          slideType = SlideType.shift;
+        } else {
+          slideType = SlideType.legato;
+        }
       }
 
-      // --- FIX: Robust GPIF Bend Parsing ---
+      // Check Property fallback for slides
+      if (slideType == SlideType.none) {
+        for (final prop in note.findAllElements('Property')) {
+          final pName = (prop.getAttribute('name') ?? '').toLowerCase();
+          if (pName.contains('slide')) {
+            slideType = SlideType.shift;
+            break;
+          }
+        }
+      }
+
+      // Normalized GPIF Bend Envelope Extraction
       GpBend? bend;
       final bendNode = note.findAllElements('Bend').firstOrNull;
       if (bendNode != null) {
@@ -325,7 +347,6 @@ class GpxParserService {
           else if (maxPos <= 1.0 && maxPos > 0.0) posDenominator = 1.0;
 
           double maxVal = rawPoints.map((e) => e.val).reduce(max);
-          // In GPIF XML: 50 = 1 semitone, 100 = 2 semitones (1 full step)
           double valDenominator = (maxVal <= 12.0 && maxVal > 0.0) ? 4.0 : 50.0;
 
           final List<BendPoint> points = [];
@@ -376,13 +397,36 @@ class GpxParserService {
       final bool is16th = rhythmIs16th[rhythmRef] ?? false;
       final String notesText = beat.findElements('Notes').firstOrNull?.innerText ?? '';
       
+      // Parse Strumming Direction from Beat
+      StrumDirection strumDir = StrumDirection.none;
+      final strumNode = beat.findElements('Strum').firstOrNull;
+      if (strumNode != null) {
+        final dir = (strumNode.getAttribute('direction') ?? strumNode.innerText).toLowerCase();
+        if (dir.contains('down')) strumDir = StrumDirection.down;
+        else if (dir.contains('up')) strumDir = StrumDirection.up;
+      }
+      for (final prop in beat.findElements('Property')) {
+        final pName = (prop.getAttribute('name') ?? '').toLowerCase();
+        if (pName.contains('strum')) {
+          final sVal = prop.innerText.toLowerCase();
+          if (sVal.contains('down')) strumDir = StrumDirection.down;
+          else if (sVal.contains('up')) strumDir = StrumDirection.up;
+        }
+      }
+
       final List<GpNote> notes = notesText.trim().split(' ')
           .where((s) => s.isNotEmpty && noteIdToNote.containsKey(s))
           .map((nid) => noteIdToNote[nid]!).toList();
           
       if (notes.isEmpty) notes.add(GpNote.rest(duration: beatDuration));
       
-      beatIdToBeat[id] = {'notes': notes, 'rhythm': beatDuration, 'is8th': is8th, 'is16th': is16th};
+      beatIdToBeat[id] = {
+        'notes': notes, 
+        'rhythm': beatDuration, 
+        'is8th': is8th, 
+        'is16th': is16th,
+        'strumDirection': strumDir,
+      };
     }
 
     final Map<String, List<dynamic>> voiceIdToBeats = {};
@@ -440,6 +484,7 @@ class GpxParserService {
           double baseRhythm = beat['rhythm'];
           final bool is8th = beat['is8th'] == true;
           final bool is16th = beat['is16th'] == true;
+          final StrumDirection strumDir = beat['strumDirection'] ?? StrumDirection.none;
           
           double finalRhythm = baseRhythm;
           if (isBarShuffle8th && is8th) {
@@ -460,7 +505,11 @@ class GpxParserService {
             slideType: orig.slideType, bend: orig.bend, vibrato: orig.vibrato,
           )).toList();
           
-          trackBeats[i].add(GpBeat(notes: notesWithDuration, duration: finalRhythm));
+          trackBeats[i].add(GpBeat(
+            notes: notesWithDuration, 
+            duration: finalRhythm,
+            strumDirection: strumDir,
+          ));
         }
         
         if (trackBeats[i].isNotEmpty) {

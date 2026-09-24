@@ -54,6 +54,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
   GpScore? _score;
   bool _isLoading = false;
+
   List<Map<String, String>> _recentFiles = [];
 
   int _selectedTrackIndex = 0;
@@ -173,13 +174,11 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
     Future.doWhile(() async {
       if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
-        await _resetPitchBend();
         return false;
       }
 
       final double elapsed = bendTimer.elapsedMilliseconds.toDouble();
       if (elapsed >= durationMs) {
-        await _resetPitchBend();
         return false;
       }
 
@@ -200,13 +199,11 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
     Future.doWhile(() async {
       if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
-        await _resetPitchBend();
         return false;
       }
 
       final double elapsed = vibTimer.elapsedMilliseconds.toDouble();
       if (elapsed >= durationMs) {
-        await _resetPitchBend();
         return false;
       }
 
@@ -341,6 +338,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
     final bool isSingleNoteSelected = _selectionStart != -1 && _selectionStart == _selectionEnd;
     final bool isRangeSelected = _selectionStart != -1 && _selectionEnd != -1 && _selectionStart != _selectionEnd;
+
     final int selMin = isRangeSelected ? min(_selectionStart, _selectionEnd) : _selectionStart;
     final int selMax = isRangeSelected ? (max(_selectionStart, _selectionEnd) + _endRests) : _selectionEnd;
 
@@ -437,7 +435,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
     while (true) {
       if (!mounted || _playbackToken != token || !_isPlaying) return;
-      
+
       final Stopwatch masterClock = Stopwatch()..start();
       int eventIndex = 0;
 
@@ -470,11 +468,13 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       final double totalSongMs = originEndMs - originStartMs;
       final double currentElapsed = masterClock.elapsedMicroseconds / 1000.0;
       final int trailingWaitMs = (totalSongMs - currentElapsed).round();
+
       if (trailingWaitMs > 0) {
         await Future.delayed(Duration(milliseconds: trailingWaitMs));
       }
 
       _cleanUpMidiState();
+
       if (!mounted || _playbackToken != token || !_isPlaying) return;
 
       switch (_loopMode) {
@@ -491,7 +491,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     }
   }
 
-  void _dispatchBeatEvent(_ScheduledBeatEvent ev, int token) {
+  void _dispatchBeatEvent(_ScheduledBeatEvent ev, int token) async {
     final beat = ev.beat;
     final int tIdx = ev.trackIndex;
 
@@ -502,11 +502,24 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     final bool shouldPlay = _soloedTracks.isNotEmpty ? _soloedTracks.contains(tIdx) : !_mutedTracks.contains(tIdx);
     if (!shouldPlay || beat.isRest) return;
 
-    for (final note in beat.notes) {
-      if (note.isRest) continue;
+    List<GpNote> sortedNotes = List.from(beat.notes.where((n) => !n.isRest));
+
+    // Strum direction audio delay processing (chords hit sequentially rather than all at once)
+    if (beat.strumDirection == StrumDirection.down) {
+      sortedNotes.sort((a, b) => b.stringNum.compareTo(a.stringNum)); // Low string (6) to High string (1)
+    } else if (beat.strumDirection == StrumDirection.up) {
+      sortedNotes.sort((a, b) => a.stringNum.compareTo(b.stringNum)); // High string (1) to Low string (6)
+    }
+
+    const int strumMicroDelayMs = 6; // Realistic pick sweep separation
+
+    for (int idx = 0; idx < sortedNotes.length; idx++) {
+      final note = sortedNotes[idx];
+      if (beat.strumDirection != StrumDirection.none && idx > 0) {
+        await Future.delayed(const Duration(milliseconds: strumMicroDelayMs));
+      }
 
       final int pitch = note.pitch != -1 ? note.pitch : ((_standardTuning[note.stringNum] ?? 40) + note.fretNum);
-
       int velocity = ev.isMainTrack ? 110 : 80;
       double playDurationMs = ev.durationMs;
 
@@ -683,7 +696,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
                       decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade800)),
                       child: Column(
                         children: [
-                          // --- FIX: Header bar displaying Selected Track Name on top of Time Signature ---
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             decoration: BoxDecoration(
@@ -698,7 +710,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    // Selected Track Name
                                     Text(
                                       _score!.tracks[_selectedTrackIndex].name,
                                       style: const TextStyle(
@@ -708,7 +719,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
                                       ),
                                     ),
                                     const SizedBox(height: 2),
-                                    // Time Signature & Tempo Info
                                     Text(
                                       "Time Signature: ${_score!.masterBars.isNotEmpty ? '${_score!.masterBars.first.numerator}/${_score!.masterBars.first.denominator}' : 'Auto'} | Tempo: ${_score!.tempo}",
                                       style: const TextStyle(

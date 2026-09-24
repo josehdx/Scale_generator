@@ -116,7 +116,6 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     }
   }
 
-  // --- FIX: Full Viewport-Scaled Auto-Scroll to keep cursor visible at the far right ---
   void _scrollToActiveNote() {
     final systems = _calculateSystems();
     int sysIndex = -1;
@@ -133,7 +132,6 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
     if (sysIndex == -1) return;
 
-    // 1. Vertical Row Tracking
     if (_verticalController.hasClients) {
       final position = _verticalController.position;
       if (position.hasViewportDimension) {
@@ -151,7 +149,6 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
       }
     }
 
-    // 2. Exact Horizontal Tracking across full width
     if (sysIndex < _horizontalControllers.length &&
         _horizontalControllers[sysIndex].hasClients) {
       final controller = _horizontalControllers[sysIndex];
@@ -164,7 +161,6 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
             ? (noteIndexInSys / (systemNotesCount - 1)).clamp(0.0, 1.0)
             : 0.0;
 
-        // Scaling against total content width (maxScrollExtent + viewportDimension)
         final double totalContentWidth = position.maxScrollExtent + position.viewportDimension;
         final double targetOffset = (totalContentWidth * noteProgressRatio) - (position.viewportDimension / 2.0);
         final double safeOffset = targetOffset.clamp(0.0, position.maxScrollExtent);
@@ -222,6 +218,13 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
         List<String> renderedStrings = List.filled(6, "");
         String topAnnotation = "";
 
+        // Render Strumming Direction in Top Annotation Row
+        if (beat.strumDirection == StrumDirection.down) {
+          topAnnotation += "v";
+        } else if (beat.strumDirection == StrumDirection.up) {
+          topAnnotation += "^";
+        }
+
         for (int strIdx = 0; strIdx < 6; strIdx++) {
           final int strNum = strIdx + 1;
           final noteOnString = beat.noteOnString(strNum);
@@ -237,16 +240,37 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
               val = "($val)";
             }
 
+            // Inline Slide Rendering directly on the string
+            if (noteOnString.slideType != SlideType.none) {
+              // Determine slide direction (up vs down)
+              bool slideUp = noteOnString.slideType == SlideType.intoFromBelow ||
+                  noteOnString.slideType == SlideType.outUpwards ||
+                  noteOnString.slideType == SlideType.shift ||
+                  noteOnString.slideType == SlideType.legato;
+
+              // Compare with next note on the same string if available
+              if (beatIndex + 1 < widget.sequence.length) {
+                final nextBeat = widget.sequence[beatIndex + 1];
+                final nextNote = nextBeat.noteOnString(strNum);
+                if (nextNote != null && !nextNote.isRest) {
+                  slideUp = nextNote.fretNum > noteOnString.fretNum;
+                }
+              }
+
+              final String sChar = slideUp ? "/" : "\\";
+              val = "$val$sChar";
+            }
+
             if (noteOnString.isTap && !topAnnotation.contains("t")) {
               topAnnotation += "t";
             }
-            if (noteOnString.bend != null && !topAnnotation.contains("b")) {
-              topAnnotation += "b";
+            
+            // Bend Annotation (Distinguish Pure Bend 'b' from Bend & Release 'br')
+            if (noteOnString.bend != null) {
+              final String bSymbol = noteOnString.bend!.hasRelease ? "br" : "b";
+              if (!topAnnotation.contains(bSymbol)) topAnnotation += bSymbol;
             }
-            if (noteOnString.slideType != SlideType.none) {
-              String sChar = (noteOnString.slideType == SlideType.intoFromAbove || noteOnString.slideType == SlideType.outDownwards) ? "\\" : "/";
-              if (!topAnnotation.contains(sChar)) topAnnotation += sChar;
-            }
+
             if (noteOnString.vibrato != null && !topAnnotation.contains("~")) {
               topAnnotation += "~";
             }
@@ -317,7 +341,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                       ),
                       ...List.generate(6, (strIdx) {
                         final String textVal = renderedStrings[strIdx];
-                        final bool hasNote = textVal.contains(RegExp(r'[0-9x<>()]'));
+                        final bool hasNote = textVal.contains(RegExp(r'[0-9x<>()/\\=]'));
 
                         return Text(
                           textVal,
