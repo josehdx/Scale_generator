@@ -38,7 +38,6 @@ class KeepAliveWrapper extends StatefulWidget {
 
 class _KeepAliveWrapperState extends State<KeepAliveWrapper> with AutomaticKeepAliveClientMixin {
   @override bool get wantKeepAlive => true;
-
   @override Widget build(BuildContext context) {
     super.build(context);
     return widget.child;
@@ -57,11 +56,11 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   final MidiPro _midiPro = MidiPro();
   final PresetStorageService _storage = PresetStorageService();
   late final TabSequenceBuilder _builder;
-  
   late PageController _pageController;
+
   int? _sfId; 
   int _selectedPageIndex = 0;
-  
+
   bool _isPlaying = false;
   bool _isPreviewPlaying = false;
   bool _isPreviewLooping = false;
@@ -69,21 +68,20 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   int _playbackToken = 0;
   bool _isMidiReady = false;
   bool _isLooping = false;
-  
+
   bool _isFretboardVisible = true;
   bool _isTheoryExpanded = false;
   bool _isPathwaysExpanded = false;
   bool _isFormattingExpanded = false;
   bool _isTabExpanded = true;
-  
+
   final Set<int> _activeMidiNotes = {};
   final ScrollController _fretboardScrollController = ScrollController();
   final ValueNotifier<Map<String, dynamic>?> _activeNoteNotifier = ValueNotifier(null);
-  
+
   int _selectionStart = -1;
   int _selectionEnd = -1;
   int? _tapAnchorIndex;
-  
   int _selectedInstrumentIndex = 27;
 
   // State Values
@@ -189,7 +187,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   // --- Interaction Logics ---
-
   void _onDirectionChanged(String newDir) {
     bool needsSwap = false;
     if (newDir.contains("Ascend") && !newDir.startsWith("Descend")) {
@@ -216,13 +213,13 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       _startString = _endString;
       _endString = temp;
       
-      if (_startString > _endString) { // 6 to 1 (Ascending pitch)
+      if (_startString > _endString) {
         if (_selectedDirection == "One-Way (Descend)") {
           _selectedDirection = "One-Way (Ascend)";
         } else if (_selectedDirection == "Descend -> Ascend") {
           _selectedDirection = "Ascend -> Descend";
         }
-      } else if (_startString < _endString) { // 1 to 6 (Descending pitch)
+      } else if (_startString < _endString) {
         if (_selectedDirection == "One-Way (Ascend)") {
           _selectedDirection = "One-Way (Descend)";
         } else if (_selectedDirection == "Ascend -> Descend") {
@@ -235,7 +232,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   // --- Storage Operations ---
-
   Future<void> _loadPresetsFromDisk() async {
     final list = await _storage.loadPresets();
     if (mounted) setState(() => _savedPresets = list);
@@ -255,17 +251,18 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   LickPreset _createPresetObject(String name) {
+    // Ensure accents are auto-synced prior to saving
+    _syncAccentPatternToMotif();
+
     return LickPreset(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       name: name,
       key: _selectedKey, scale: _selectedScale, tuning: _selectedTuning,
       system: _selectedSystem,
-      // --- FIX: Store bounds accurately instead of dropping them ---
       fragment: _selectedSystem == "Single String Horizontal" ? _singleStringTarget.toString() : "$_startString-$_endString",
       customNps: _customNpsProfile,
       startFret: _startFret,
       pathway: _selectedPathway, direction: _selectedDirection,
-      // --- FIX: Ensure Custom Sequence indices save to motifString ---
       motifString: _selectedPathway == "Custom Sequence (Indices)" ? _customSequenceController.text : _motifTokens.map((e) => e.value).join(','),
       rhythm: _selectedRhythmPattern, customRhythmString: _customRhythmController.text,
       customAccentString: _customAccentController.text,
@@ -295,7 +292,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       _customNpsController.text = _customNpsProfile; _startFret = p.startFret;
       _selectedPathway = p.pathway; _selectedDirection = p.direction;
       
-      // --- FIX: Restore boundaries correctly from fragment ---
       if (p.system == "Single String Horizontal") {
         _singleStringTarget = int.tryParse(p.fragment) ?? 1;
       } else if (p.fragment.contains('-')) {
@@ -303,7 +299,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         _startString = int.tryParse(parts[0]) ?? 6;
         _endString = int.tryParse(parts[1]) ?? 1;
       }
-
       if (p.pathway == "Custom Sequence (Indices)") {
         _customSequenceController.text = (p.motifString != null && p.motifString.isNotEmpty) ? p.motifString : p.fragment;
         _motifTokens = [];
@@ -312,7 +307,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       }
       
       _selectedRhythmPattern = _rhythmPatterns.contains(p.rhythm) ? p.rhythm : "Straight 16ths";
-      
       _customRhythmController.text = p.customRhythmString ?? "";
       _customAccentController.text = p.customAccentString ?? "";
       _selectedTimeSignature = p.timeSignature; _tempo = p.tempo;
@@ -351,30 +345,41 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     }
   }
 
-  // --- Tab Generation ---
+  // --- Automatic Accent Resizing Sync ---
+  void _syncAccentPatternToMotif() {
+    int expectedBeats = _dynamicBeatsPerMeasure;
+    List<String> accents = _customAccentController.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    
+    bool isAuto = accents.isEmpty || (accents.first == "1" && accents.skip(1).every((e) => e == "0"));
+    if (isAuto || accents.length != expectedBeats) {
+      String newAccentStr = List.generate(expectedBeats, (i) => i == 0 ? "1" : "0").join(",");
+      if (_customAccentController.text != newAccentStr && isAuto) {
+        _customAccentController.text = newAccentStr;
+      }
+    }
+  }
 
+  // --- Tab Generation ---
   void _generateTab() {
     _stopPlayback();
     
+    _syncAccentPatternToMotif();
+
     LickPreset currentState = _createPresetObject("temp");
     List<List<int>> sequence = _builder.buildSequenceForPreset(
       currentState,
       selectionStart: _selectionStart,
       selectionEnd: _selectionEnd,
     );
-    
+
     setState(() {
       _currentSequence = sequence;
       if (sequence.isEmpty) {
         _generatedTab = "  (No sequence generated. Add notes to begin.)";
         return;
       }
-
       int notesPerMeasure = _builder.calculateNotesPerMeasure(_selectedTimeSignature, _selectedRhythmPattern, customRhythm: _customRhythmController.text);
-      int beatsPerMeasure = 4; // derived normally
-      if (_builder.isAutoAccent(_customAccentController.text)) {
-        _customAccentController.text = List.generate(beatsPerMeasure, (i) => i == 0 ? "1" : "0").join(",");
-      }
+      int beatsPerMeasure = _dynamicBeatsPerMeasure;
       
       _generatedTab = _engine.renderAsciiTab(
         _currentSequence,
@@ -386,12 +391,10 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         tempo: _tempo,
       );
     });
-
     _saveSessionToDisk();
   }
 
   // --- Playback ---
-
   Future<void> _loadSoundFont() async {
     try {
       if (!_midiPro.isInitialized) {
@@ -404,14 +407,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       if (mounted) setState(() => _isMidiReady = true);
     } catch (e) {
       debugPrint("MIDI Setup Error in Studio: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("MIDI Setup Error in Studio: $e"),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
     }
   }
 
@@ -515,7 +510,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   // --- Manual Handlers ---
-
   void _handleFretboardTap(String? newKey, int str, int fret) {
     if (_selectedSystem == "Manual Entry") {
       String newNote = "$str:$fret";
@@ -534,7 +528,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     
     List<String> notes = _manualTabController.text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
     if (notes.isEmpty) return;
-
     if (result['action'] == 'clear') {
       _manualTabController.clear();
     } else if (result['action'] == 'delete_selection') {
@@ -552,7 +545,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   // --- Build ---
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(

@@ -42,31 +42,34 @@ class PresetSanitizer {
     String sanitizedAccent = preset.customAccentString;
     List<String> currentAccents = preset.customAccentString.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
 
-    // Detect Accent Length Mismatch
+    // 2. Detect Accent Length Mismatch
     if (currentAccents.length != expectedLength) {
-      bool isAuto = currentAccents.isNotEmpty && currentAccents.first == "1" && currentAccents.skip(1).every((e) => e == "0");
-      
-      if (isAuto || currentAccents.length < expectedLength) {
-        sanitizedAccent = List.generate(expectedLength, (i) => i == 0 ? "1" : "0").join(",");
+      // Check if current accents are in auto-generated format (first beat 1, remaining beats 0)
+      bool isAuto = currentAccents.isEmpty || 
+          (currentAccents.first == "1" && currentAccents.skip(1).every((e) => e == "0"));
+
+      // Auto-expand/contract accent length
+      sanitizedAccent = List.generate(expectedLength, (i) => i == 0 ? "1" : "0").join(",");
+
+      // ONLY report a warning issue if the user had typed a custom non-default accent pattern
+      if (!isAuto) {
         issues.add(PresetValidationIssue(
           field: "customAccentString",
-          message: "Accent pattern length (${currentAccents.length}) did not match sequence length ($expectedLength). Auto-expanded.",
+          message: "Custom accent pattern length (${currentAccents.length}) did not match sequence length ($expectedLength). Auto-adjusted.",
         ));
       }
     }
 
-    // 2. Validate Interval Break sanity (SILENT HEAL)
+    // 3. Validate Interval Break sanity
     int sanitizedBreakLength = preset.breakLength;
     if (preset.breakInterval <= 0 && preset.breakLength > 0) {
-      sanitizedBreakLength = 0; // Quietly fix the legacy default state without warning the user
+      sanitizedBreakLength = 0;
     }
 
-    // Return original if healthy
-    if (issues.isEmpty && sanitizedBreakLength == preset.breakLength) {
+    if (issues.isEmpty && sanitizedBreakLength == preset.breakLength && sanitizedAccent == preset.customAccentString) {
       return (preset, []);
     }
 
-    // Construct repaired preset
     LickPreset healed = LickPreset(
       id: preset.id,
       name: preset.name,
