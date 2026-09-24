@@ -56,12 +56,10 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   bool _isLoading = false;
   List<Map<String, String>> _recentFiles = [];
 
-  // Track data & Solo/Mute States
   int _selectedTrackIndex = 0;
   Set<int> _soloedTracks = {};
   Set<int> _mutedTracks = {};
 
-  // Dynamic Rests & Speed
   int _endRests = 0;
   double _speedMultiplier = 1.0;
 
@@ -86,7 +84,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     return _score!.tracks[_selectedTrackIndex].measureEndIndices;
   }
 
-  // Playback state
   final MidiPro _midiPro = MidiPro();
   int? _sfId;
   bool _isMidiReady = false;
@@ -97,9 +94,8 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   int _currentBendToken = 0;
   LoopMode _loopMode = LoopMode.off;
 
-  final Set<int> _activeSoundingPitches = {};
+  final Map<int, int> _pitchGenerations = {};
 
-  // Note selection
   int _selectionStart = -1;
   int _selectionEnd = -1;
   int? _tapAnchorIndex;
@@ -132,18 +128,9 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       if (mounted) setState(() => _isMidiReady = true);
     } catch (e) {
       debugPrint("MIDI Setup Error in GP Viewer: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("MIDI Setup Error in GP Viewer: $e"),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
     }
   }
 
-  // --- Expressive Pitch Modulation via flutter_midi_pro sendMidiEvent ---
   Future<void> _sendPitchBend(int value, {int channel = 0}) async {
     final int clamped = value.clamp(0, 16383);
     final int lsb = clamped & 0x7F;
@@ -236,8 +223,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     });
   }
 
-  // --- Recent Files & Loading ---
-
   Future<void> _loadRecentFiles() async {
     final files = await RecentFilesService.load();
     if (mounted) setState(() => _recentFiles = files);
@@ -281,7 +266,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       final result = await parseAction();
       if (result != null) {
         if (saveRecent && result.filePath.isNotEmpty) {
-          // --- FIX: Store the permanent filePath instead of duplicating fileName ---
           _recentFiles = await RecentFilesService.add(_recentFiles, result.fileName, result.filePath);
         }
         setState(() => _score = result);
@@ -304,7 +288,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     });
   }
 
-  // --- Multi-Track Synchronized Playback Loop ---
   List<_ScheduledBeatEvent> _buildTrackSchedule({
     required int trackIndex,
     required List<GpBeat> trackBeats,
@@ -523,7 +506,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       if (note.isRest) continue;
 
       final int pitch = note.pitch != -1 ? note.pitch : ((_standardTuning[note.stringNum] ?? 40) + note.fretNum);
-      if (note.isTie && _activeSoundingPitches.contains(pitch)) continue;
 
       int velocity = ev.isMainTrack ? 110 : 80;
       double playDurationMs = ev.durationMs;
@@ -538,8 +520,10 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         playDurationMs = max(ev.durationMs, 800.0);
       }
 
+      final int currentGen = (_pitchGenerations[pitch] ?? 0) + 1;
+      _pitchGenerations[pitch] = currentGen;
+
       if (_sfId != null) _midiPro.playNote(key: pitch, velocity: velocity, sfId: _sfId!);
-      _activeSoundingPitches.add(pitch);
 
       if (note.bend != null) {
         final int bendToken = ++_currentBendToken;
@@ -551,9 +535,9 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
       final int delayMs = max(15, playDurationMs.round());
       Future.delayed(Duration(milliseconds: delayMs)).then((_) {
-        if (_playbackToken == token && _activeSoundingPitches.contains(pitch)) {
+        if (_playbackToken == token && _pitchGenerations[pitch] == currentGen) {
           if (_sfId != null) _midiPro.stopNote(key: pitch, sfId: _sfId!);
-          _activeSoundingPitches.remove(pitch);
+          _pitchGenerations.remove(pitch);
         }
       });
     }
@@ -561,9 +545,11 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
   void _cleanUpMidiState() {
     if (_sfId != null) {
-      for (final p in _activeSoundingPitches) _midiPro.stopNote(key: p, sfId: _sfId!);
+      for (final p in _pitchGenerations.keys) {
+        _midiPro.stopNote(key: p, sfId: _sfId!);
+      }
     }
-    _activeSoundingPitches.clear();
+    _pitchGenerations.clear();
     _resetPitchBend();
   }
 
@@ -697,20 +683,58 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
                       decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade800)),
                       child: Column(
                         children: [
+                          // --- FIX: Header bar displaying Selected Track Name on top of Time Signature ---
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(color: Colors.grey.shade900, borderRadius: const BorderRadius.vertical(top: Radius.circular(8)), border: Border(bottom: BorderSide(color: Colors.blueGrey.shade800))),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade900,
+                              borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+                              border: Border(bottom: BorderSide(color: Colors.blueGrey.shade800)),
+                            ),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text("Time Signature: ${_score!.masterBars.isNotEmpty ? '${_score!.masterBars.first.numerator}/${_score!.masterBars.first.denominator}' : 'Auto'} | Tempo: ${_score!.tempo}", style: const TextStyle(fontSize: 11, color: Colors.amberAccent, fontWeight: FontWeight.bold)),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    // Selected Track Name
+                                    Text(
+                                      _score!.tracks[_selectedTrackIndex].name,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.blueAccent,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    // Time Signature & Tempo Info
+                                    Text(
+                                      "Time Signature: ${_score!.masterBars.isNotEmpty ? '${_score!.masterBars.first.numerator}/${_score!.masterBars.first.denominator}' : 'Auto'} | Tempo: ${_score!.tempo}",
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.amberAccent,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     const Text("Bars/Row: ", style: TextStyle(fontSize: 11, color: Colors.grey)),
-                                    GestureDetector(onTap: () { if (_measuresPerLine > 1) setState(() => _measuresPerLine--); }, child: const Icon(Icons.remove_circle_outline, size: 16, color: Colors.white70)),
-                                    Padding(padding: const EdgeInsets.symmetric(horizontal: 6.0), child: Text("$_measuresPerLine", style: const TextStyle(fontSize: 12, color: Colors.white))),
-                                    GestureDetector(onTap: () => setState(() => _measuresPerLine++), child: const Icon(Icons.add_circle_outline, size: 16, color: Colors.white70)),
+                                    GestureDetector(
+                                      onTap: () { if (_measuresPerLine > 1) setState(() => _measuresPerLine--); },
+                                      child: const Icon(Icons.remove_circle_outline, size: 16, color: Colors.white70),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                                      child: Text("$_measuresPerLine", style: const TextStyle(fontSize: 12, color: Colors.white)),
+                                    ),
+                                    GestureDetector(
+                                      onTap: () => setState(() => _measuresPerLine++),
+                                      child: const Icon(Icons.add_circle_outline, size: 16, color: Colors.white70),
+                                    ),
                                   ],
                                 ),
                               ],

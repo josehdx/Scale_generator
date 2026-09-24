@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+
 import '../models/gp_beat.dart';
 import '../models/gp_note.dart';
 import '../models/master_bar_event.dart';
@@ -13,9 +14,7 @@ class InteractiveTabDisplay extends StatefulWidget {
   final int selectionEnd;
   final String tuningStr;
   final Function(int index) onBeatTapped;
-  /// Optional measure boundary note/beat indices for dynamic time signatures.
   final List<int>? measureEndIndices;
-  /// Optional MasterBar automation events timeline.
   final List<MasterBarEvent>? masterBars;
 
   const InteractiveTabDisplay({
@@ -39,7 +38,6 @@ class InteractiveTabDisplay extends StatefulWidget {
 class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
   final ScrollController _verticalController = ScrollController();
   final List<ScrollController> _horizontalControllers = [];
-  bool _isScrolling = false;
 
   @override
   void dispose() {
@@ -84,7 +82,6 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
       return systems;
     }
 
-    // Default fixed-length measure division
     final int notesPerSystem = widget.notesPerMeasure * widget.measuresPerLine;
     final List<({int start, int end})> systems = [];
     for (int sysStart = 0; sysStart < widget.sequence.length; sysStart += notesPerSystem) {
@@ -119,9 +116,8 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     }
   }
 
+  // --- FIX: Full Viewport-Scaled Auto-Scroll to keep cursor visible at the far right ---
   void _scrollToActiveNote() {
-    if (_isScrolling) return; // Prevent overlapping animations
-
     final systems = _calculateSystems();
     int sysIndex = -1;
     int noteIndexInSys = 0;
@@ -137,45 +133,45 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
     if (sysIndex == -1) return;
 
+    // 1. Vertical Row Tracking
     if (_verticalController.hasClients) {
       final position = _verticalController.position;
       if (position.hasViewportDimension) {
-        double vertOffset = sysIndex * 115.0;
+        double vertOffset = sysIndex * 135.0;
         double currentVOffset = position.pixels;
         double vViewport = position.viewportDimension;
-        
-        if (vertOffset < currentVOffset || vertOffset + 115.0 > currentVOffset + vViewport) {
+
+        if (vertOffset < currentVOffset || vertOffset + 135.0 > currentVOffset + vViewport) {
           _verticalController.animateTo(
             vertOffset,
-            duration: const Duration(milliseconds: 250),
+            duration: const Duration(milliseconds: 200),
             curve: Curves.easeInOut,
           );
         }
       }
     }
 
+    // 2. Exact Horizontal Tracking across full width
     if (sysIndex < _horizontalControllers.length &&
         _horizontalControllers[sysIndex].hasClients) {
+      final controller = _horizontalControllers[sysIndex];
+      final position = controller.position;
+
+      if (position.hasViewportDimension && position.maxScrollExtent > 0) {
+        final int systemNotesCount = max(1, systems[sysIndex].end - systems[sysIndex].start);
         
-      final position = _horizontalControllers[sysIndex].position;
-      if (position.hasViewportDimension) {
-        double currentOffset = position.pixels;
-        double viewportWidth = position.viewportDimension;
-        double targetNotePos = noteIndexInSys * 28.0; 
-        
-        if (targetNotePos < currentOffset + 20.0 || targetNotePos > currentOffset + viewportWidth - 40.0) {
-          double horizOffset = max(0.0, targetNotePos - (viewportWidth / 2));
-          
-          _isScrolling = true;
-          _horizontalControllers[sysIndex].animateTo(
-            horizOffset,
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeOut,
-          ).then((_) => _isScrolling = false);
+        final double noteProgressRatio = systemNotesCount > 1
+            ? (noteIndexInSys / (systemNotesCount - 1)).clamp(0.0, 1.0)
+            : 0.0;
+
+        // Scaling against total content width (maxScrollExtent + viewportDimension)
+        final double totalContentWidth = position.maxScrollExtent + position.viewportDimension;
+        final double targetOffset = (totalContentWidth * noteProgressRatio) - (position.viewportDimension / 2.0);
+        final double safeOffset = targetOffset.clamp(0.0, position.maxScrollExtent);
+
+        if ((safeOffset - position.pixels).abs() > 4.0) {
+          controller.jumpTo(safeOffset);
         }
-      } else {
-        double horizOffset = max(0.0, (noteIndexInSys - 2) * 25.0);
-        _horizontalControllers[sysIndex].jumpTo(horizOffset);
       }
     }
   }
@@ -203,7 +199,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
         int effectiveEnd = (widget.selectionStart != -1 && widget.selectionEnd != -1)
             ? max(widget.selectionStart, widget.selectionEnd)
             : -1;
-            
+
         if (effectiveEnd != -1 && beatIndex > effectiveEnd && beat.isRest) {
           bool allRests = true;
           for (int r = effectiveEnd + 1; r <= beatIndex; r++) {
@@ -219,36 +215,65 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
             effectiveEnd != -1 &&
             beatIndex >= min(widget.selectionStart, widget.selectionEnd) &&
             beatIndex <= effectiveEnd);
-            
+
         final bool isMeasureEnd = _isMeasureEnd(beatIndex);
 
-        // 1. Pre-calculate the ASCII representation for all notes in this beat
-        int maxColWidth = 3; // Minimum width
+        int maxColWidth = 3;
         List<String> renderedStrings = List.filled(6, "");
-        
+        String topAnnotation = "";
+
         for (int strIdx = 0; strIdx < 6; strIdx++) {
           final int strNum = strIdx + 1;
           final noteOnString = beat.noteOnString(strNum);
-          
+
           if (noteOnString != null && !noteOnString.isRest) {
-            String val = noteOnString.isMuted ? "x" : noteOnString.fretNum.toString();
-            
-            if (noteOnString.isTie) val = "($val)";
-            if (noteOnString.bend != null) val += "b";
-            if (noteOnString.slideType != SlideType.none) val += "/";
-            if (noteOnString.vibrato != null) val += "~";
-            if (noteOnString.isLegato) val += "h";
-            if (noteOnString.isPalmMute) val += "p";
-            
+            String val = noteOnString.fretNum.toString();
+
+            if (noteOnString.isMuted) {
+              val = "x";
+            } else if (noteOnString.harmonicType != HarmonicType.none) {
+              val = "<$val>";
+            } else if (noteOnString.isGhost || noteOnString.isTie) {
+              val = "($val)";
+            }
+
+            if (noteOnString.isTap && !topAnnotation.contains("t")) {
+              topAnnotation += "t";
+            }
+            if (noteOnString.bend != null && !topAnnotation.contains("b")) {
+              topAnnotation += "b";
+            }
+            if (noteOnString.slideType != SlideType.none) {
+              String sChar = (noteOnString.slideType == SlideType.intoFromAbove || noteOnString.slideType == SlideType.outDownwards) ? "\\" : "/";
+              if (!topAnnotation.contains(sChar)) topAnnotation += sChar;
+            }
+            if (noteOnString.vibrato != null && !topAnnotation.contains("~")) {
+              topAnnotation += "~";
+            }
+            if (noteOnString.isLegato && !topAnnotation.contains("h")) {
+              topAnnotation += "h";
+            }
+            if (noteOnString.isPalmMute && !topAnnotation.contains("PM")) {
+              topAnnotation += "PM";
+            }
+
             String text = "-$val-";
             renderedStrings[strIdx] = text;
+
             if (text.length > maxColWidth) {
               maxColWidth = text.length;
             }
           }
         }
 
-        // 2. Pad strings to match the widest element in this beat column
+        String topText = "";
+        if (topAnnotation.isNotEmpty) {
+          topText = " $topAnnotation";
+        }
+        if (topText.length > maxColWidth) {
+          maxColWidth = topText.length;
+        }
+
         for (int strIdx = 0; strIdx < 6; strIdx++) {
           if (renderedStrings[strIdx].isEmpty) {
             renderedStrings[strIdx] = "-" * maxColWidth;
@@ -257,15 +282,20 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
           }
         }
 
+        if (topText.isEmpty) {
+          topText = " " * maxColWidth;
+        } else {
+          topText = topText.padRight(maxColWidth, ' ');
+        }
+
         rowChildren.add(
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               GestureDetector(
                 onTap: () => widget.onBeatTapped(beatIndex),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 50),
-                  padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                child: Container(
+                  padding: EdgeInsets.zero,
                   decoration: BoxDecoration(
                     color: isPlaying
                         ? Colors.amber.shade400
@@ -275,37 +305,57 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                     borderRadius: BorderRadius.circular(2),
                   ),
                   child: Column(
-                    children: List.generate(6, (strIdx) {
-                      return Text(
-                        renderedStrings[strIdx],
+                    children: [
+                      Text(
+                        topText,
                         style: TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
-                          color: isPlaying
-                              ? Colors.black
-                              : (isSelected
-                                  ? Colors.cyanAccent
-                                  : Colors.greenAccent),
+                          color: isPlaying ? Colors.black : Colors.orangeAccent,
                         ),
-                      );
-                    }),
+                      ),
+                      ...List.generate(6, (strIdx) {
+                        final String textVal = renderedStrings[strIdx];
+                        final bool hasNote = textVal.contains(RegExp(r'[0-9x<>()]'));
+
+                        return Text(
+                          textVal,
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: isPlaying
+                                ? (hasNote ? Colors.black : Colors.black38)
+                                : (isSelected
+                                    ? Colors.cyanAccent
+                                    : Colors.greenAccent),
+                          ),
+                        );
+                      }),
+                    ],
                   ),
                 ),
               ),
               if (isMeasureEnd)
                 Column(
-                  children: List.generate(
-                    6,
-                    (_) => const Text(
-                      "|",
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                        color: Colors.white54,
+                  children: [
+                    const Text(
+                      " ",
+                      style: TextStyle(fontFamily: 'monospace', fontSize: 12),
+                    ),
+                    ...List.generate(
+                      6,
+                      (_) => const Text(
+                        "|",
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                          color: Colors.white54,
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ),
             ],
           ),
@@ -314,17 +364,23 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
       rowChildren.add(
         Column(
-          children: List.generate(
-            6,
-            (_) => const Text(
-              "|",
-              style: TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 12,
-                color: Colors.white54,
+          children: [
+            const Text(
+              " ",
+              style: TextStyle(fontFamily: 'monospace', fontSize: 12),
+            ),
+            ...List.generate(
+              6,
+              (_) => const Text(
+                "|",
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  color: Colors.white54,
+                ),
               ),
             ),
-          ),
+          ],
         ),
       );
 
@@ -332,26 +388,30 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
       systemWidgets.add(
         SizedBox(
-          height: 115.0,
+          height: 135.0,
           child: Padding(
             padding: const EdgeInsets.only(bottom: 12.0),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Column(
-                  children: stringLabels
-                      .map(
-                        (lbl) => Text(
-                          "$lbl|",
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.amberAccent,
-                          ),
+                  children: [
+                    const Text(
+                      "   ",
+                      style: TextStyle(fontFamily: 'monospace', fontSize: 12),
+                    ),
+                    ...stringLabels.map(
+                      (lbl) => Text(
+                        "$lbl|",
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.amberAccent,
                         ),
-                      )
-                      .toList(),
+                      ),
+                    ),
+                  ],
                 ),
                 Expanded(
                   child: SingleChildScrollView(

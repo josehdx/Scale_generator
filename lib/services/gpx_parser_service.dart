@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 import 'package:archive/archive.dart';
 import 'package:xml/xml.dart';
 import 'package:file_picker/file_picker.dart';
@@ -31,7 +32,6 @@ class GpxParserService {
       throw Exception('Invalid file type. Please select a .gp or .gpx file.');
     }
 
-    // --- FIX: Copy temporary file to persistent App Documents Directory ---
     final docsDir = await getApplicationDocumentsDirectory();
     final persistentPath = '${docsDir.path}/${file.name}';
     final persistentFile = File(persistentPath);
@@ -262,8 +262,8 @@ class GpxParserService {
       bool isMuted = note.findAllElements('Muted').isNotEmpty || note.findAllElements('Mute').isNotEmpty || note.findAllElements('Dead').isNotEmpty;
       bool isPalmMute = note.findAllElements('PalmMute').isNotEmpty || note.findAllElements('PalmMuted').isNotEmpty;
       bool isLegato = note.findAllElements('Legato').isNotEmpty || note.findAllElements('Hopo').isNotEmpty || note.findAllElements('Hammer').isNotEmpty || note.findAllElements('Pull').isNotEmpty;
-      
-      // Check explicit tags for Ghost & Harmonic
+      bool isTap = note.findAllElements('Tap').isNotEmpty || note.findAllElements('Tapped').isNotEmpty;
+
       final ghostText = note.findAllElements('Ghost').firstOrNull?.innerText.toLowerCase();
       bool isGhost = (ghostText == '1' || ghostText == 'true');
       
@@ -280,7 +280,6 @@ class GpxParserService {
         }
       }
 
-      // Check overarching <Property> mappings
       for (final prop in note.findAllElements('Property')) {
         final pName = (prop.getAttribute('name') ?? '').toLowerCase();
         if (pName == 'muted' || pName == 'mute' || pName == 'dead') isMuted = true;
@@ -289,6 +288,7 @@ class GpxParserService {
         else if (pName == 'tie') isTie = true;
         else if (pName.contains('letring')) isLetRing = true;
         else if (pName == 'ghost') isGhost = true;
+        else if (pName == 'tap' || pName == 'tapping') isTap = true;
       }
 
       SlideType slideType = SlideType.none;
@@ -302,37 +302,42 @@ class GpxParserService {
         else slideType = SlideType.legato;
       }
 
+      // --- FIX: Robust GPIF Bend Parsing ---
       GpBend? bend;
       final bendNode = note.findAllElements('Bend').firstOrNull;
       if (bendNode != null) {
-        final List<BendPoint> points = [];
-        double maxOffset = 0.0;
-        
+        final List<({double pos, double val})> rawPoints = [];
         for (final pt in bendNode.findAllElements('Point')) {
           final posStr = pt.getAttribute('position') ?? pt.getAttribute('pos') ?? pt.getAttribute('token') ?? pt.findElements('Position').firstOrNull?.innerText ?? pt.findElements('Token').firstOrNull?.innerText;
           final offStr = pt.getAttribute('offset') ?? pt.getAttribute('value') ?? pt.getAttribute('val') ?? pt.findElements('Offset').firstOrNull?.innerText ?? pt.findElements('Value').firstOrNull?.innerText;
           
-          double position = 0.0;
-          if (posStr != null) {
-            final p = double.tryParse(posStr) ?? 0.0;
-            if (p > 12.0) position = (p / 100.0).clamp(0.0, 1.0);
-            else if (p > 1.0) position = (p / 12.0).clamp(0.0, 1.0);
-            else position = p.clamp(0.0, 1.0);
+          if (posStr != null && offStr != null) {
+            final double p = double.tryParse(posStr) ?? 0.0;
+            final double v = double.tryParse(offStr) ?? 0.0;
+            rawPoints.add((pos: p, val: v));
           }
-          
-          double offset = 0.0;
-          if (offStr != null) {
-            final off = double.tryParse(offStr) ?? 0.0;
-            if (off > 12.0) offset = off / 100.0;
-            else offset = off / 2.0; 
-            if (offset > maxOffset) maxOffset = offset;
-          }
-          points.add(BendPoint(position: position, offset: offset));
         }
         
-        if (points.isNotEmpty) {
+        if (rawPoints.isNotEmpty) {
+          double maxPos = rawPoints.map((e) => e.pos).reduce(max);
+          double posDenominator = 12.0;
+          if (maxPos > 12.0) posDenominator = maxPos;
+          else if (maxPos <= 1.0 && maxPos > 0.0) posDenominator = 1.0;
+
+          double maxVal = rawPoints.map((e) => e.val).reduce(max);
+          // In GPIF XML: 50 = 1 semitone, 100 = 2 semitones (1 full step)
+          double valDenominator = (maxVal <= 12.0 && maxVal > 0.0) ? 4.0 : 50.0;
+
+          final List<BendPoint> points = [];
+          double maxOffsetSemitones = 0.0;
+          for (final raw in rawPoints) {
+            final double normalizedPos = (raw.pos / posDenominator).clamp(0.0, 1.0);
+            final double offsetSemitones = raw.val / valDenominator;
+            if (offsetSemitones > maxOffsetSemitones) maxOffsetSemitones = offsetSemitones;
+            points.add(BendPoint(position: normalizedPos, offset: offsetSemitones));
+          }
           points.sort((a, b) => a.position.compareTo(b.position));
-          bend = GpBend(maximumPitchOffset: maxOffset, envelope: points);
+          bend = GpBend(maximumPitchOffset: maxOffsetSemitones, envelope: points);
         }
       }
 
@@ -352,6 +357,7 @@ class GpxParserService {
         isPalmMute: isPalmMute,
         isLegato: isLegato, 
         isGhost: isGhost,
+        isTap: isTap,
         harmonicType: harmonicType,
         slideType: slideType, 
         bend: bend, 
@@ -450,7 +456,7 @@ class GpxParserService {
           final List<GpNote> notesWithDuration = beatNotes.map((orig) => GpNote(
             stringNum: orig.stringNum, fretNum: orig.fretNum, pitch: orig.pitch, duration: finalRhythm,
             isTie: orig.isTie, isLetRing: orig.isLetRing, isMuted: orig.isMuted, isPalmMute: orig.isPalmMute,
-            isLegato: orig.isLegato, isGhost: orig.isGhost, harmonicType: orig.harmonicType,
+            isLegato: orig.isLegato, isGhost: orig.isGhost, isTap: orig.isTap, harmonicType: orig.harmonicType,
             slideType: orig.slideType, bend: orig.bend, vibrato: orig.vibrato,
           )).toList();
           
