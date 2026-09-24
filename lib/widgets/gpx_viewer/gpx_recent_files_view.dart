@@ -1,18 +1,8 @@
 import 'package:flutter/material.dart';
 
-/// Displays an empty-state prompt and, when [recentFiles] is non-empty, a
-/// scrollable list of recently opened GP files.
-///
-/// This widget is purely presentational — file I/O and state mutation are
-/// performed by [onOpen] and [onRemove] callbacks supplied by the parent.
 class GpxRecentFilesView extends StatelessWidget {
-  /// Recently opened GP files. Each entry has `'name'` and `'path'` keys.
   final List<Map<String, String>> recentFiles;
-
-  /// Called when the user taps a recent file entry.
   final void Function(String name, String path) onOpen;
-
-  /// Called when the user taps the remove (×) button on an entry.
   final void Function(String path) onRemove;
 
   const GpxRecentFilesView({
@@ -27,7 +17,6 @@ class GpxRecentFilesView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // ── Empty-state hint ─────────────────────────────────────────────────
         const Padding(
           padding: EdgeInsets.symmetric(vertical: 24.0),
           child: Text(
@@ -36,8 +25,6 @@ class GpxRecentFilesView extends StatelessWidget {
             style: TextStyle(color: Colors.grey, fontSize: 14),
           ),
         ),
-
-        // ── Recent files list ────────────────────────────────────────────────
         if (recentFiles.isNotEmpty) ...[
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 12.0),
@@ -60,16 +47,10 @@ class GpxRecentFilesView extends StatelessWidget {
                 final path = recent['path'] ?? '';
                 return ListTile(
                   leading: const Icon(Icons.history, color: Colors.grey),
-                  title: Text(
-                    name,
-                    style: const TextStyle(color: Colors.white),
-                  ),
+                  title: Text(name, style: const TextStyle(color: Colors.white)),
                   subtitle: Text(
                     path,
-                    style: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 11,
-                    ),
+                    style: const TextStyle(color: Colors.white54, fontSize: 11),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -87,4 +68,3 @@ class GpxRecentFilesView extends StatelessWidget {
     );
   }
 }
-

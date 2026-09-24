@@ -137,11 +137,10 @@ packages:
   flutter_midi_pro:
     dependency: "direct main"
     description:
-      name: flutter_midi_pro
-      sha256: "0e7c3aa5d6528f247444e84593d00126d38ce66642fbc156a9bb068ac3444a25"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.0.1"
+      path: "packages/flutter_midi_pro"
+      relative: true
+    source: path
+    version: "4.0.13"
   flutter_plugin_android_lifecycle:
     dependency: transitive
     description:

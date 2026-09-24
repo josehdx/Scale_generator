@@ -34,7 +34,7 @@ class LickPreset {
     pathway: json['pathway'] ?? 'Straight Linear',
     direction: json['direction'] ?? 'Ascend -> Descend',
     motifString: json['motifString'] ?? '',
-    rhythm: json['rhythm'] ?? '16th',
+    rhythm: (json['rhythm'] == '16th') ? 'Straight 16ths' : (json['rhythm'] ?? 'Straight 16ths'),
     customRhythmString: json['customRhythmString'] ?? '16,16,8',
     customAccentString: json['customAccentString'] ?? '1,0,0,0',
     manualTabString: json['manualTabString'] ?? '6:5, 6:8, 5:5, 5:7',

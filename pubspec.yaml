@@ -9,8 +9,9 @@ dependencies:
   flutter:
     sdk: flutter
   
-  # Audio and MIDI
-  flutter_midi_pro: 
+  # Audio and MIDI (Local Native Plugin)
+  flutter_midi_pro:
+    path: ./packages/flutter_midi_pro
   
   # File Management & Storage
   file_picker: ^8.0.0
@@ -31,4 +32,5 @@ flutter:
 
   # Ensure your SoundFont is properly bundled here
   assets:
+    - assets/
     - assets/guitar.sf2

@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/gp_track.dart';
 
-/// Shows a modal bottom sheet that lists all [tracks] with per-track Solo (S)
-/// and Mute (M) toggles.
 void showGpxTrackMenu(
   BuildContext context, {
   required List<GpTrack> tracks,

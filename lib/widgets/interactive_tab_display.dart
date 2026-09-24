@@ -1,7 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-
 import '../models/gp_beat.dart';
+import '../models/gp_note.dart';
 import '../models/master_bar_event.dart';
 
 class InteractiveTabDisplay extends StatefulWidget {
@@ -13,10 +13,8 @@ class InteractiveTabDisplay extends StatefulWidget {
   final int selectionEnd;
   final String tuningStr;
   final Function(int index) onBeatTapped;
-
   /// Optional measure boundary note/beat indices for dynamic time signatures.
   final List<int>? measureEndIndices;
-
   /// Optional MasterBar automation events timeline.
   final List<MasterBarEvent>? masterBars;
 
@@ -41,6 +39,7 @@ class InteractiveTabDisplay extends StatefulWidget {
 class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
   final ScrollController _verticalController = ScrollController();
   final List<ScrollController> _horizontalControllers = [];
+  bool _isScrolling = false;
 
   @override
   void dispose() {
@@ -67,6 +66,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
         }
 
         currentMeasureInSystem++;
+
         if (currentMeasureInSystem == widget.measuresPerLine || m == ends.length - 1) {
           int sysEnd = mEnd + 1;
           if (m == ends.length - 1 && sysEnd < widget.sequence.length) {
@@ -75,11 +75,9 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
           systems.add((start: sysStart, end: sysEnd));
           sysStart = sysEnd;
           currentMeasureInSystem = 0;
-
           if (sysStart >= widget.sequence.length) break;
         }
       }
-
       if (sysStart < widget.sequence.length) {
         systems.add((start: sysStart, end: widget.sequence.length));
       }
@@ -89,12 +87,10 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     // Default fixed-length measure division
     final int notesPerSystem = widget.notesPerMeasure * widget.measuresPerLine;
     final List<({int start, int end})> systems = [];
-
     for (int sysStart = 0; sysStart < widget.sequence.length; sysStart += notesPerSystem) {
       final int sysEnd = min(sysStart + notesPerSystem, widget.sequence.length);
       systems.add((start: sysStart, end: sysEnd));
     }
-
     return systems;
   }
 
@@ -124,6 +120,8 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
   }
 
   void _scrollToActiveNote() {
+    if (_isScrolling) return; // Prevent overlapping animations
+
     final systems = _calculateSystems();
     int sysIndex = -1;
     int noteIndexInSys = 0;
@@ -158,7 +156,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
     if (sysIndex < _horizontalControllers.length &&
         _horizontalControllers[sysIndex].hasClients) {
-          
+        
       final position = _horizontalControllers[sysIndex].position;
       if (position.hasViewportDimension) {
         double currentOffset = position.pixels;
@@ -167,11 +165,13 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
         
         if (targetNotePos < currentOffset + 20.0 || targetNotePos > currentOffset + viewportWidth - 40.0) {
           double horizOffset = max(0.0, targetNotePos - (viewportWidth / 2));
+          
+          _isScrolling = true;
           _horizontalControllers[sysIndex].animateTo(
             horizOffset,
-            duration: const Duration(milliseconds: 200),
+            duration: const Duration(milliseconds: 250),
             curve: Curves.easeOut,
-          );
+          ).then((_) => _isScrolling = false);
         }
       } else {
         double horizOffset = max(0.0, (noteIndexInSys - 2) * 25.0);
@@ -222,9 +222,40 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
             
         final bool isMeasureEnd = _isMeasureEnd(beatIndex);
 
-        final bool hasDoubleDigitFret =
-            beat.notes.any((n) => !n.isRest && n.fretNum >= 10);
-        final int colWidth = hasDoubleDigitFret ? 4 : 3;
+        // 1. Pre-calculate the ASCII representation for all notes in this beat
+        int maxColWidth = 3; // Minimum width
+        List<String> renderedStrings = List.filled(6, "");
+        
+        for (int strIdx = 0; strIdx < 6; strIdx++) {
+          final int strNum = strIdx + 1;
+          final noteOnString = beat.noteOnString(strNum);
+          
+          if (noteOnString != null && !noteOnString.isRest) {
+            String val = noteOnString.isMuted ? "x" : noteOnString.fretNum.toString();
+            
+            if (noteOnString.isTie) val = "($val)";
+            if (noteOnString.bend != null) val += "b";
+            if (noteOnString.slideType != SlideType.none) val += "/";
+            if (noteOnString.vibrato != null) val += "~";
+            if (noteOnString.isLegato) val += "h";
+            if (noteOnString.isPalmMute) val += "p";
+            
+            String text = "-$val-";
+            renderedStrings[strIdx] = text;
+            if (text.length > maxColWidth) {
+              maxColWidth = text.length;
+            }
+          }
+        }
+
+        // 2. Pad strings to match the widest element in this beat column
+        for (int strIdx = 0; strIdx < 6; strIdx++) {
+          if (renderedStrings[strIdx].isEmpty) {
+            renderedStrings[strIdx] = "-" * maxColWidth;
+          } else {
+            renderedStrings[strIdx] = renderedStrings[strIdx].padRight(maxColWidth, '-');
+          }
+        }
 
         rowChildren.add(
           Row(
@@ -245,24 +276,8 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                   ),
                   child: Column(
                     children: List.generate(6, (strIdx) {
-                      final int strNum = strIdx + 1;
-                      final noteOnString = beat.noteOnString(strNum);
-                      String text;
-
-                      if (noteOnString != null && !noteOnString.isRest) {
-                        if (colWidth == 4) {
-                          text = noteOnString.fretNum >= 10
-                              ? "-${noteOnString.fretNum}-"
-                              : "-${noteOnString.fretNum}--";
-                        } else {
-                          text = "-${noteOnString.fretNum}-";
-                        }
-                      } else {
-                        text = "-" * colWidth;
-                      }
-
                       return Text(
-                        text,
+                        renderedStrings[strIdx],
                         style: TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 12,
