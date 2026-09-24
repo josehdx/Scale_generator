@@ -16,31 +16,24 @@ subprojects {
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
 
-// Inject fallback namespace and force compileSdkVersion 36 for third-party plugins
 subprojects {
-    fun fixSubproject() {
-        if (project.hasProperty("android")) {
-            val android = project.extensions.findByName("android") as? com.android.build.gradle.BaseExtension
-            if (android != null) {
-                if (android.namespace == null) {
-                    android.namespace = project.group.toString()
-                }
-                android.compileSdkVersion(36)
-            }
-        }
-    }
-
-    if (project.state.executed) {
-        fixSubproject()
-    } else {
-        project.afterEvaluate {
-            fixSubproject()
-        }
-    }
+    project.evaluationDependsOn(":app")
 }
 
 subprojects {
-    project.evaluationDependsOn(":app")
+    // 1. Inject the missing Kotlin plugin specifically for flutter_midi_pro
+    if (project.name == "flutter_midi_pro") {
+        apply(plugin = "kotlin-android")
+    }
+
+    // 2. Safely enforce compileSdk 36 on all Flutter plugin modules
+    if (project.state.executed) {
+        project.extensions.findByType<com.android.build.gradle.LibraryExtension>()?.compileSdk = 36
+    } else {
+        project.afterEvaluate {
+            project.extensions.findByType<com.android.build.gradle.LibraryExtension>()?.compileSdk = 36
+        }
+    }
 }
 
 tasks.register<Delete>("clean") {

@@ -7,18 +7,10 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/lick_preset.dart';
 
-/// Handles all preset and session persistence: SharedPreferences read/write,
-/// JSON file export (via Share), and JSON file import (via FilePicker).
-///
-/// Every method is side-effect free with respect to Flutter widget state —
-/// callers are responsible for calling `setState` with returned values.
 class PresetStorageService {
   static const String _storageKey = 'auto_saved_lick_presets';
   static const String _sessionKey = 'last_session_state';
 
-  // ── Preset CRUD ────────────────────────────────────────────────────────────
-
-  /// Loads the saved preset list from SharedPreferences.
   Future<List<LickPreset>> loadPresets() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -33,7 +25,6 @@ class PresetStorageService {
     return [];
   }
 
-  /// Persists [presets] to SharedPreferences.
   Future<void> savePresets(List<LickPreset> presets) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -44,9 +35,6 @@ class PresetStorageService {
     }
   }
 
-  // ── Session ────────────────────────────────────────────────────────────────
-
-  /// Loads the last auto-saved session preset, or `null` if none exists.
   Future<LickPreset?> loadSession() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -61,7 +49,6 @@ class PresetStorageService {
     return null;
   }
 
-  /// Saves [preset] as the current session snapshot.
   Future<void> saveSession(LickPreset preset) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -71,10 +58,6 @@ class PresetStorageService {
     }
   }
 
-  // ── Export / Import ────────────────────────────────────────────────────────
-
-  /// Exports [presets] as a JSON file via the platform Share sheet.
-  /// Throws on error — callers should display a SnackBar on catch.
   Future<void> exportPresets(List<LickPreset> presets) async {
     if (presets.isEmpty) return;
     final jsonString =
@@ -89,19 +72,13 @@ class PresetStorageService {
         [XFile(file.path)], text: 'Tab Generator Studio Presets');
   }
 
-  /// Imports presets from a user-selected JSON file.
-  ///
-  /// Returns the parsed list on success, `null` if the user cancelled.
-  /// Throws on parse/read error — callers should display a SnackBar on catch.
   Future<List<LickPreset>?> importPresets() async {
-    final result = await FilePicker.platform.pickFiles(
+    final FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['json', 'txt'],
     );
-    if (result == null ||
-        result.files.isEmpty ||
-        result.files.first.path == null) {
-      return null; // user cancelled
+    if (result == null || result.files.isEmpty || result.files.first.path == null) {
+      return null;
     }
     final jsonString = await File(result.files.first.path!).readAsString();
     final List<dynamic> decoded = jsonDecode(jsonString);
@@ -110,4 +87,3 @@ class PresetStorageService {
         .toList();
   }
 }
-

@@ -1,0 +1,142 @@
+group = "com.melihhakanpektas.flutter_midi_pro"
+version = "1.0-SNAPSHOT"
+
+buildscript {
+    ext.kotlin_version = "2.0.21"
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+         classpath 'com.android.tools.build:gradle:8.10.1'
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version")
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: "com.android.library"
+
+// Flutter 3.44+ (AGP 9+) ships built-in Kotlin support and deprecates plugins
+// applying the Kotlin Gradle Plugin themselves; apply it only on older AGP.
+// https://docs.flutter.dev/release/breaking-changes/migrate-to-built-in-kotlin/for-plugin-authors
+def agpMajor = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION.tokenize('.')[0] as int
+if (agpMajor < 9) {
+    apply plugin: "kotlin-android"
+}
+
+// The FluidSynth binaries (~106 MB unpacked) are not shipped with the
+// package; the official release zip is downloaded once at build time,
+// checksum-verified and cached in the Gradle user home. To build fully
+// offline, place an unpacked copy (include/ + lib/<abi>/) at
+// src/main/cpp/fluidsynth instead — a vendored copy takes precedence.
+def fluidsynthVersion = "2.5.6"
+def fluidsynthSha256 = "cbc3032b8dbe70da1f4f2146de7d4041c091b28e3b6ccdc9e631647bc2d2c28a"
+def fluidsynthVendoredDir = file("src/main/cpp/fluidsynth")
+def fluidsynthCacheDir = new File(gradle.gradleUserHomeDir, "caches/flutter_midi_pro/fluidsynth-v${fluidsynthVersion}")
+def fluidsynthRoot = fluidsynthVendoredDir.exists() ? fluidsynthVendoredDir : fluidsynthCacheDir
+
+tasks.register("downloadFluidsynth") {
+    onlyIf { !new File(fluidsynthRoot, "include/fluidsynth.h").exists() }
+    doLast {
+        def url = "https://github.com/FluidSynth/fluidsynth/releases/download/v${fluidsynthVersion}/fluidsynth-v${fluidsynthVersion}-android24.zip"
+        def zipFile = new File(fluidsynthCacheDir, "fluidsynth.zip")
+        fluidsynthCacheDir.mkdirs()
+        logger.lifecycle("flutter_midi_pro: downloading FluidSynth v${fluidsynthVersion} Android binaries...")
+        new URL(url).withInputStream { input ->
+            zipFile.withOutputStream { output -> output << input }
+        }
+        def digest = java.security.MessageDigest.getInstance("SHA-256")
+        zipFile.eachByte(65536) { buffer, length -> digest.update(buffer, 0, length) }
+        def sha = digest.digest().encodeHex().toString()
+        if (sha != fluidsynthSha256) {
+            zipFile.delete()
+            throw new GradleException("flutter_midi_pro: FluidSynth download checksum mismatch (got ${sha}). Delete ${fluidsynthCacheDir} and retry.")
+        }
+        copy {
+            from zipTree(zipFile)
+            into fluidsynthCacheDir
+        }
+        zipFile.delete()
+        logger.lifecycle("flutter_midi_pro: FluidSynth v${fluidsynthVersion} ready at ${fluidsynthCacheDir}")
+    }
+}
+
+android {
+    namespace = "com.melihhakanpektas.flutter_midi_pro"
+
+    compileSdk = 35
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main.java.srcDirs += "src/main/kotlin"
+        test.java.srcDirs += "src/test/kotlin"
+    }
+
+    defaultConfig {
+        minSdkVersion = 24
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
+        }
+
+        externalNativeBuild {
+            cmake {
+                // c++_shared: the prebuilt FluidSynth libraries depend on
+                // libc++_shared.so, which the NDK provides and packages.
+                arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DANDROID_STL=c++_shared",
+                        "-DFLUIDSYNTH_DIR=${fluidsynthRoot.absolutePath.replace('\\', '/')}"
+            }
+        }
+    }
+
+    // The native build configures against the downloaded binaries, so the
+    // download must run before any CMake configure/build task.
+    tasks.whenTaskAdded { task ->
+        if (task.name.startsWith("configureCMake") || task.name.startsWith("buildCMake")
+                || task.name.startsWith("generateJsonModel") || task.name == "preBuild") {
+            task.dependsOn "downloadFluidsynth"
+        }
+    }
+
+
+    dependencies {
+        testImplementation("org.jetbrains.kotlin:kotlin-test")
+        testImplementation("org.mockito:mockito-core:5.18.0")
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+        }
+    }
+
+    testOptions {
+        unitTests.all {
+            useJUnitPlatform()
+
+            testLogging {
+               events "passed", "skipped", "failed", "standardOut", "standardError"
+               outputs.upToDateWhen {false}
+               showStandardStreams = true
+            }
+        }
+    }
+}
+
+// Replaces the removed android.kotlinOptions block; works both with the
+// conditionally applied Kotlin Gradle Plugin and with AGP 9's built-in Kotlin.
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}

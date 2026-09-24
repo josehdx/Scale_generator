@@ -1,256 +1,405 @@
 import 'dart:math';
-
 import '../models/gp_beat.dart';
 import '../models/gp_note.dart';
 import '../models/lick_preset.dart';
+import '../models/master_bar_event.dart';
 import '../scale_engine.dart';
 
-/// Pure-dart utility for calculating note sequences, rhythms, and accents.
+class TabNote {
+  final int midiPitch;
+  final double startTimeMs;
+  final double durationMs;
+  final int velocity;
+  final bool isTie;
+  final bool isLegato;
+
+  TabNote({
+    required this.midiPitch,
+    required this.startTimeMs,
+    required this.durationMs,
+    required this.velocity,
+    this.isTie = false,
+    this.isLegato = false,
+  });
+}
+
+class MidiEvent {
+  final double timestampMs;
+  final int pitch;
+  final int velocity;
+  final bool isNoteOn;
+
+  MidiEvent({
+    required this.timestampMs,
+    required this.pitch,
+    required this.velocity,
+    required this.isNoteOn,
+  });
+}
+
+class ScheduledMidiEvent implements Comparable<ScheduledMidiEvent> {
+  final double timeMs;
+  final String type; // 'note_on' or 'note_off'
+  final int channel;
+  final int data1;
+  final int data2;
+  final int trackIndex;
+  final int beatIndex;
+  final bool isMainTrack;
+
+  ScheduledMidiEvent({
+    required this.timeMs,
+    required this.type,
+    required this.channel,
+    required this.data1,
+    required this.data2,
+    required this.trackIndex,
+    required this.beatIndex,
+    required this.isMainTrack,
+  });
+
+  @override
+  int compareTo(ScheduledMidiEvent other) {
+    int timeCompare = timeMs.compareTo(other.timeMs);
+    if (timeCompare != 0) return timeCompare;
+
+    bool aIsNoteOn = type == 'note_on';
+    bool bIsNoteOn = other.type == 'note_on';
+    if (aIsNoteOn == bIsNoteOn) return 0;
+    return aIsNoteOn ? 1 : -1;
+  }
+}
+
 class TabSequenceBuilder {
   final ScaleEngine engine;
 
-  TabSequenceBuilder({required this.engine});
+  TabSequenceBuilder({ScaleEngine? engine}) : engine = engine ?? ScaleEngine();
 
-  // --- Rhythm & Accent Parsing ---
-
-  /// Returns `true` if the accent string signifies auto-generation.
-  bool isAutoAccent(String accentStr) =>
-      accentStr.toLowerCase().contains("auto");
-
-  /// Parses an accent pattern string (e.g. "1,0,0") into a repeating list of velocities.
-  /// 1 maps to 127 (accent), 0 maps to 80 (normal).
-  List<int> parseAccentPattern(String accentStr) {
-    if (accentStr.isEmpty) return [127];
-    List<String> parts = accentStr.split(',');
-    List<int> accents = [];
-    for (String p in parts) {
-      if (p.trim() == "1") accents.add(127);
-      else if (p.trim() == "0") accents.add(80);
-      else {
-        int? v = int.tryParse(p.trim());
-        accents.add(v != null ? v.clamp(0, 127) : 80);
-      }
-    }
-    if (accents.isEmpty) accents = [127];
-    return accents;
+  static double roundMs(double val) {
+    return (val * 10).round() / 10.0;
   }
 
-  /// Parses rhythm patterns into string lists (e.g. `["16th", "8th", "16th"]`).
-  List<String> parsePatternString(String patternName, {String? customRhythmOverride}) {
-    if (patternName == "Custom Pattern" && customRhythmOverride != null && customRhythmOverride.isNotEmpty) {
-      return customRhythmOverride.split(',').map((s) => s.trim() == "8" ? "8th" : "16th").toList();
+  List<MidiEvent> buildSequence(List<TabNote> notes) {
+    List<MidiEvent> midiEvents = [];
+
+    for (var note in notes) {
+      double durationMs = note.durationMs;
+
+      if (!note.isTie && !note.isLegato) {
+        durationMs = max(1.0, durationMs - 16.0);
+      }
+
+      midiEvents.add(MidiEvent(
+        timestampMs: note.startTimeMs,
+        pitch: note.midiPitch,
+        velocity: note.velocity,
+        isNoteOn: true,
+      ));
+
+      midiEvents.add(MidiEvent(
+        timestampMs: note.startTimeMs + durationMs,
+        pitch: note.midiPitch,
+        velocity: 0,
+        isNoteOn: false,
+      ));
     }
-    switch (patternName) {
-      case "Straight 16ths": return ["16th"];
-      case "Straight 8ths": return ["8th"];
-      case "Gallop (8-16-16)": return ["8th", "16th", "16th"];
-      case "Reverse Gallop (16-16-8)": return ["16th", "16th", "8th"];
-      case "Syncopated (16-8-16)": return ["16th", "8th", "16th"];
-      default: return ["16th"];
-    }
+
+    midiEvents.sort((a, b) {
+      int timeCompare = a.timestampMs.compareTo(b.timestampMs);
+      if (timeCompare != 0) return timeCompare;
+
+      if (a.isNoteOn == b.isNoteOn) return 0;
+      return a.isNoteOn ? 1 : -1;
+    });
+
+    return midiEvents;
   }
 
-  // --- Manual Tab Parser ---
+  static List<ScheduledMidiEvent> buildAbsoluteTimeline({
+    required List<GpBeat> beats,
+    required List<int> measureEnds,
+    required int initialTempo,
+    required List<MasterBarEvent> masterBars,
+    required int trackIndex,
+    required int channel,
+    required bool isMainTrack,
+    required double speedMultiplier,
+  }) {
+    List<ScheduledMidiEvent> events = [];
+    if (beats.isEmpty) return events;
 
-  /// Parses manual tab syntax "str:fret, str:fret" or chords "str:fret+str:fret" into a sequence.
-  List<List<int>> parseManualTab(String input) {
-    List<List<int>> sequence = [];
-    List<String> parts = input.split(',');
-    for (String p in parts) {
-      p = p.trim();
-      if (p.isEmpty) continue;
-      if (p.toLowerCase() == 'r') {
-        sequence.add([-1, -1]);
-        continue;
+    double currentMs = 0.0;
+    int currentBarIndex = 0;
+    int currentTempo = initialTempo;
+
+    for (int bIdx = 0; bIdx < beats.length; bIdx++) {
+      final beat = beats[bIdx];
+
+      if (masterBars.isNotEmpty && currentBarIndex < masterBars.length) {
+        currentTempo = masterBars[currentBarIndex].tempo;
       }
-      // Check for chord notation using '+' or '/'
-      List<String> noteTokens = (p.contains('+') || p.contains('/'))
-          ? p.split(RegExp(r'[+/]'))
-          : [p];
-      for (String token in noteTokens) {
-        List<String> sub = token.trim().split(':');
-        if (sub.length == 2) {
-          int? s = int.tryParse(sub[0]);
-          int? f = int.tryParse(sub[1]);
-          if (s != null && f != null && s >= 1 && s <= 8 && f >= 0 && f <= 24) {
-            sequence.add([s, f]);
+
+      final double effectiveTempo = currentTempo * speedMultiplier;
+      // Fixed: beat.duration is already in quarter-note units
+      final double beatDurationMs = beat.duration * (60000.0 / effectiveTempo);
+
+      if (!beat.isRest) {
+        for (final note in beat.notes) {
+          if (note.isRest) continue;
+          int pitch = note.pitch > 0 ? note.pitch : 60;
+
+          int velocity = isMainTrack ? 110 : 80;
+          if (note.isMuted) {
+            velocity = 20;
+          } else if (note.isPalmMute) {
+            velocity = (velocity * 0.7).round();
+          } else if (note.isLegato) {
+            velocity = (velocity * 0.8).round();
+          } else if (note.isTap) {
+            velocity = (velocity * 1.15).clamp(0, 127).round();
           }
+
+          double playDurationMs = beatDurationMs;
+          if (note.isMuted) {
+            playDurationMs = min(beatDurationMs, 40.0);
+          } else if (note.isPalmMute) {
+            playDurationMs = min(beatDurationMs, 150.0);
+          } else if (note.isLetRing) {
+            playDurationMs = beatDurationMs + 1200.0;
+          } else if (note.isLegato || note.isTap) {
+            playDurationMs = beatDurationMs + 150.0;
+          } else {
+            playDurationMs = beatDurationMs + 75.0;
+          }
+
+          events.add(ScheduledMidiEvent(
+            timeMs: roundMs(currentMs),
+            type: 'note_on',
+            channel: channel,
+            data1: pitch,
+            data2: velocity,
+            trackIndex: trackIndex,
+            beatIndex: bIdx,
+            isMainTrack: isMainTrack,
+          ));
+
+          events.add(ScheduledMidiEvent(
+            timeMs: roundMs(currentMs + playDurationMs),
+            type: 'note_off',
+            channel: channel,
+            data1: pitch,
+            data2: 0,
+            trackIndex: trackIndex,
+            beatIndex: bIdx,
+            isMainTrack: isMainTrack,
+          ));
         }
       }
-    }
-    return sequence;
-  }
 
-  /// Parses manual tab syntax into a list of [GpBeat] objects, grouping multiple
-  /// strings/frets separated by '+' into a single chord beat.
-  List<GpBeat> parseManualTabBeats(String input, {double defaultDuration = 0.25}) {
-    List<GpBeat> beats = [];
-    List<String> parts = input.split(',');
-    for (String p in parts) {
-      p = p.trim();
-      if (p.isEmpty) continue;
-      if (p.toLowerCase() == 'r') {
-        beats.add(GpBeat.rest(duration: defaultDuration));
-        continue;
-      }
-      List<String> noteTokens = (p.contains('+') || p.contains('/'))
-          ? p.split(RegExp(r'[+/]'))
-          : [p];
-      List<GpNote> chordNotes = [];
-      for (String token in noteTokens) {
-        List<String> sub = token.trim().split(':');
-        if (sub.length == 2) {
-          int? s = int.tryParse(sub[0]);
-          int? f = int.tryParse(sub[1]);
-          if (s != null && f != null && s >= 1 && s <= 8 && f >= 0 && f <= 24) {
-            chordNotes.add(GpNote(
-              stringNum: s,
-              fretNum: f,
-              duration: defaultDuration,
-            ));
-          }
-        }
-      }
-      if (chordNotes.isNotEmpty) {
-        beats.add(GpBeat(notes: chordNotes, duration: defaultDuration));
+      currentMs += beatDurationMs;
+
+      if (measureEnds.contains(bIdx)) {
+        currentBarIndex++;
       }
     }
-    return beats;
+
+    events.sort((a, b) => a.compareTo(b));
+    return events;
   }
 
-  /// Converts a flat `List<List<int>>` note sequence into a `List<GpBeat>` list.
-  List<GpBeat> sequenceToBeats(List<List<int>> sequence, {double defaultDuration = 0.25}) {
-    return sequence.map((note) {
-      if (note[0] == -1 || note[1] == -1) {
-        return GpBeat.rest(duration: defaultDuration);
-      }
-      return GpBeat.single(
-        GpNote(stringNum: note[0], fretNum: note[1], duration: defaultDuration),
-        duration: defaultDuration,
-      );
-    }).toList();
-  }
-
-  // --- Sequence Generation ---
-
-  /// Rebuilds a note sequence precisely as saved in a [LickPreset].
-  /// Honors start/end string boundaries and directional orientation.
   List<List<int>> buildSequenceForPreset(
     LickPreset preset, {
-    int selectionStart = -1,
-    int selectionEnd = -1,
+    int? selectionStart,
+    int? selectionEnd,
   }) {
-    // 1. Initial manual sequence check
     if (preset.system == "Manual Entry") {
-      List<List<int>> base = parseManualTab(preset.manualTabString ?? "");
-      List<List<int>> seq = engine.applyIntervalBreaks(base, preset.breakInterval, preset.breakLength);
-      if (preset.endRests > 0) {
-        if (selectionStart != -1 && selectionEnd != -1) {
-          int insertIdx = max(selectionStart, selectionEnd) + 1;
-          insertIdx = insertIdx.clamp(0, seq.length);
-          seq.insertAll(insertIdx, List.generate(preset.endRests, (_) => [-1, -1]));
-        } else {
-          for (int i = 0; i < preset.endRests; i++) seq.add([-1, -1]);
+      List<List<int>> manualSeq = [];
+      List<String> parts = preset.manualTabString
+          .split(',')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+
+      for (String p in parts) {
+        if (p.toLowerCase() == 'r') {
+          manualSeq.add([-1, -1]);
+        } else if (p.contains(':')) {
+          var sub = p.replaceAll(RegExp(r'\([^\)]*\)'), '').split(':');
+          if (sub.length == 2) {
+            int? s = int.tryParse(sub[0]);
+            int? f = int.tryParse(sub[1]);
+            if (s != null && f != null) manualSeq.add([s, f]);
+          }
         }
       }
-      return seq;
+      return manualSeq;
     }
 
-    // 2. Setup environment
-    engine.tunings[preset.tuning] ??= engine.openStrings;
-    
-    // Dynamically extract start and end strings honoring orientation
-    int stStr = 6;
-    int enStr = 1;
-    if (preset.system != "Single String Horizontal" && preset.fragment.contains('-') && !preset.fragment.contains('Strings')) {
+    engine.setTuning(preset.tuning);
+
+    int startStr = 6;
+    int endStr = 1;
+    int singleStrTarget = 1;
+
+    if (preset.system == "Single String Horizontal") {
+      singleStrTarget = int.tryParse(preset.fragment) ?? 1;
+    } else if (preset.fragment.contains('-')) {
       var parts = preset.fragment.split('-');
-      stStr = (int.tryParse(parts[0]) ?? 6).clamp(1, 8);
-      enStr = (int.tryParse(parts[1]) ?? 1).clamp(1, 8);
+      startStr = int.tryParse(parts[0]) ?? 6;
+      endStr = int.tryParse(parts[1]) ?? 1;
     }
 
     List<int> targetStrings = [];
-    if (preset.system != "Single String Horizontal") {
-      int minStr = min(stStr, enStr);
-      int maxStr = max(stStr, enStr);
-      targetStrings = [for (int i = minStr; i <= maxStr; i++) i];
+    if (startStr >= endStr) {
+      for (int s = startStr; s >= endStr; s--) targetStrings.add(s);
+    } else {
+      for (int s = startStr; s <= endStr; s++) targetStrings.add(s);
     }
 
-    // 3. Build Base Dict explicitly using the restricted target strings
-    Map<int, List<int>> boxDict;
-    if (preset.system == "Single String Horizontal") {
-      boxDict = engine.getScaleNotesSingleString(preset.key, preset.scale, preset.startFret, int.tryParse(preset.fragment) ?? 1);
+    Map<int, List<int>> boxDict = {};
+
+    if (preset.system == "Box Position / CAGED") {
+      boxDict = engine.getScaleNotesBox(
+          preset.key, preset.scale, preset.startFret, targetStrings);
     } else if (preset.system == "3-Note-Per-String (3NPS)") {
-      boxDict = engine.getScaleNotes3NPS(preset.key, preset.scale, preset.startFret, targetStrings.isEmpty ? [1,2,3,4,5,6] : targetStrings);
+      boxDict = engine.getScaleNotes3NPS(
+          preset.key, preset.scale, preset.startFret, targetStrings);
     } else if (preset.system == "Custom Notes-Per-String") {
-      List<int> npsProfile = (preset.customNps).split(',').map((e) => int.tryParse(e.trim()) ?? 3).toList();
-      boxDict = engine.getScaleNotesCustomNPS(preset.key, preset.scale, preset.startFret, targetStrings.isEmpty ? [1,2,3,4,5,6] : targetStrings, npsProfile);
-    } else {
-      boxDict = engine.getScaleNotesBox(preset.key, preset.scale, preset.startFret, targetStrings.isEmpty ? [1,2,3,4,5,6] : targetStrings);
+      List<int> profile = preset.customNps
+          .split(',')
+          .map((e) => int.tryParse(e.trim()) ?? 3)
+          .toList();
+      boxDict = engine.getScaleNotesCustomNPS(
+          preset.key, preset.scale, preset.startFret, targetStrings, profile);
+    } else if (preset.system == "Single String Horizontal") {
+      boxDict = engine.getScaleNotesSingleString(
+          preset.key, preset.scale, preset.startFret, singleStrTarget);
     }
 
-    // 4. Generate Core Sequence using boundaries
-    List<List<int>> currentSequence = [];
-    if (preset.system == "Single String Horizontal") {
-       int target = int.tryParse(preset.fragment) ?? 1;
-       currentSequence = engine.flattenBoxDict(boxDict, target, target);
-       if (preset.direction == "Descend -> Ascend" || preset.direction == "One-Way (Descend)") {
-         currentSequence = currentSequence.reversed.toList();
-       }
-    } else {
-      if (preset.pathway == "Custom Motif Builder") {
-         List<String> tokens = (preset.motifString).split(',').where((s) => s.isNotEmpty).toList();
-         currentSequence = engine.buildCustomMotif(boxDict, tokens.join(','), stStr, enStr);
+    List<List<int>> sequence = [];
+
+    if (preset.pathway == "Straight Linear") {
+      sequence = engine.flattenBoxDict(boxDict, startStr, endStr);
+    } else if (preset.pathway == "3-Step Triplet") {
+      sequence = engine.apply3StepSequence(
+          engine.flattenBoxDict(boxDict, startStr, endStr));
+    } else if (preset.pathway == "4-Step 16th") {
+      sequence = engine.apply4StepSequence(
+          engine.flattenBoxDict(boxDict, startStr, endStr));
+    } else if (preset.pathway == "Note Skipping") {
+      sequence = engine.applyNoteSkipping(
+          engine.flattenBoxDict(boxDict, startStr, endStr));
+    } else if (preset.pathway == "Custom Sequence (Indices)") {
+      sequence = engine.buildCustomSequence(
+          engine.flattenBoxDict(boxDict, startStr, endStr), preset.motifString);
+    } else if (preset.pathway == "Custom Motif Builder") {
+      if (preset.system == "Single String Horizontal") {
+        sequence = engine.buildSingleStringMotif(
+            boxDict, preset.motifString, singleStrTarget, preset.direction);
       } else {
-         List<List<int>> baseNotes = engine.flattenBoxDict(boxDict, stStr, enStr);
-         if (preset.pathway == "Custom Sequence (Indices)") {
-           // Graceful fallback protecting against previous JSON saves where sequence was overwriting fragment bounds
-           String sequenceStr = preset.motifString.isNotEmpty ? preset.motifString : preset.fragment;
-           currentSequence = engine.buildCustomSequence(baseNotes, sequenceStr);
-         } else {
-            List<List<int>> patternNotes;
-            if (preset.pathway == "3-Step Triplet") patternNotes = engine.apply3StepSequence(baseNotes);
-            else if (preset.pathway == "4-Step 16th") patternNotes = engine.apply4StepSequence(baseNotes);
-            else if (preset.pathway == "Note Skipping") patternNotes = engine.applyNoteSkipping(baseNotes);
-            else patternNotes = baseNotes;
-                         
-            if (preset.direction.startsWith("One-Way")) currentSequence = patternNotes;
-            else currentSequence = [...patternNotes, ...patternNotes.reversed.skip(1).toList()];
-         }
+        sequence = engine.buildCustomMotif(
+            boxDict, preset.motifString, startStr, endStr);
       }
     }
 
-    // 5. Apply intervals & rests
-    if (currentSequence.isNotEmpty) {
-      currentSequence = engine.applyIntervalBreaks(currentSequence, preset.breakInterval, preset.breakLength);
-      if (preset.endRests > 0) {
-        if (selectionStart != -1 && selectionEnd != -1) {
-          int insertIdx = max(selectionStart, selectionEnd) + 1;
-          insertIdx = insertIdx.clamp(0, currentSequence.length);
-          currentSequence.insertAll(insertIdx, List.generate(preset.endRests, (_) => [-1, -1]));
-        } else {
-          for (int i = 0; i < preset.endRests; i++) currentSequence.add([-1, -1]);
-        }
-      }
-    }
-    
-    return currentSequence;
+    return engine.applyIntervalBreaks(
+        sequence, preset.breakInterval, preset.breakLength);
   }
 
-  /// Calculates notes per measure dynamically (defaults to 16 for Auto).
-  int calculateNotesPerMeasure(String timeSig, String rhythm, {String? customRhythm}) {
-    if (timeSig != "Auto") {
-      final List<String> parts = timeSig.split('/');
-      if (parts.length == 2) {
-        final int? num = int.tryParse(parts[0]);
-        if (num != null && num > 0) return num * 4; 
+  List<String> parsePatternString(
+    String pattern, {
+    String? customRhythmOverride,
+  }) {
+    if (pattern == "Custom Pattern" &&
+        customRhythmOverride != null &&
+        customRhythmOverride.trim().isNotEmpty) {
+      List<String> result = [];
+      for (var token in customRhythmOverride.split(',')) {
+        String clean = token.trim();
+        if (clean == "16" || clean == "16th") {
+          result.add("16th");
+        } else if (clean == "8" || clean == "8th") {
+          result.add("8th");
+        } else if (clean == "4" || clean == "Quarter") {
+          result.add("Quarter");
+        } else if (clean == "32" || clean == "32nd") {
+          result.add("32nd");
+        } else {
+          result.add("16th");
+        }
+      }
+      return result.isEmpty ? ["16th"] : result;
+    }
+
+    switch (pattern) {
+      case "Straight 8ths":
+        return ["8th"];
+      case "Gallop (8-16-16)":
+        return ["8th", "16th", "16th"];
+      case "Reverse Gallop (16-16-8)":
+        return ["16th", "16th", "8th"];
+      case "Syncopated (16-8-16)":
+        return ["16th", "8th", "16th"];
+      case "Straight 16ths":
+      default:
+        return ["16th"];
+    }
+  }
+
+  List<int> parseAccentPattern(String accentStr) {
+    if (accentStr.trim().isEmpty) return [89];
+    List<int> velocities = [];
+    for (var part in accentStr.split(',')) {
+      String clean = part.trim();
+      if (clean == "1") {
+        velocities.add(127);
+      } else {
+        velocities.add(89);
       }
     }
-    
-    // Auto calculation based on pattern length vs measures
-    List<String> parsed = parsePatternString(rhythm, customRhythmOverride: customRhythm);
-    if (parsed.isEmpty) return 16;
-    
-    if (parsed.length == 3 && parsed[0] == "8th") return 12; // triplets
-    return 16; // default 4/4 16ths
+    return velocities.isEmpty ? [89] : velocities;
+  }
+
+  int calculateNotesPerMeasure(
+    String timeSignature,
+    String rhythmPattern, {
+    String? customRhythm,
+  }) {
+    int beats = 4;
+    if (timeSignature != "Auto") {
+      int? parsed = int.tryParse(timeSignature.split('/')[0]);
+      if (parsed != null && parsed > 0) beats = parsed;
+    }
+    List<String> pattern =
+        parsePatternString(rhythmPattern, customRhythmOverride: customRhythm);
+    if (pattern.length == 1) {
+      String r = pattern.first;
+      if (r == "8th") return beats * 2;
+      if (r == "32nd") return beats * 8;
+      if (r == "Quarter") return beats;
+      return beats * 4;
+    }
+    return beats * pattern.length;
+  }
+
+  List<GpBeat> sequenceToBeats(List<List<int>> rawSequence) {
+    List<GpBeat> beats = [];
+    for (var notePair in rawSequence) {
+      int str = notePair[0];
+      int fret = notePair[1];
+      if (str == -1 || fret == -1) {
+        beats.add(GpBeat.rest(duration: 0.25));
+      } else {
+        int pitch =
+            (str >= 1 && str <= 6) ? (engine.openStrings[str] ?? 40) + fret : 60;
+        beats.add(GpBeat.single(GpNote(
+          stringNum: str,
+          fretNum: fret,
+          pitch: pitch,
+          duration: 0.25,
+        )));
+      }
+    }
+    return beats;
   }
 }

@@ -1,0 +1,7 @@
+# Ignore "example" folder
+example/
+
+# The FluidSynth binaries are no longer part of the repo/package; they are
+# downloaded at build time by android/build.gradle. A local vendored copy
+# (used for offline builds) must not be published either.
+android/src/main/cpp/fluidsynth/**

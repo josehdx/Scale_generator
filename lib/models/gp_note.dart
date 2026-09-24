@@ -41,7 +41,6 @@ class GpBend {
     required this.envelope,
   });
 
-  /// Returns true if the bend envelope rises and then returns back down.
   bool get hasRelease {
     if (envelope.length < 2) return false;
     double maxVal = 0.0;

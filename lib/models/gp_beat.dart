@@ -1,61 +1,43 @@
 import 'gp_note.dart';
 
-/// Strumming directions for guitar chords and beats.
-enum StrumDirection {
-  none,
-  down, // Pick/strum from low E to high e (string 6 -> string 1)
-  up,   // Pick/strum from high e to low E (string 1 -> string 6)
-}
+enum StrumDirection { none, down, up }
 
-/// Represents a single rhythmic beat or chord column in a Guitar Pro track.
 class GpBeat {
-  /// All notes sounding simultaneously in this beat / chord.
   final List<GpNote> notes;
-
-  /// Rhythmic duration multiplier (1.0 = quarter note, 0.5 = 8th note, 0.25 = 16th note).
   final double duration;
-
-  /// Strum direction (downstroke vs upstroke)
+  final double? unswungDuration;
   final StrumDirection strumDirection;
+  final int voiceIndex;
 
   const GpBeat({
     required this.notes,
     required this.duration,
+    this.unswungDuration,
     this.strumDirection = StrumDirection.none,
+    this.voiceIndex = 0,
   });
 
-  /// Creates a musical rest beat with the specified [duration].
-  factory GpBeat.rest({double duration = 0.25}) => GpBeat(
+  factory GpBeat.rest({double duration = 0.25, int voiceIndex = 0}) => GpBeat(
         notes: [GpNote.rest(duration: duration)],
         duration: duration,
-        strumDirection: StrumDirection.none,
+        unswungDuration: duration,
+        voiceIndex: voiceIndex,
       );
 
-  /// Creates a single-note beat.
-  factory GpBeat.single(GpNote note, {double? duration, StrumDirection strumDirection = StrumDirection.none}) => GpBeat(
+  factory GpBeat.single(GpNote note, {double? duration, int voiceIndex = 0}) => GpBeat(
         notes: [note],
         duration: duration ?? note.duration,
-        strumDirection: strumDirection,
+        unswungDuration: duration ?? note.duration,
+        voiceIndex: voiceIndex,
       );
 
-  /// True if this beat represents silence (empty notes list or only rest notes).
   bool get isRest => notes.isEmpty || notes.every((n) => n.isRest);
-
-  /// True if this beat contains multiple distinct non-rest notes (a chord).
   bool get isChord => notes.where((n) => !n.isRest).length > 1;
 
-  /// Returns the note assigned to [stringNum] (1-indexed: 1 = high E), or null if none.
   GpNote? noteOnString(int stringNum) {
     for (final n in notes) {
       if (n.stringNum == stringNum) return n;
     }
     return null;
-  }
-
-  @override
-  String toString() {
-    if (isRest) return 'GpBeat.rest(dur: $duration)';
-    if (isChord) return 'GpBeat.chord(${notes.length} notes, dur: $duration, strum: $strumDirection)';
-    return 'GpBeat.single(${notes.first}, dur: $duration)';
   }
 }
