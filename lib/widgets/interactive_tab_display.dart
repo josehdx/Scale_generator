@@ -9,7 +9,10 @@ class InteractiveTabDisplay extends StatefulWidget {
   final List<GpBeat> sequence;
   final int notesPerMeasure;
   final int measuresPerLine;
+  
   final int currentPlayingIndex;
+  final ValueNotifier<int>? playingIndexNotifier;
+  
   final int selectionStart;
   final int selectionEnd;
   final String tuningStr;
@@ -23,6 +26,7 @@ class InteractiveTabDisplay extends StatefulWidget {
     required this.notesPerMeasure,
     required this.measuresPerLine,
     required this.currentPlayingIndex,
+    this.playingIndexNotifier,
     required this.selectionStart,
     required this.selectionEnd,
     required this.tuningStr,
@@ -38,14 +42,32 @@ class InteractiveTabDisplay extends StatefulWidget {
 class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
   final ScrollController _verticalController = ScrollController();
   final List<ScrollController> _horizontalControllers = [];
+  int _lastScrolledIndex = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.playingIndexNotifier?.addListener(_onPlayheadChanged);
+  }
 
   @override
   void dispose() {
+    widget.playingIndexNotifier?.removeListener(_onPlayheadChanged);
     _verticalController.dispose();
     for (var controller in _horizontalControllers) {
       controller.dispose();
     }
     super.dispose();
+  }
+
+  void _onPlayheadChanged() {
+    if (widget.playingIndexNotifier != null) {
+      final newIndex = widget.playingIndexNotifier!.value;
+      if (newIndex != _lastScrolledIndex && newIndex >= 0) {
+        _lastScrolledIndex = newIndex;
+        _scrollToActiveNote(newIndex);
+      }
+    }
   }
 
   List<({int start, int end})> _calculateSystems() {
@@ -73,9 +95,11 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
           systems.add((start: sysStart, end: sysEnd));
           sysStart = sysEnd;
           currentMeasureInSystem = 0;
+
           if (sysStart >= widget.sequence.length) break;
         }
       }
+
       if (sysStart < widget.sequence.length) {
         systems.add((start: sysStart, end: widget.sequence.length));
       }
@@ -84,10 +108,12 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
     final int notesPerSystem = widget.notesPerMeasure * widget.measuresPerLine;
     final List<({int start, int end})> systems = [];
+
     for (int sysStart = 0; sysStart < widget.sequence.length; sysStart += notesPerSystem) {
       final int sysEnd = min(sysStart + notesPerSystem, widget.sequence.length);
       systems.add((start: sysStart, end: sysEnd));
     }
+
     return systems;
   }
 
@@ -109,23 +135,23 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
       final orphanedController = _horizontalControllers.removeLast();
       orphanedController.dispose();
     }
-
-    if (widget.currentPlayingIndex != -1 &&
-        widget.currentPlayingIndex != oldWidget.currentPlayingIndex) {
-      _scrollToActiveNote();
+    
+    if (widget.playingIndexNotifier == null && widget.currentPlayingIndex != oldWidget.currentPlayingIndex) {
+      _scrollToActiveNote(widget.currentPlayingIndex);
     }
   }
 
-  void _scrollToActiveNote() {
+  void _scrollToActiveNote(int noteIndex) {
+    if (noteIndex < 0) return;
+    
     final systems = _calculateSystems();
     int sysIndex = -1;
     int noteIndexInSys = 0;
 
     for (int i = 0; i < systems.length; i++) {
-      if (widget.currentPlayingIndex >= systems[i].start &&
-          widget.currentPlayingIndex < systems[i].end) {
+      if (noteIndex >= systems[i].start && noteIndex < systems[i].end) {
         sysIndex = i;
-        noteIndexInSys = widget.currentPlayingIndex - systems[i].start;
+        noteIndexInSys = noteIndex - systems[i].start;
         break;
       }
     }
@@ -138,19 +164,18 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
         double vertOffset = sysIndex * 135.0;
         double currentVOffset = position.pixels;
         double vViewport = position.viewportDimension;
-
+        
         if (vertOffset < currentVOffset || vertOffset + 135.0 > currentVOffset + vViewport) {
           _verticalController.animateTo(
             vertOffset,
-            duration: const Duration(milliseconds: 200),
+            duration: const Duration(milliseconds: 150),
             curve: Curves.easeInOut,
           );
         }
       }
     }
 
-    if (sysIndex < _horizontalControllers.length &&
-        _horizontalControllers[sysIndex].hasClients) {
+    if (sysIndex < _horizontalControllers.length && _horizontalControllers[sysIndex].hasClients) {
       final controller = _horizontalControllers[sysIndex];
       final position = controller.position;
 
@@ -172,6 +197,53 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     }
   }
 
+  Widget _buildBeatContainer(bool isPlaying, bool isSelected, String topText, List<String> renderedStrings, int beatIndex) {
+    return GestureDetector(
+      onTap: () => widget.onBeatTapped(beatIndex),
+      child: Container(
+        padding: EdgeInsets.zero,
+        decoration: BoxDecoration(
+          color: isPlaying
+              ? Colors.amber.shade400
+              : (isSelected
+                  ? Colors.blue.shade700.withOpacity(0.6)
+                  : Colors.transparent),
+          borderRadius: BorderRadius.circular(2),
+        ),
+        child: Column(
+          children: [
+            Text(
+              topText,
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: isPlaying ? Colors.black : Colors.orangeAccent,
+              ),
+            ),
+            ...List.generate(6, (strIdx) {
+              final String textVal = renderedStrings[strIdx];
+              final bool hasNote = textVal.contains(RegExp(r'[0-9x<>()/\\=]'));
+              return Text(
+                textVal,
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: isPlaying
+                      ? (hasNote ? Colors.black : Colors.black38)
+                      : (isSelected
+                          ? Colors.cyanAccent
+                          : Colors.greenAccent),
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final systems = _calculateSystems();
@@ -190,12 +262,11 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
       for (int beatIndex = sys.start; beatIndex < sys.end; beatIndex++) {
         final beat = widget.sequence[beatIndex];
-        final bool isPlaying = (beatIndex == widget.currentPlayingIndex);
 
         int effectiveEnd = (widget.selectionStart != -1 && widget.selectionEnd != -1)
             ? max(widget.selectionStart, widget.selectionEnd)
             : -1;
-
+            
         if (effectiveEnd != -1 && beatIndex > effectiveEnd && beat.isRest) {
           bool allRests = true;
           for (int r = effectiveEnd + 1; r <= beatIndex; r++) {
@@ -211,14 +282,13 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
             effectiveEnd != -1 &&
             beatIndex >= min(widget.selectionStart, widget.selectionEnd) &&
             beatIndex <= effectiveEnd);
-
+            
         final bool isMeasureEnd = _isMeasureEnd(beatIndex);
 
         int maxColWidth = 3;
         List<String> renderedStrings = List.filled(6, "");
         String topAnnotation = "";
 
-        // Render Strumming Direction in Top Annotation Row
         if (beat.strumDirection == StrumDirection.down) {
           topAnnotation += "v";
         } else if (beat.strumDirection == StrumDirection.up) {
@@ -240,15 +310,11 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
               val = "($val)";
             }
 
-            // Inline Slide Rendering directly on the string
             if (noteOnString.slideType != SlideType.none) {
-              // Determine slide direction (up vs down)
               bool slideUp = noteOnString.slideType == SlideType.intoFromBelow ||
                   noteOnString.slideType == SlideType.outUpwards ||
                   noteOnString.slideType == SlideType.shift ||
                   noteOnString.slideType == SlideType.legato;
-
-              // Compare with next note on the same string if available
               if (beatIndex + 1 < widget.sequence.length) {
                 final nextBeat = widget.sequence[beatIndex + 1];
                 final nextNote = nextBeat.noteOnString(strNum);
@@ -256,7 +322,6 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                   slideUp = nextNote.fretNum > noteOnString.fretNum;
                 }
               }
-
               final String sChar = slideUp ? "/" : "\\";
               val = "$val$sChar";
             }
@@ -264,13 +329,10 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
             if (noteOnString.isTap && !topAnnotation.contains("t")) {
               topAnnotation += "t";
             }
-            
-            // Bend Annotation (Distinguish Pure Bend 'b' from Bend & Release 'br')
             if (noteOnString.bend != null) {
               final String bSymbol = noteOnString.bend!.hasRelease ? "br" : "b";
               if (!topAnnotation.contains(bSymbol)) topAnnotation += bSymbol;
             }
-
             if (noteOnString.vibrato != null && !topAnnotation.contains("~")) {
               topAnnotation += "~";
             }
@@ -316,51 +378,16 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              GestureDetector(
-                onTap: () => widget.onBeatTapped(beatIndex),
-                child: Container(
-                  padding: EdgeInsets.zero,
-                  decoration: BoxDecoration(
-                    color: isPlaying
-                        ? Colors.amber.shade400
-                        : (isSelected
-                            ? Colors.blue.shade700.withOpacity(0.6)
-                            : Colors.transparent),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        topText,
-                        style: TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: isPlaying ? Colors.black : Colors.orangeAccent,
-                        ),
-                      ),
-                      ...List.generate(6, (strIdx) {
-                        final String textVal = renderedStrings[strIdx];
-                        final bool hasNote = textVal.contains(RegExp(r'[0-9x<>()/\\=]'));
-
-                        return Text(
-                          textVal,
-                          style: TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: isPlaying
-                                ? (hasNote ? Colors.black : Colors.black38)
-                                : (isSelected
-                                    ? Colors.cyanAccent
-                                    : Colors.greenAccent),
-                          ),
-                        );
-                      }),
-                    ],
-                  ),
-                ),
-              ),
+              if (widget.playingIndexNotifier != null)
+                ValueListenableBuilder<int>(
+                  valueListenable: widget.playingIndexNotifier!,
+                  builder: (context, pIdx, child) {
+                    final bool isPlaying = (beatIndex == pIdx);
+                    return _buildBeatContainer(isPlaying, isSelected, topText, renderedStrings, beatIndex);
+                  },
+                )
+              else
+                _buildBeatContainer(beatIndex == widget.currentPlayingIndex, isSelected, topText, renderedStrings, beatIndex),
               if (isMeasureEnd)
                 Column(
                   children: [

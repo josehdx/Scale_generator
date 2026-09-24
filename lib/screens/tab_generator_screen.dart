@@ -2,11 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_midi_pro/flutter_midi_pro.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,6 +13,7 @@ import '../models/lick_preset.dart';
 import '../models/motif_token.dart';
 import '../models/preset_sanitizer.dart';
 import '../scale_engine.dart';
+import '../services/midi_service.dart';
 import '../services/preset_storage_service.dart';
 import '../utils/tab_sequence_builder.dart';
 import '../widgets/interactive_fretboard.dart';
@@ -31,7 +30,6 @@ import 'gpx_tab_screen.dart';
 class KeepAliveWrapper extends StatefulWidget {
   final Widget child;
   const KeepAliveWrapper({super.key, required this.child});
-
   @override
   State<KeepAliveWrapper> createState() => _KeepAliveWrapperState();
 }
@@ -46,21 +44,18 @@ class _KeepAliveWrapperState extends State<KeepAliveWrapper> with AutomaticKeepA
 
 class TabGeneratorScreen extends StatefulWidget {
   const TabGeneratorScreen({super.key});
-
   @override
   State<TabGeneratorScreen> createState() => _TabGeneratorScreenState();
 }
 
 class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   final ScaleEngine _engine = ScaleEngine();
-  final MidiPro _midiPro = MidiPro();
+  final MidiService _midiService = MidiService();
   final PresetStorageService _storage = PresetStorageService();
   late final TabSequenceBuilder _builder;
   late PageController _pageController;
 
-  int? _sfId; 
   int _selectedPageIndex = 0;
-
   bool _isPlaying = false;
   bool _isPreviewPlaying = false;
   bool _isPreviewLooping = false;
@@ -130,9 +125,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       int? parsed = int.tryParse(_selectedTimeSignature.split('/')[0]);
       if (parsed != null && parsed > 0) return parsed;
     }
-    
     if (_selectedSystem == "Manual Entry") return 4;
-    
     if (_selectedPathway == "3-Step Triplet") return 3;
     if (_selectedPathway == "Custom Motif Builder" && _selectedSystem != "Manual Entry") {
       return _motifTokens.isNotEmpty ? _motifTokens.length : 4;
@@ -162,7 +155,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     super.initState();
     _builder = TabSequenceBuilder(engine: _engine);
     _pageController = PageController(initialPage: _selectedPageIndex);
-    _loadSoundFont();
+    _initMidi();
     _loadPresetsFromDisk();
     
     "L2,L1,L2,H1,H2,H1,L2,L1,L2,L1".split(',').forEach((t) {
@@ -186,7 +179,15 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     super.dispose();
   }
 
+  Future<void> _initMidi() async {
+    await _midiService.init();
+    if (mounted) {
+      setState(() => _isMidiReady = _midiService.isReady);
+    }
+  }
+
   // --- Interaction Logics ---
+
   void _onDirectionChanged(String newDir) {
     bool needsSwap = false;
     if (newDir.contains("Ascend") && !newDir.startsWith("Descend")) {
@@ -232,6 +233,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   // --- Storage Operations ---
+
   Future<void> _loadPresetsFromDisk() async {
     final list = await _storage.loadPresets();
     if (mounted) setState(() => _savedPresets = list);
@@ -251,9 +253,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   LickPreset _createPresetObject(String name) {
-    // Ensure accents are auto-synced prior to saving
     _syncAccentPatternToMotif();
-
     return LickPreset(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       name: name,
@@ -345,7 +345,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     }
   }
 
-  // --- Automatic Accent Resizing Sync ---
   void _syncAccentPatternToMotif() {
     int expectedBeats = _dynamicBeatsPerMeasure;
     List<String> accents = _customAccentController.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
@@ -360,18 +359,17 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   // --- Tab Generation ---
+
   void _generateTab() {
     _stopPlayback();
     
     _syncAccentPatternToMotif();
-
     LickPreset currentState = _createPresetObject("temp");
     List<List<int>> sequence = _builder.buildSequenceForPreset(
       currentState,
       selectionStart: _selectionStart,
       selectionEnd: _selectionEnd,
     );
-
     setState(() {
       _currentSequence = sequence;
       if (sequence.isEmpty) {
@@ -395,26 +393,10 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   // --- Playback ---
-  Future<void> _loadSoundFont() async {
-    try {
-      if (!_midiPro.isInitialized) {
-        await _midiPro.init(sampleRate: 44100, bufferSize: 64, polyphony: 64);
-      }
-      _sfId = await _midiPro.loadSoundfontAsset(
-        assetPath: 'assets/guitar.sf2',
-        program: _selectedInstrumentIndex,
-      );
-      if (mounted) setState(() => _isMidiReady = true);
-    } catch (e) {
-      debugPrint("MIDI Setup Error in Studio: $e");
-    }
-  }
 
   void _changeGuitarSound(int instrumentIndex) async {
     setState(() => _selectedInstrumentIndex = instrumentIndex);
-    if (_sfId != null && _isMidiReady) {
-      await _midiPro.selectInstrument(sfId: _sfId!, program: instrumentIndex);
-    }
+    await _midiService.selectInstrument(instrumentIndex);
     _saveSessionToDisk();
   }
 
@@ -423,7 +405,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     String? overrideCustomRhythm, String? overrideAccentPattern, String? overrideTuning, 
     String? overrideKey, String? overrideScale, int? overrideInstrument, String? presetId
   }) async {
-    if (!_isMidiReady || _sfId == null) return;
+    if (!_midiService.isReady) return;
     List<List<int>> seqToPlay = overrideSequence ?? _currentSequence;
     if (seqToPlay.isEmpty) return;
     
@@ -433,7 +415,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     bool isPreview = presetId != null;
     
     if (overrideInstrument != null && overrideInstrument != _selectedInstrumentIndex) {
-      await _midiPro.selectInstrument(sfId: _sfId!, program: overrideInstrument);
+      await _midiService.selectInstrument(overrideInstrument);
     }
     
     setState(() {
@@ -441,9 +423,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
       else { _isPlaying = true; }
     });
     
-    _midiPro.playNote(key: 12, velocity: 1, sfId: _sfId!);
+    _midiService.playNote(key: 12, velocity: 1);
     await Future.delayed(const Duration(milliseconds: 150));
-    _midiPro.stopNote(key: 12, sfId: _sfId!);
+    _midiService.stopNote(key: 12);
     
     int tempo = overrideTempo ?? _tempo;
     Map<int, int> activeOpenStrings = _engine.tunings[overrideTuning ?? _selectedTuning] ?? _engine.openStrings;
@@ -469,7 +451,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         
         if (note[0] != -1) {
           pitch = activeOpenStrings[note[0]]! + note[1];
-          _midiPro.playNote(key: pitch, velocity: currentVelocity, sfId: _sfId!);
+          _midiService.playNote(key: pitch, velocity: currentVelocity);
           _activeMidiNotes.add(pitch);
         }
         
@@ -487,7 +469,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
         
         if (_playbackToken != currentToken) return;
         if (pitch != -1) {
-          _midiPro.stopNote(key: pitch, sfId: _sfId!);
+          _midiService.stopNote(key: pitch);
           _activeMidiNotes.remove(pitch);
         }
       }
@@ -498,18 +480,17 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
 
   void _stopPlayback() {
     _playbackToken++;
-    if (_sfId != null) {
-      for (int pitch in _activeMidiNotes) _midiPro.stopNote(key: pitch, sfId: _sfId!);
+    for (int pitch in _activeMidiNotes) {
+      _midiService.stopNote(key: pitch);
     }
     _activeMidiNotes.clear();
     _activeNoteNotifier.value = null;
     if (mounted) setState(() { _isPlaying = false; _isPreviewPlaying = false; });
-    if (_sfId != null) {
-      _midiPro.selectInstrument(sfId: _sfId!, program: _selectedInstrumentIndex);
-    }
+    _midiService.selectInstrument(_selectedInstrumentIndex);
   }
 
   // --- Manual Handlers ---
+
   void _handleFretboardTap(String? newKey, int str, int fret) {
     if (_selectedSystem == "Manual Entry") {
       String newNote = "$str:$fret";
@@ -528,6 +509,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     
     List<String> notes = _manualTabController.text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
     if (notes.isEmpty) return;
+
     if (result['action'] == 'clear') {
       _manualTabController.clear();
     } else if (result['action'] == 'delete_selection') {
@@ -545,6 +527,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   // --- Build ---
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(

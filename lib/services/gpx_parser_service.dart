@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
 import 'package:archive/archive.dart';
+import 'package:flutter/foundation.dart';
 import 'package:xml/xml.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -256,7 +257,7 @@ class GpxParserService {
       
       final int pitch = (_standardTuning[displayString] ?? 40) + fretNum;
 
-      // Performance Flags Parsing
+      // Extract Performance Flags
       bool isTie = note.findAllElements('Tie').isNotEmpty;
       bool isLetRing = note.findAllElements('LetRing').isNotEmpty;
       bool isMuted = note.findAllElements('Muted').isNotEmpty || note.findAllElements('Mute').isNotEmpty || note.findAllElements('Dead').isNotEmpty;
@@ -297,7 +298,6 @@ class GpxParserService {
       if (slideNode != null) {
         final sVal = (slideNode.getAttribute('type') ?? slideNode.getAttribute('flags') ?? slideNode.getAttribute('kind') ?? slideNode.innerText).toLowerCase();
         final int flags = int.tryParse(sVal) ?? 0;
-
         if (sVal.contains('below') || sVal.contains('into_from_below') || (flags & 16 != 0)) {
           slideType = SlideType.intoFromBelow;
         } else if (sVal.contains('above') || sVal.contains('into_from_above') || (flags & 32 != 0)) {
@@ -312,7 +312,7 @@ class GpxParserService {
           slideType = SlideType.legato;
         }
       }
-
+      
       if (slideType == SlideType.none) {
         for (final prop in note.findAllElements('Property')) {
           final pName = (prop.getAttribute('name') ?? '').toLowerCase();
@@ -323,70 +323,84 @@ class GpxParserService {
         }
       }
 
-      // --- Universal Bend Extraction (Handles direct <Bend> and <Property name="Bend">) ---
+      // --- Universal Bend Extraction ---
       GpBend? bend;
-      final List<XmlElement> bendElements = [];
-
-      final directBend = note.findAllElements('Bend').firstOrNull;
-      if (directBend != null) bendElements.add(directBend);
-
-      for (final prop in note.findAllElements('Property')) {
-        final pName = (prop.getAttribute('name') ?? '').toLowerCase();
-        if (pName == 'bend' || pName == 'bends' || pName == 'bendtype') {
-          bendElements.addAll(prop.findAllElements('Bend'));
-          bendElements.add(prop);
+      final List<({double pos, double val})> rawPoints = [];
+      
+      // GPX / GP7 points are either <Point> or <BendPoint> globally within the note
+      final pointNodes = [
+        ...note.findAllElements('Point'),
+        ...note.findAllElements('BendPoint')
+      ];
+      
+      for (final pt in pointNodes) {
+        final posStr = pt.getAttribute('position') ?? pt.getAttribute('pos') ?? pt.getAttribute('token') ?? pt.findElements('Position').firstOrNull?.innerText;
+        final offStr = pt.getAttribute('offset') ?? pt.getAttribute('value') ?? pt.getAttribute('val') ?? pt.findElements('Offset').firstOrNull?.innerText ?? pt.findElements('Value').firstOrNull?.innerText;
+        
+        if (posStr != null && offStr != null) {
+          rawPoints.add((
+            pos: double.tryParse(posStr) ?? 0.0,
+            val: double.tryParse(offStr) ?? 0.0,
+          ));
         }
       }
 
-      for (final bendNode in bendElements) {
-        final List<({double pos, double val})> rawPoints = [];
-        final pointNodes = bendNode.findAllElements('Point').isNotEmpty
-            ? bendNode.findAllElements('Point')
-            : bendNode.findAllElements('BendPoint');
+      if (rawPoints.isNotEmpty) {
+        double maxPos = rawPoints.map((e) => e.pos).reduce(max);
+        double posDenominator = maxPos > 12.0 ? maxPos : (maxPos <= 1.0 && maxPos > 0.0 ? 1.0 : 12.0);
+        double maxVal = rawPoints.map((e) => e.val).reduce(max);
+        
+        // GPIF XML: 50 units = 1 semitone, 100 units = 2 semitones
+        double valDenominator = (maxVal <= 12.0 && maxVal > 0.0) ? 4.0 : 50.0;
 
-        for (final pt in pointNodes) {
-          final posStr = pt.getAttribute('position') ?? pt.getAttribute('pos') ?? pt.getAttribute('token') ?? pt.findElements('Position').firstOrNull?.innerText;
-          final offStr = pt.getAttribute('offset') ?? pt.getAttribute('value') ?? pt.getAttribute('val') ?? pt.findElements('Offset').firstOrNull?.innerText ?? pt.findElements('Value').firstOrNull?.innerText;
-          
-          if (posStr != null && offStr != null) {
-            final double p = double.tryParse(posStr) ?? 0.0;
-            final double v = double.tryParse(offStr) ?? 0.0;
-            rawPoints.add((pos: p, val: v));
-          }
+        final List<BendPoint> points = [];
+        double maxOffsetSemitones = 0.0;
+        for (final raw in rawPoints) {
+          final double normalizedPos = (raw.pos / posDenominator).clamp(0.0, 1.0);
+          final double offsetSemitones = raw.val / valDenominator;
+          if (offsetSemitones > maxOffsetSemitones) maxOffsetSemitones = offsetSemitones;
+          points.add(BendPoint(position: normalizedPos, offset: offsetSemitones));
         }
-
-        if (rawPoints.isNotEmpty) {
-          double maxPos = rawPoints.map((e) => e.pos).reduce(max);
-          double posDenominator = maxPos > 12.0 ? maxPos : (maxPos <= 1.0 && maxPos > 0.0 ? 1.0 : 12.0);
-
-          double maxVal = rawPoints.map((e) => e.val).reduce(max);
-          double valDenominator = (maxVal <= 12.0 && maxVal > 0.0) ? 4.0 : 50.0;
-
-          final List<BendPoint> points = [];
-          double maxOffsetSemitones = 0.0;
-          for (final raw in rawPoints) {
-            final double normalizedPos = (raw.pos / posDenominator).clamp(0.0, 1.0);
-            final double offsetSemitones = raw.val / valDenominator;
-            if (offsetSemitones > maxOffsetSemitones) maxOffsetSemitones = offsetSemitones;
-            points.add(BendPoint(position: normalizedPos, offset: offsetSemitones));
-          }
-          points.sort((a, b) => a.position.compareTo(b.position));
-          bend = GpBend(maximumPitchOffset: maxOffsetSemitones, envelope: points);
-          break; // Bend successfully parsed
-        } else {
-          // Fallback: Check for scalar float bend values (e.g., 1.0 or 2.0 semitones)
-          final floatVal = double.tryParse(bendNode.findElements('Float').firstOrNull?.innerText ?? bendNode.innerText.trim());
-          if (floatVal != null && floatVal > 0) {
-            double semitones = floatVal > 12.0 ? floatVal / 50.0 : floatVal;
-            bend = GpBend(
-              maximumPitchOffset: semitones,
-              envelope: [
-                const BendPoint(position: 0.0, offset: 0.0),
-                BendPoint(position: 0.5, offset: semitones),
-                BendPoint(position: 1.0, offset: semitones),
-              ],
-            );
-            break;
+        points.sort((a, b) => a.position.compareTo(b.position));
+        bend = GpBend(maximumPitchOffset: maxOffsetSemitones, envelope: points);
+      } else {
+        // Fallback for flat Property tags
+        for (final prop in note.findAllElements('Property')) {
+          final pName = (prop.getAttribute('name') ?? '').toLowerCase();
+          if (pName.contains('bend')) {
+            final floatVal = double.tryParse(prop.findElements('Float').firstOrNull?.innerText ?? prop.innerText.trim());
+            if (floatVal != null && floatVal > 0) {
+              double semitones = floatVal > 12.0 ? floatVal / 50.0 : floatVal;
+              bend = GpBend(
+                maximumPitchOffset: semitones,
+                envelope: [
+                  const BendPoint(position: 0.0, offset: 0.0),
+                  BendPoint(position: 0.5, offset: semitones),
+                  BendPoint(position: 1.0, offset: semitones),
+                ],
+              );
+              break;
+            }
+            final strVal = prop.findElements('String').firstOrNull?.innerText.toLowerCase() ?? prop.innerText.trim().toLowerCase();
+            if (strVal.isNotEmpty) {
+              double semitones = 0.0;
+              if (strVal.contains('half')) semitones = 1.0;
+              else if (strVal.contains('full') || strVal == '1') semitones = 2.0;
+              else if (strVal.contains('1.5')) semitones = 3.0;
+              else if (strVal.contains('2')) semitones = 4.0;
+              
+              if (semitones > 0) {
+                 bend = GpBend(
+                    maximumPitchOffset: semitones,
+                    envelope: [
+                      const BendPoint(position: 0.0, offset: 0.0),
+                      BendPoint(position: 0.5, offset: semitones),
+                      BendPoint(position: 1.0, offset: semitones),
+                    ],
+                  );
+                  break;
+              }
+            }
           }
         }
       }
