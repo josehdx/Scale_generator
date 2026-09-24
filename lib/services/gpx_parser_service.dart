@@ -313,7 +313,6 @@ class GpxParserService {
         }
       }
 
-      // Check Property fallback for slides
       if (slideType == SlideType.none) {
         for (final prop in note.findAllElements('Property')) {
           final pName = (prop.getAttribute('name') ?? '').toLowerCase();
@@ -324,13 +323,29 @@ class GpxParserService {
         }
       }
 
-      // Normalized GPIF Bend Envelope Extraction
+      // --- Universal Bend Extraction (Handles direct <Bend> and <Property name="Bend">) ---
       GpBend? bend;
-      final bendNode = note.findAllElements('Bend').firstOrNull;
-      if (bendNode != null) {
+      final List<XmlElement> bendElements = [];
+
+      final directBend = note.findAllElements('Bend').firstOrNull;
+      if (directBend != null) bendElements.add(directBend);
+
+      for (final prop in note.findAllElements('Property')) {
+        final pName = (prop.getAttribute('name') ?? '').toLowerCase();
+        if (pName == 'bend' || pName == 'bends' || pName == 'bendtype') {
+          bendElements.addAll(prop.findAllElements('Bend'));
+          bendElements.add(prop);
+        }
+      }
+
+      for (final bendNode in bendElements) {
         final List<({double pos, double val})> rawPoints = [];
-        for (final pt in bendNode.findAllElements('Point')) {
-          final posStr = pt.getAttribute('position') ?? pt.getAttribute('pos') ?? pt.getAttribute('token') ?? pt.findElements('Position').firstOrNull?.innerText ?? pt.findElements('Token').firstOrNull?.innerText;
+        final pointNodes = bendNode.findAllElements('Point').isNotEmpty
+            ? bendNode.findAllElements('Point')
+            : bendNode.findAllElements('BendPoint');
+
+        for (final pt in pointNodes) {
+          final posStr = pt.getAttribute('position') ?? pt.getAttribute('pos') ?? pt.getAttribute('token') ?? pt.findElements('Position').firstOrNull?.innerText;
           final offStr = pt.getAttribute('offset') ?? pt.getAttribute('value') ?? pt.getAttribute('val') ?? pt.findElements('Offset').firstOrNull?.innerText ?? pt.findElements('Value').firstOrNull?.innerText;
           
           if (posStr != null && offStr != null) {
@@ -339,12 +354,10 @@ class GpxParserService {
             rawPoints.add((pos: p, val: v));
           }
         }
-        
+
         if (rawPoints.isNotEmpty) {
           double maxPos = rawPoints.map((e) => e.pos).reduce(max);
-          double posDenominator = 12.0;
-          if (maxPos > 12.0) posDenominator = maxPos;
-          else if (maxPos <= 1.0 && maxPos > 0.0) posDenominator = 1.0;
+          double posDenominator = maxPos > 12.0 ? maxPos : (maxPos <= 1.0 && maxPos > 0.0 ? 1.0 : 12.0);
 
           double maxVal = rawPoints.map((e) => e.val).reduce(max);
           double valDenominator = (maxVal <= 12.0 && maxVal > 0.0) ? 4.0 : 50.0;
@@ -359,6 +372,22 @@ class GpxParserService {
           }
           points.sort((a, b) => a.position.compareTo(b.position));
           bend = GpBend(maximumPitchOffset: maxOffsetSemitones, envelope: points);
+          break; // Bend successfully parsed
+        } else {
+          // Fallback: Check for scalar float bend values (e.g., 1.0 or 2.0 semitones)
+          final floatVal = double.tryParse(bendNode.findElements('Float').firstOrNull?.innerText ?? bendNode.innerText.trim());
+          if (floatVal != null && floatVal > 0) {
+            double semitones = floatVal > 12.0 ? floatVal / 50.0 : floatVal;
+            bend = GpBend(
+              maximumPitchOffset: semitones,
+              envelope: [
+                const BendPoint(position: 0.0, offset: 0.0),
+                BendPoint(position: 0.5, offset: semitones),
+                BendPoint(position: 1.0, offset: semitones),
+              ],
+            );
+            break;
+          }
         }
       }
 
@@ -397,7 +426,6 @@ class GpxParserService {
       final bool is16th = rhythmIs16th[rhythmRef] ?? false;
       final String notesText = beat.findElements('Notes').firstOrNull?.innerText ?? '';
       
-      // Parse Strumming Direction from Beat
       StrumDirection strumDir = StrumDirection.none;
       final strumNode = beat.findElements('Strum').firstOrNull;
       if (strumNode != null) {

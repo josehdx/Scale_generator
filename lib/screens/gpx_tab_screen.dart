@@ -126,9 +126,24 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         await _midiPro.init(sampleRate: 44100, bufferSize: 64, polyphony: 64);
       }
       _sfId = await _midiPro.loadSoundfontAsset(assetPath: 'assets/guitar.sf2', program: 27);
+      
+      // Setup Pitch Bend Range via MIDI Registered Parameter Numbers (RPN CC 101/100/6)
+      if (_sfId != null) {
+        await _configurePitchBendSensitivity();
+      }
+
       if (mounted) setState(() => _isMidiReady = true);
     } catch (e) {
       debugPrint("MIDI Setup Error in GP Viewer: $e");
+    }
+  }
+
+  Future<void> _configurePitchBendSensitivity() async {
+    if (_sfId == null) return;
+    for (int ch = 0; ch < 16; ch++) {
+      await _midiPro.sendMidiEvent(status: 0xB0 | ch, data1: 101, data2: 0, sfId: _sfId!); // RPN MSB = 0
+      await _midiPro.sendMidiEvent(status: 0xB0 | ch, data1: 100, data2: 0, sfId: _sfId!); // RPN LSB = 0
+      await _midiPro.sendMidiEvent(status: 0xB0 | ch, data1: 6, data2: 12, sfId: _sfId!);  // Data Entry = 12 semitones
     }
   }
 
@@ -170,7 +185,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
   void _spawnBendLoop(GpBend bend, double durationMs, int token, int bendToken) {
     final Stopwatch bendTimer = Stopwatch()..start();
-    const int stepIntervalMs = 16;
+    const int stepIntervalMs = 12;
 
     Future.doWhile(() async {
       if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
@@ -184,7 +199,9 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
       final double progress = (elapsed / durationMs).clamp(0.0, 1.0);
       final double offsetSemitones = _interpolateBend(bend.envelope, progress);
-      final int bendValue = (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
+      
+      // Calculate 14-bit MIDI pitch bend value based on 12 semitones full scale
+      final int bendValue = (8192 + (offsetSemitones / 12.0) * 8191).clamp(0, 16383).round();
       
       await _sendPitchBend(bendValue);
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
@@ -194,8 +211,8 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
   void _spawnVibratoLoop(GpVibrato vibrato, double durationMs, int token, int bendToken) {
     final Stopwatch vibTimer = Stopwatch()..start();
-    const int stepIntervalMs = 16;
-    final double sustainStartMs = durationMs * 0.2;
+    const int stepIntervalMs = 12;
+    final double sustainStartMs = durationMs * 0.15;
 
     Future.doWhile(() async {
       if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
@@ -210,8 +227,8 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       if (elapsed >= sustainStartMs) {
         final double tSec = (elapsed - sustainStartMs) / 1000.0;
         final double lfo = sin(2 * pi * vibrato.frequency * tSec);
-        final double offsetSemitones = lfo * (vibrato.amplitude * 0.4);
-        final int bendValue = (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
+        final double offsetSemitones = lfo * (vibrato.amplitude * 0.5);
+        final int bendValue = (8192 + (offsetSemitones / 12.0) * 8191).clamp(0, 16383).round();
         await _sendPitchBend(bendValue);
       }
 
@@ -504,14 +521,13 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
     List<GpNote> sortedNotes = List.from(beat.notes.where((n) => !n.isRest));
 
-    // Strum direction audio delay processing (chords hit sequentially rather than all at once)
     if (beat.strumDirection == StrumDirection.down) {
-      sortedNotes.sort((a, b) => b.stringNum.compareTo(a.stringNum)); // Low string (6) to High string (1)
+      sortedNotes.sort((a, b) => b.stringNum.compareTo(a.stringNum));
     } else if (beat.strumDirection == StrumDirection.up) {
-      sortedNotes.sort((a, b) => a.stringNum.compareTo(b.stringNum)); // High string (1) to Low string (6)
+      sortedNotes.sort((a, b) => a.stringNum.compareTo(b.stringNum));
     }
 
-    const int strumMicroDelayMs = 6; // Realistic pick sweep separation
+    const int strumMicroDelayMs = 6;
 
     for (int idx = 0; idx < sortedNotes.length; idx++) {
       final note = sortedNotes[idx];
