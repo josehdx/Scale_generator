@@ -1,507 +1,406 @@
-import 'dart:io';
-import 'dart:isolate';
 import 'dart:math';
-import 'package:archive/archive.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:xml/xml.dart';
 import '../models/gp_beat.dart';
 import '../models/gp_note.dart';
-import '../models/gp_score.dart';
-import '../models/gp_track.dart';
+import '../models/lick_preset.dart';
 import '../models/master_bar_event.dart';
+import '../scale_engine.dart';
 
-class GpxParserService {
-  GpxParserService._();
+class TabNote {
+  final int midiPitch;
+  final double startTimeMs;
+  final double durationMs;
+  final int velocity;
+  final bool isTie;
+  final bool isLegato;
 
-  static const Map<int, int> _standardTuning = {
-    1: 64, // High E
-    2: 59, // B
-    3: 55, // G
-    4: 50, // D
-    5: 45, // A
-    6: 40, // Low E
-    7: 35, // Low B (7-string)
-    8: 30, // Low F# (8-string)
-  };
+  TabNote({
+    required this.midiPitch,
+    required this.startTimeMs,
+    required this.durationMs,
+    required this.velocity,
+    this.isTie = false,
+    this.isLegato = false,
+  });
+}
 
-  static Future<GpScore?> pickAndParse() async {
-    final FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.any,
-      withData: true,
-    );
-    if (result == null || result.files.isEmpty) return null;
-    
-    final file = result.files.single;
-    if (!file.name.toLowerCase().endsWith('.gp') && !file.name.toLowerCase().endsWith('.gpx')) {
-      throw Exception('Invalid file type. Please select a .gp or .gpx file.');
-    }
-    
-    final docsDir = await getApplicationDocumentsDirectory();
-    final persistentPath = '${docsDir.path}/${file.name}';
-    final persistentFile = File(persistentPath);
-    
-    if (file.bytes != null) {
-      await persistentFile.writeAsBytes(file.bytes!);
-    } else if (file.path != null) {
-      await File(file.path!).copy(persistentPath);
-    }
-    
-    return await parseGpFile(file.name, persistentPath, file.bytes);
+class MidiEvent {
+  final double timestampMs;
+  final int pitch;
+  final int velocity;
+  final bool isNoteOn;
+
+  MidiEvent({
+    required this.timestampMs,
+    required this.pitch,
+    required this.velocity,
+    required this.isNoteOn,
+  });
+}
+
+class ScheduledMidiEvent implements Comparable<ScheduledMidiEvent> {
+  final double timeMs;
+  final String type; // 'note_on' or 'note_off'
+  final int channel;
+  final int data1;
+  final int data2;
+  final int trackIndex;
+  final int beatIndex;
+  final bool isMainTrack;
+
+  ScheduledMidiEvent({
+    required this.timeMs,
+    required this.type,
+    required this.channel,
+    required this.data1,
+    required this.data2,
+    required this.trackIndex,
+    required this.beatIndex,
+    required this.isMainTrack,
+  });
+
+  @override
+  int compareTo(ScheduledMidiEvent other) {
+    int timeCompare = timeMs.compareTo(other.timeMs);
+    if (timeCompare != 0) return timeCompare;
+
+    bool aIsNoteOn = type == 'note_on';
+    bool bIsNoteOn = other.type == 'note_on';
+    if (aIsNoteOn == bIsNoteOn) return 0;
+    return aIsNoteOn ? 1 : -1;
+  }
+}
+
+class TabSequenceBuilder {
+  final ScaleEngine engine;
+
+  TabSequenceBuilder({ScaleEngine? engine}) : engine = engine ?? ScaleEngine();
+
+  static double roundMs(double val) {
+    return (val * 10).round() / 10.0;
   }
 
-  static Future<GpScore> parseGpFile(String fileName, String? path, List<int>? bytesData) async {
-    List<int> bytes;
-    if (path != null && await File(path).exists()) {
-      bytes = await File(path).readAsBytes();
-    } else if (bytesData != null) {
-      bytes = bytesData;
-    } else {
-      throw Exception('Could not read file data.');
-    }
-    return Isolate.run(() => _processScoreData({
-          'fileName': fileName,
-          'filePath': path ?? '',
-          'bytes': bytes,
-        }));
-  }
+  List<MidiEvent> buildSequence(List<TabNote> notes) {
+    List<MidiEvent> midiEvents = [];
 
-  static GpScore _processScoreData(Map<String, dynamic> args) {
-    final String fileName = args['fileName'];
-    final String filePath = args['filePath'];
-    final List<int> bytes = args['bytes'];
-    final Archive archive;
-    try {
-      archive = ZipDecoder().decodeBytes(bytes);
-    } on FormatException {
-      throw Exception('Invalid GP format. Ensure you are using a Guitar Pro (.gp/.gpx) file.');
-    }
-    ArchiveFile? gpifFile;
-    for (final file in archive) {
-      final String baseName = file.name.split('/').last.toLowerCase();
-      if (baseName == 'score.gpif' || baseName == 'main.xml') {
-        gpifFile = file;
-        break;
-      }
-    }
-    if (gpifFile == null) {
-      throw Exception('Invalid .gp file: Could not find score.gpif or main.xml.');
-    }
-    final String gpifContent = String.fromCharCodes(gpifFile.content as List<int>);
-    final XmlDocument document = XmlDocument.parse(gpifContent);
-    final String title = document.findAllElements('Title').firstOrNull?.innerText ?? 'Unknown Title';
-    final String artist = document.findAllElements('Artist').firstOrNull?.innerText ?? 'Unknown Artist';
-    int initialTempo = 120;
-    final firstGlobalTempo = document
-        .findAllElements('Automation')
-        .where((e) => e.findElements('Type').firstOrNull?.innerText == 'Tempo')
-        .firstOrNull
-        ?.findElements('Value')
-        .firstOrNull
-        ?.innerText;
-    if (firstGlobalTempo != null) {
-      final parts = firstGlobalTempo.trim().split(RegExp(r'\s+'));
-      if (parts.isNotEmpty) initialTempo = int.tryParse(parts[0]) ?? 120;
-    }
-    final List<MasterBarEvent> masterBars = _parseMasterBars(document, initialTempo);
-    int initialNotesPerMeasure = 16;
-    if (masterBars.isNotEmpty) {
-      initialNotesPerMeasure = masterBars.first.sixteenthCount;
-      if (initialNotesPerMeasure <= 0) initialNotesPerMeasure = 16;
-    }
-    final List<GpTrack> tracks = _parseTracksFromDocument(document, masterBars);
-    return GpScore(
-      fileName: fileName,
-      filePath: filePath,
-      title: title,
-      artist: artist,
-      tempo: masterBars.isNotEmpty ? masterBars.first.tempo : initialTempo,
-      notesPerMeasure: initialNotesPerMeasure,
-      masterBars: masterBars,
-      tracks: tracks,
-    );
-  }
+    for (var note in notes) {
+      if (note.isTie) continue;
 
-  static List<MasterBarEvent> _parseMasterBars(XmlDocument document, int initialTempo) {
-    final List<XmlElement> masterBarNodes = document.findAllElements('MasterBar').toList();
-    final Map<int, int> barIndexToTempo = {};
-    for (final automation in document.findAllElements('Automation')) {
-      final type = automation.findElements('Type').firstOrNull?.innerText;
-      if (type == 'Tempo') {
-        final valText = automation.findElements('Value').firstOrNull?.innerText ?? '';
-        final barText = automation.findElements('Bar').firstOrNull?.innerText ?? '';
-        final parts = valText.trim().split(RegExp(r'\s+'));
-        final tVal = parts.isNotEmpty ? int.tryParse(parts[0]) : null;
-        final bIdx = int.tryParse(barText);
-        if (tVal != null && bIdx != null) barIndexToTempo[bIdx] = tVal;
+      double durationMs = note.durationMs;
+
+      if (!note.isLegato) {
+        durationMs = max(1.0, durationMs - 16.0);
       }
-    }
-    final List<MasterBarEvent> events = [];
-    int currentTempo = initialTempo;
-    int currentNumerator = 4;
-    int currentDenominator = 4;
-    int cumulativeTick = 0;
-    double cumulativeMs = 0.0;
-    for (int i = 0; i < masterBarNodes.length; i++) {
-      final mb = masterBarNodes[i];
-      final String? timeText = mb.findElements('Time').firstOrNull?.innerText.trim();
-      if (timeText != null && timeText.contains('/')) {
-        final parts = timeText.split('/');
-        final n = int.tryParse(parts[0]);
-        final d = int.tryParse(parts[1]);
-        if (n != null && n > 0 && d != null && d > 0) {
-          currentNumerator = n;
-          currentDenominator = d;
-        }
-      }
-      final localTempoVal = mb
-          .findAllElements('Automation')
-          .where((e) => e.findElements('Type').firstOrNull?.innerText == 'Tempo')
-          .firstOrNull
-          ?.findElements('Value')
-          .firstOrNull
-          ?.innerText;
-      if (localTempoVal != null && localTempoVal.isNotEmpty) {
-        final parts = localTempoVal.trim().split(RegExp(r'\s+'));
-        final t = int.tryParse(parts[0]);
-        if (t != null && t > 0) currentTempo = t;
-      } else if (barIndexToTempo.containsKey(i)) {
-        currentTempo = barIndexToTempo[i]!;
-      }
-      final String tf = mb.findElements('TripletFeel').firstOrNull?.innerText ?? '';
-      final double quarters = currentNumerator * (4.0 / currentDenominator);
-      final int ticks = (quarters * 960).round();
-      final double durationMs = quarters * (60000.0 / currentTempo);
-      events.add(MasterBarEvent(
-        barIndex: i,
-        tempo: currentTempo,
-        numerator: currentNumerator,
-        denominator: currentDenominator,
-        startTick: cumulativeTick,
-        startMs: cumulativeMs,
-        durationMs: durationMs,
-        tripletFeel: tf,
+
+      midiEvents.add(MidiEvent(
+        timestampMs: note.startTimeMs,
+        pitch: note.midiPitch,
+        velocity: note.velocity,
+        isNoteOn: true,
       ));
-      cumulativeTick += ticks;
-      cumulativeMs += durationMs;
+
+      midiEvents.add(MidiEvent(
+        timestampMs: note.startTimeMs + durationMs,
+        pitch: note.midiPitch,
+        velocity: 0,
+        isNoteOn: false,
+      ));
     }
-    return events;
+
+    midiEvents.sort((a, b) {
+      int timeCompare = a.timestampMs.compareTo(b.timestampMs);
+      if (timeCompare != 0) return timeCompare;
+
+      if (a.isNoteOn == b.isNoteOn) return 0;
+      return a.isNoteOn ? 1 : -1;
+    });
+
+    return midiEvents;
   }
 
-  static List<GpTrack> _parseTracksFromDocument(XmlDocument document, List<MasterBarEvent> masterBars) {
-    final List<XmlElement> trackElements = document.findAllElements('Track').toList();
-    final List<String> trackNames = [];
-    final List<bool> trackIsPercussion = [];
-    for (final t in trackElements) {
-      final name = t.findElements('Name').firstOrNull?.innerText.trim() ?? 'Track';
-      final isPerc = t.findElements('IsPercussion').firstOrNull?.innerText.toLowerCase() == 'true' ||
-          t.findElements('GeneralMidi').firstOrNull?.findElements('PrimaryChannel').firstOrNull?.innerText == '9';
-      trackNames.add(name);
-      trackIsPercussion.add(isPerc);
-    }
-    if (trackNames.isEmpty) {
-      trackNames.add('All Tracks');
-      trackIsPercussion.add(false);
-    }
-    final Map<String, double> rhythmMap = {};
-    final rhythmsElement = document.findAllElements('Rhythms').firstOrNull;
-    if (rhythmsElement != null) {
-      for (final rhythm in rhythmsElement.findAllElements('Rhythm')) {
-        final id = rhythm.getAttribute('id') ?? '';
-        final noteVal = rhythm.findElements('NoteValue').firstOrNull?.innerText ?? 'Quarter';
-        double val = 1.0;
-        switch (noteVal) {
-          case 'Whole': val = 4.0; break;
-          case 'Half': val = 2.0; break;
-          case 'Quarter': val = 1.0; break;
-          case '8th': case 'Eighth': val = 0.5; break;
-          case '16th': val = 0.25; break;
-          case '32nd': val = 0.125; break;
-          case '64th': val = 0.0625; break;
-          default: val = 1.0;
-        }
-        final dotCount = int.tryParse(rhythm.findElements('AugmentationDot').firstOrNull?.getAttribute('count') ?? '0') ?? 0;
-        if (dotCount == 1) val *= 1.5;
-        else if (dotCount == 2) val *= 1.75;
-        final tuplet = rhythm.findElements('PrimaryTuplet').firstOrNull;
-        if (tuplet != null) {
-          final numVal = int.tryParse(tuplet.getAttribute('num') ?? '3') ?? 3;
-          final denVal = int.tryParse(tuplet.getAttribute('den') ?? '2') ?? 2;
-          val *= (denVal / numVal);
-        }
-        rhythmMap[id] = val;
+  static List<ScheduledMidiEvent> buildAbsoluteTimeline({
+    required List<GpBeat> beats,
+    required List<int> measureEnds,
+    required int initialTempo,
+    required List<MasterBarEvent> masterBars,
+    required int trackIndex,
+    required int channel,
+    required bool isMainTrack,
+    required double speedMultiplier,
+  }) {
+    List<ScheduledMidiEvent> events = [];
+    if (beats.isEmpty) return events;
+
+    double currentMs = 0.0;
+    int currentBarIndex = 0;
+    int currentTempo = initialTempo;
+
+    for (int bIdx = 0; bIdx < beats.length; bIdx++) {
+      final beat = beats[bIdx];
+
+      if (masterBars.isNotEmpty && currentBarIndex < masterBars.length) {
+        currentTempo = masterBars[currentBarIndex].tempo;
       }
-    }
-    final Map<String, GpNote> noteIdToNote = {};
-    for (final XmlElement note in document.findAllElements('Note')) {
-      final String id = note.getAttribute('id') ?? '';
-      if (id.isEmpty) continue;
-      final XmlElement? strNode = note.findAllElements('String').firstOrNull ?? note.findAllElements('Str').firstOrNull;
-      final XmlElement? fretNode = note.findAllElements('Fret').firstOrNull ?? note.findAllElements('FretNum').firstOrNull;
-      final XmlElement? midiNode = note.findAllElements('MidiNumber').firstOrNull ?? note.findAllElements('Pitch').firstOrNull;
-      int displayString = 1;
-      int fretNum = 0;
-      int pitch = 60;
-      if (strNode != null && fretNode != null) {
-        final int? stringNum = int.tryParse(strNode.innerText.trim());
-        final int? fNum = int.tryParse(fretNode.innerText.trim());
-        if (stringNum != null && fNum != null) {
-          displayString = (6 - stringNum).clamp(1, 8);
-          fretNum = fNum;
-          pitch = (_standardTuning[displayString] ?? 40) + fretNum;
-        }
-      } else if (midiNode != null) {
-        pitch = int.tryParse(midiNode.innerText.trim()) ?? 60;
-        displayString = -1;
-        fretNum = pitch;
-      }
-      bool isTie = note.findAllElements('Tie').isNotEmpty;
-      bool isLetRing = note.findAllElements('LetRing').isNotEmpty;
-      bool isMuted = note.findAllElements('Muted').isNotEmpty ||
-          note.findAllElements('Mute').isNotEmpty ||
-          note.findAllElements('Dead').isNotEmpty;
-      bool isPalmMute = note.findAllElements('PalmMute').isNotEmpty || note.findAllElements('PalmMuted').isNotEmpty;
-      bool isLegato = note.findAllElements('Legato').isNotEmpty || note.findAllElements('Hopo').isNotEmpty;
-      bool isTap = note.findAllElements('Tap').isNotEmpty || note.findAllElements('Tapped').isNotEmpty;
-      final ghostText = note.findAllElements('Ghost').firstOrNull?.innerText.toLowerCase();
-      bool isGhost = (ghostText == '1' || ghostText == 'true');
-      HarmonicType harmonicType = HarmonicType.none;
-      final harmonicNode = note.findAllElements('Harmonic').firstOrNull;
-      if (harmonicNode != null) {
-        final typeText = (harmonicNode.getAttribute('type') ?? harmonicNode.getAttribute('flags') ?? '').toLowerCase();
-        if (typeText.contains('artificial')) harmonicType = HarmonicType.artificial;
-        else if (typeText.contains('pinch')) harmonicType = HarmonicType.pinch;
-        else harmonicType = HarmonicType.natural;
-      }
-      SlideType slideType = SlideType.none;
-      final slideNode = note.findAllElements('Slide').firstOrNull;
-      if (slideNode != null) {
-        final sVal = (slideNode.getAttribute('type') ?? slideNode.getAttribute('flags') ?? '').toLowerCase();
-        if (sVal.contains('below')) slideType = SlideType.intoFromBelow;
-        else if (sVal.contains('above')) slideType = SlideType.intoFromAbove;
-        else if (sVal.contains('down')) slideType = SlideType.outDownwards;
-        else if (sVal.contains('up')) slideType = SlideType.outUpwards;
-        else if (sVal.contains('shift')) slideType = SlideType.shift;
-        else slideType = SlideType.legato;
-      }
-      GpBend? bend;
-      final directBend = note.findAllElements('Bend').firstOrNull;
-      if (directBend != null) {
-        final List<({double pos, double val})> rawPoints = [];
-        final pointNodes = directBend.findAllElements('Point').isNotEmpty
-            ? directBend.findAllElements('Point')
-            : directBend.findAllElements('BendPoint');
-        for (final pt in pointNodes) {
-          final posStr = pt.getAttribute('position') ?? pt.getAttribute('pos');
-          final offStr = pt.getAttribute('offset') ?? pt.getAttribute('value');
-          if (posStr != null && offStr != null) {
-            final double p = double.tryParse(posStr) ?? 0.0;
-            final double v = double.tryParse(offStr) ?? 0.0;
-            rawPoints.add((pos: p, val: v));
+
+      final double effectiveTempo = currentTempo * speedMultiplier;
+      final double beatDurationMs = beat.duration * (60000.0 / effectiveTempo);
+
+      if (!beat.isRest) {
+        for (final note in beat.notes) {
+          if (note.isRest || note.isTie) continue;
+          int pitch = note.pitch > 0 ? note.pitch : 60;
+
+          int velocity = isMainTrack ? 110 : 80;
+          if (note.isMuted) {
+            velocity = 20;
+          } else if (note.isPalmMute) {
+            velocity = (velocity * 0.7).round();
+          } else if (note.isLegato) {
+            velocity = (velocity * 0.8).round();
+          } else if (note.isTap) {
+            velocity = (velocity * 1.15).clamp(0, 127).round();
           }
-        }
-        if (rawPoints.isNotEmpty) {
-          final List<BendPoint> points = [];
-          double maxOffsetSemitones = 0.0;
-          for (final raw in rawPoints) {
-            final double normalizedPos = (raw.pos / 12.0).clamp(0.0, 1.0);
-            final double offsetSemitones = raw.val / 4.0;
-            if (offsetSemitones > maxOffsetSemitones) maxOffsetSemitones = offsetSemitones;
-            points.add(BendPoint(position: normalizedPos, offset: offsetSemitones));
+
+          double playDurationMs = beatDurationMs;
+          if (note.isMuted) {
+            playDurationMs = min(beatDurationMs, 40.0);
+          } else if (note.isPalmMute) {
+            playDurationMs = min(beatDurationMs, 150.0);
+          } else if (note.isLetRing) {
+            playDurationMs = beatDurationMs + 1200.0;
+          } else if (note.isLegato || note.isTap) {
+            playDurationMs = beatDurationMs + 150.0;
+          } else {
+            playDurationMs = beatDurationMs;
           }
-          points.sort((a, b) => a.position.compareTo(b.position));
-          bend = GpBend(maximumPitchOffset: maxOffsetSemitones, envelope: points);
-        }
-      }
-      GpVibrato? vibrato;
-      final vibNode = note.findAllElements('Vibrato').firstOrNull;
-      if (vibNode != null) vibrato = const GpVibrato();
-      noteIdToNote[id] = GpNote(
-        stringNum: displayString,
-        fretNum: fretNum,
-        pitch: pitch,
-        duration: 0.25,
-        isTie: isTie,
-        isLetRing: isLetRing,
-        isMuted: isMuted,
-        isPalmMute: isPalmMute,
-        isLegato: isLegato,
-        isGhost: isGhost,
-        isTap: isTap,
-        harmonicType: harmonicType,
-        slideType: slideType,
-        bend: bend,
-        vibrato: vibrato,
-      );
-    }
-    final Map<String, dynamic> beatIdToBeat = {};
-    for (final XmlElement beat in document.findAllElements('Beat')) {
-      final String id = beat.getAttribute('id') ?? '';
-      if (id.isEmpty) continue;
-      final String rhythmRef = beat.findElements('Rhythm').firstOrNull?.getAttribute('ref') ?? '';
-      final double beatDuration = rhythmMap[rhythmRef] ?? 1.0;
-      final String notesText = beat.findElements('Notes').firstOrNull?.innerText ?? '';
-      final List<GpNote> notes = notesText
-          .trim()
-          .split(RegExp(r'\s+'))
-          .where((s) => s.isNotEmpty && noteIdToNote.containsKey(s))
-          .map((nid) => noteIdToNote[nid]!)
-          .toList();
-      if (notes.isEmpty) notes.add(GpNote.rest(duration: beatDuration));
-      beatIdToBeat[id] = {
-        'notes': notes,
-        'rhythm': beatDuration,
-      };
-    }
-    final Map<String, List<dynamic>> voiceIdToBeats = {};
-    for (final XmlElement voice in document.findAllElements('Voice')) {
-      final String id = voice.getAttribute('id') ?? '';
-      if (id.isEmpty) continue;
-      final String beatsText = voice.findElements('Beats').firstOrNull?.innerText ?? '';
-      final List<dynamic> beats = [];
-      for (final String bid in beatsText.trim().split(RegExp(r'\s+')).where((s) => s.isNotEmpty)) {
-        if (beatIdToBeat.containsKey(bid)) beats.add(beatIdToBeat[bid]);
-      }
-      voiceIdToBeats[id] = beats;
-    }
-    final Map<String, List<GpBeat>> barIdToBeats = {};
-    final Map<String, bool> barShuffleMap = {};
-    for (final XmlElement bar in document.findAllElements('Bar')) {
-      final String id = bar.getAttribute('id') ?? '';
-      if (id.isEmpty) continue;
-      final String tf = bar.findElements('TripletFeel').firstOrNull?.innerText.toLowerCase() ?? '';
-      final String sh = bar.findElements('Shuffle').firstOrNull?.innerText.toLowerCase() ?? '';
-      if (tf.contains('8th') || tf.contains('triplet') || tf.contains('shuffle') || sh.isNotEmpty) {
-        barShuffleMap[id] = true;
-      }
-      final String voicesText = bar.findElements('Voices').firstOrNull?.innerText ?? '';
-      final List<String> voiceIds = voicesText.trim().split(RegExp(r'\s+')).where((s) => s.isNotEmpty).toList();
-      final Map<double, List<GpNote>> positionNotes = {};
-      final Map<double, double> positionDurations = {};
-      for (int vIdx = 0; vIdx < voiceIds.length; vIdx++) {
-        final voiceId = voiceIds[vIdx];
-        final List<dynamic> vBeats = voiceIdToBeats[voiceId] ?? [];
-        double currentPos = 0.0;
-        for (final beat in vBeats) {
-          final List<GpNote> beatNotes = beat['notes'];
-          final double beatDur = beat['rhythm'];
-          final double keyPos = (currentPos * 10000).round() / 10000.0;
-          positionNotes.putIfAbsent(keyPos, () => []);
-          positionDurations.putIfAbsent(keyPos, () => beatDur);
-          for (final n in beatNotes) {
-            if (!n.isRest) positionNotes[keyPos]!.add(n);
-          }
-          currentPos += beatDur;
-        }
-      }
-      final List<double> sortedPositions = positionNotes.keys.toList()..sort();
-      final List<GpBeat> mergedBarBeats = [];
-      for (int pIdx = 0; pIdx < sortedPositions.length; pIdx++) {
-        final double pos = sortedPositions[pIdx];
-        final List<GpNote> notesAtPos = positionNotes[pos]!;
-        double dur = positionDurations[pos] ?? 0.25;
-        if (pIdx < sortedPositions.length - 1) {
-          dur = sortedPositions[pIdx + 1] - pos;
-        }
-        if (notesAtPos.isEmpty) {
-          mergedBarBeats.add(GpBeat.rest(duration: dur));
-        } else {
-          mergedBarBeats.add(GpBeat(
-            notes: notesAtPos,
-            duration: dur,
-            unswungDuration: dur,
+
+          events.add(ScheduledMidiEvent(
+            timeMs: roundMs(currentMs),
+            type: 'note_on',
+            channel: channel,
+            data1: pitch,
+            data2: velocity,
+            trackIndex: trackIndex,
+            beatIndex: bIdx,
+            isMainTrack: isMainTrack,
+          ));
+
+          events.add(ScheduledMidiEvent(
+            timeMs: roundMs(currentMs + playDurationMs),
+            type: 'note_off',
+            channel: channel,
+            data1: pitch,
+            data2: 0,
+            trackIndex: trackIndex,
+            beatIndex: bIdx,
+            isMainTrack: isMainTrack,
           ));
         }
       }
-      barIdToBeats[id] = mergedBarBeats;
+
+      currentMs += beatDurationMs;
+
+      if (measureEnds.contains(bIdx)) {
+        currentBarIndex++;
+      }
     }
-    final List<List<GpBeat>> trackBeats = List.generate(trackNames.length, (_) => []);
-    final List<List<int>> trackMeasureEnds = List.generate(trackNames.length, (_) => []);
-    int mbIndex = 0;
-    for (final XmlElement masterBar in document.findAllElements('MasterBar')) {
-      final String tf = masterBar.findElements('TripletFeel').firstOrNull?.innerText.toLowerCase() ?? '';
-      final String sh = masterBar.findElements('Shuffle').firstOrNull?.innerText.toLowerCase() ?? '';
-      final bool shuffle8th = tf.contains('8th') || tf.contains('triplet') || sh.isNotEmpty;
-      final bool shuffle16th = tf.contains('16th');
-      final String barsText = masterBar.findElements('Bars').firstOrNull?.innerText ?? '';
-      final List<String> barIds = barsText.trim().split(RegExp(r'\s+')).where((s) => s.isNotEmpty).toList();
 
-      final double measureDuration = mbIndex < masterBars.length
-          ? masterBars[mbIndex].numerator * (4.0 / masterBars[mbIndex].denominator)
-          : 4.0;
+    events.sort((a, b) => a.compareTo(b));
+    return events;
+  }
 
-      for (int i = 0; i < barIds.length && i < trackBeats.length; i++) {
-        final String barId = barIds[i];
-        final bool isBarShuffle8th = shuffle8th || (barShuffleMap[barId] == true);
-        final List<GpBeat> barBeats = barIdToBeats[barId] ?? [];
-        if (barBeats.isEmpty) {
-          trackBeats[i].add(GpBeat.rest(duration: measureDuration));
-        } else {
-          double measurePositionQuarters = 0.0;
-          for (final beat in barBeats) {
-            final List<GpNote> beatNotes = beat.notes;
-            double baseRhythm = beat.duration;
-            double finalRhythm = baseRhythm;
-            if (isBarShuffle8th && (baseRhythm - 0.5).abs() < 0.01) {
-              final int eighthIndex = (measurePositionQuarters / 0.5).round();
-              if (eighthIndex % 2 == 0) {
-                finalRhythm = 0.5 * (4.0 / 3.0);
-              } else {
-                finalRhythm = 0.5 * (2.0 / 3.0);
-              }
-            } else if (shuffle16th && (baseRhythm - 0.25).abs() < 0.01) {
-              final int sixteenthIndex = (measurePositionQuarters / 0.25).round();
-              if (sixteenthIndex % 2 == 0) {
-                finalRhythm = 0.25 * (4.0 / 3.0);
-              } else {
-                finalRhythm = 0.25 * (2.0 / 3.0);
-              }
-            }
-            measurePositionQuarters += baseRhythm;
-            final List<GpNote> notesWithDuration = beatNotes
-                .map((orig) => GpNote(
-                      stringNum: orig.stringNum,
-                      fretNum: orig.fretNum,
-                      pitch: orig.pitch,
-                      duration: finalRhythm,
-                      isTie: orig.isTie,
-                      isLetRing: orig.isLetRing,
-                      isMuted: orig.isMuted,
-                      isPalmMute: orig.isPalmMute,
-                      isLegato: orig.isLegato,
-                      isGhost: orig.isGhost,
-                      isTap: orig.isTap,
-                      harmonicType: orig.harmonicType,
-                      slideType: orig.slideType,
-                      bend: orig.bend,
-                      vibrato: orig.vibrato,
-                    ))
-                .toList();
-            trackBeats[i].add(GpBeat(
-              notes: notesWithDuration,
-              duration: finalRhythm,
-              unswungDuration: baseRhythm,
-              strumDirection: beat.strumDirection,
-            ));
+  List<List<int>> buildSequenceForPreset(
+    LickPreset preset, {
+    int? selectionStart,
+    int? selectionEnd,
+  }) {
+    if (preset.system == "Manual Entry") {
+      List<List<int>> manualSeq = [];
+      List<String> parts = preset.manualTabString
+          .split(',')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+
+      for (String p in parts) {
+        if (p.toLowerCase() == 'r') {
+          manualSeq.add([-1, -1]);
+        } else if (p.contains(':')) {
+          var sub = p.replaceAll(RegExp(r'\([^\)]*\)'), '').split(':');
+          if (sub.length == 2) {
+            int? s = int.tryParse(sub[0]);
+            int? f = int.tryParse(sub[1]);
+            if (s != null && f != null) manualSeq.add([s, f]);
           }
         }
-        if (trackBeats[i].isNotEmpty) {
-          trackMeasureEnds[i].add(trackBeats[i].length - 1);
+      }
+      return manualSeq;
+    }
+
+    engine.setTuning(preset.tuning);
+
+    int startStr = 6;
+    int endStr = 1;
+    int singleStrTarget = 1;
+
+    if (preset.system == "Single String Horizontal") {
+      singleStrTarget = int.tryParse(preset.fragment) ?? 1;
+    } else if (preset.fragment.contains('-')) {
+      var parts = preset.fragment.split('-');
+      startStr = int.tryParse(parts[0]) ?? 6;
+      endStr = int.tryParse(parts[1]) ?? 1;
+    }
+
+    List<int> targetStrings = [];
+    if (startStr >= endStr) {
+      for (int s = startStr; s >= endStr; s--) targetStrings.add(s);
+    } else {
+      for (int s = startStr; s <= endStr; s++) targetStrings.add(s);
+    }
+
+    Map<int, List<int>> boxDict = {};
+
+    if (preset.system == "Box Position / CAGED") {
+      boxDict = engine.getScaleNotesBox(
+          preset.key, preset.scale, preset.startFret, targetStrings);
+    } else if (preset.system == "3-Note-Per-String (3NPS)") {
+      boxDict = engine.getScaleNotes3NPS(
+          preset.key, preset.scale, preset.startFret, targetStrings);
+    } else if (preset.system == "Custom Notes-Per-String") {
+      List<int> profile = preset.customNps
+          .split(',')
+          .map((e) => int.tryParse(e.trim()) ?? 3)
+          .toList();
+      boxDict = engine.getScaleNotesCustomNPS(
+          preset.key, preset.scale, preset.startFret, targetStrings, profile);
+    } else if (preset.system == "Single String Horizontal") {
+      boxDict = engine.getScaleNotesSingleString(
+          preset.key, preset.scale, preset.startFret, singleStrTarget);
+    }
+
+    List<List<int>> sequence = [];
+
+    if (preset.pathway == "Straight Linear") {
+      sequence = engine.flattenBoxDict(boxDict, startStr, endStr);
+    } else if (preset.pathway == "3-Step Triplet") {
+      sequence = engine.apply3StepSequence(
+          engine.flattenBoxDict(boxDict, startStr, endStr));
+    } else if (preset.pathway == "4-Step 16th") {
+      sequence = engine.apply4StepSequence(
+          engine.flattenBoxDict(boxDict, startStr, endStr));
+    } else if (preset.pathway == "Note Skipping") {
+      sequence = engine.applyNoteSkipping(
+          engine.flattenBoxDict(boxDict, startStr, endStr));
+    } else if (preset.pathway == "Custom Sequence (Indices)") {
+      sequence = engine.buildCustomSequence(
+          engine.flattenBoxDict(boxDict, startStr, endStr), preset.motifString);
+    } else if (preset.pathway == "Custom Motif Builder") {
+      if (preset.system == "Single String Horizontal") {
+        sequence = engine.buildSingleStringMotif(
+            boxDict, preset.motifString, singleStrTarget, preset.direction);
+      } else {
+        sequence = engine.buildCustomMotif(
+            boxDict, preset.motifString, startStr, endStr);
+      }
+    }
+
+    return engine.applyIntervalBreaks(
+        sequence, preset.breakInterval, preset.breakLength);
+  }
+
+  List<String> parsePatternString(
+    String pattern, {
+    String? customRhythmOverride,
+  }) {
+    if (pattern == "Custom Pattern" &&
+        customRhythmOverride != null &&
+        customRhythmOverride.trim().isNotEmpty) {
+      List<String> result = [];
+      for (var token in customRhythmOverride.split(',')) {
+        String clean = token.trim();
+        if (clean == "16" || clean == "16th") {
+          result.add("16th");
+        } else if (clean == "8" || clean == "8th") {
+          result.add("8th");
+        } else if (clean == "4" || clean == "Quarter") {
+          result.add("Quarter");
+        } else if (clean == "32" || clean == "32nd") {
+          result.add("32nd");
+        } else {
+          result.add("16th");
         }
       }
-      mbIndex++;
+      return result.isEmpty ? ["16th"] : result;
     }
-    if (trackBeats.any((t) => t.isNotEmpty)) {
-      return [
-        for (int i = 0; i < trackNames.length; i++)
-          GpTrack(
-            id: '$i',
-            name: trackNames[i],
-            beats: trackBeats[i],
-            measureEndIndices: trackMeasureEnds[i],
-          ),
-      ];
+
+    switch (pattern) {
+      case "Straight 8ths":
+        return ["8th"];
+      case "Gallop (8-16-16)":
+        return ["8th", "16th", "16th"];
+      case "Reverse Gallop (16-16-8)":
+        return ["16th", "16th", "8th"];
+      case "Syncopated (16-8-16)":
+        return ["16th", "8th", "16th"];
+      case "Straight 16ths":
+      default:
+        return ["16th"];
     }
-    return [GpTrack(id: '0', name: 'Empty Track', beats: [])];
+  }
+
+  List<int> parseAccentPattern(String accentStr) {
+    if (accentStr.trim().isEmpty) return [89];
+    List<int> velocities = [];
+    for (var part in accentStr.split(',')) {
+      String clean = part.trim();
+      if (clean == "1") {
+        velocities.add(127);
+      } else {
+        velocities.add(89);
+      }
+    }
+    return velocities.isEmpty ? [89] : velocities;
+  }
+
+  int calculateNotesPerMeasure(
+    String timeSignature,
+    String rhythmPattern, {
+    String? customRhythm,
+  }) {
+    int beats = 4;
+    if (timeSignature != "Auto") {
+      int? parsed = int.tryParse(timeSignature.split('/')[0]);
+      if (parsed != null && parsed > 0) beats = parsed;
+    }
+    List<String> pattern =
+        parsePatternString(rhythmPattern, customRhythmOverride: customRhythm);
+    if (pattern.length == 1) {
+      String r = pattern.first;
+      if (r == "8th") return beats * 2;
+      if (r == "32nd") return beats * 8;
+      if (r == "Quarter") return beats;
+      return beats * 4;
+    }
+    return beats * pattern.length;
+  }
+
+  List<GpBeat> sequenceToBeats(List<List<int>> rawSequence) {
+    List<GpBeat> beats = [];
+    for (var notePair in rawSequence) {
+      int str = notePair[0];
+      int fret = notePair[1];
+      if (str == -1 || fret == -1) {
+        beats.add(GpBeat.rest(duration: 0.25));
+      } else {
+        int pitch =
+            (str >= 1 && str <= 6) ? (engine.openStrings[str] ?? 40) + fret : 60;
+        beats.add(GpBeat.single(GpNote(
+          stringNum: str,
+          fretNum: fret,
+          pitch: pitch,
+          duration: 0.25,
+        )));
+      }
+    }
+    return beats;
   }
 }

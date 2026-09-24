@@ -1,3 +1,4 @@
+import 'package:tab_generator/services/gpx_parser_service.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -6,7 +7,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tab_generator/models/gp_beat.dart';
 import 'package:tab_generator/models/gp_note.dart';
 import 'package:tab_generator/models/gp_score.dart';
-import 'package:tab_generator/services/gpx_parser_service.dart';
 
 /// Rounds millisecond values precisely to 1 decimal place to eliminate floating-point precision drift
 double roundMs(double ms) {
