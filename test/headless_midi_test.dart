@@ -1,4 +1,3 @@
-import 'package:tab_generator/services/gpx_parser_service.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -7,8 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tab_generator/models/gp_beat.dart';
 import 'package:tab_generator/models/gp_note.dart';
 import 'package:tab_generator/models/gp_score.dart';
+import 'package:tab_generator/services/gpx_parser_service.dart';
 
-/// Rounds millisecond values precisely to 1 decimal place to eliminate floating-point precision drift
 double roundMs(double ms) {
   return (ms * 10).round() / 10.0;
 }
@@ -32,11 +31,11 @@ double _interpolateBend(List<BendPoint> envelope, double progress) {
 }
 
 int _getTargetChannel(int trackIndex) {
-  if (trackIndex == 0) return 12; // Track 0 -> Channel 12
-  if (trackIndex == 1) return 1;  // Track 1 -> Channel 1
-  if (trackIndex == 2) return 3;  // Track 2 -> Channel 3
-  if (trackIndex == 3) return 7;  // Track 3 -> Channel 7
-  if (trackIndex == 4) return 10; // Track 4 -> Channel 10
+  if (trackIndex == 0) return 12;
+  if (trackIndex == 1) return 1;
+  if (trackIndex == 2) return 3;
+  if (trackIndex == 3) return 7;
+  if (trackIndex == 4) return 10;
   return 1;
 }
 
@@ -75,7 +74,6 @@ void main() {
       for (int bIdx = 0; bIdx < track.beats.length; bIdx++) {
         final beat = track.beats[bIdx];
 
-        // Bypass swing for straight tracks so timing offsets match ground truth
         final bool isStraightTrack = isDrum || targetChannel == 1 || targetChannel == 3 || targetChannel == 7;
 
         final double effectiveDuration = (isStraightTrack && beat.unswungDuration != null)
@@ -143,17 +141,17 @@ void main() {
             velocity = (velocity * 1.15).clamp(0, 127).round();
           }
 
-          double playDurationMs = beatDurationMs;
+          final double noteDurationMs = note.duration * (60000.0 / measureTempo);
+
+          double playDurationMs = noteDurationMs;
           if (note.isMuted) {
-            playDurationMs = min(beatDurationMs, 40.0);
+            playDurationMs = min(noteDurationMs, 40.0);
           } else if (note.isPalmMute) {
-            playDurationMs = min(beatDurationMs, 150.0);
+            playDurationMs = min(noteDurationMs, 150.0);
           } else if (note.isLetRing) {
-            playDurationMs = beatDurationMs + 1200.0;
+            playDurationMs = noteDurationMs + 1200.0;
           } else if (note.isLegato || note.isTap) {
-            playDurationMs = beatDurationMs + 150.0;
-          } else {
-            playDurationMs = beatDurationMs;
+            playDurationMs = noteDurationMs + 150.0;
           }
 
           outputEvents.add({
@@ -162,15 +160,6 @@ void main() {
             "channel": targetChannel,
             "data1": pitch,
             "data2": velocity,
-          });
-
-          final double noteOffMs = noteStartMs + playDurationMs;
-          outputEvents.add({
-            "time_ms": roundMs(noteOffMs),
-            "type": "note_off",
-            "channel": targetChannel,
-            "data1": pitch,
-            "data2": 0,
           });
 
           if (note.bend != null) {
@@ -188,6 +177,19 @@ void main() {
                 "data2": 0,
               });
             }
+          }
+
+          final double noteOffMs = noteStartMs + playDurationMs;
+
+          outputEvents.add({
+            "time_ms": roundMs(noteOffMs),
+            "type": "note_off",
+            "channel": targetChannel,
+            "data1": pitch,
+            "data2": 0,
+          });
+
+          if (note.bend != null) {
             outputEvents.add({
               "time_ms": roundMs(noteOffMs),
               "type": "pitch_bend",
@@ -200,7 +202,15 @@ void main() {
       }
     }
 
-    outputEvents.sort((a, b) => (a['time_ms'] as double).compareTo(b['time_ms'] as double));
+    outputEvents.sort((a, b) {
+      int timeCompare = (a['time_ms'] as double).compareTo(b['time_ms'] as double);
+      if (timeCompare != 0) return timeCompare;
+      bool aIsNoteOff = a['type'] == 'note_off';
+      bool bIsNoteOff = b['type'] == 'note_off';
+      if (aIsNoteOff == bIsNoteOff) return 0;
+      return aIsNoteOff ? -1 : 1; // Note-Off precedes Note-On at exact same timestamp
+    });
+
     final jsonOutput = const JsonEncoder.withIndent('  ').convert(outputEvents);
     File(outputJsonPath).writeAsStringSync(jsonOutput);
 

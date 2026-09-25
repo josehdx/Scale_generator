@@ -155,11 +155,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
     super.initState();
     _builder = TabSequenceBuilder(engine: _engine);
     _pageController = PageController(initialPage: _selectedPageIndex);
-    
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initMidi();
-    });
-    
+    _initMidi();
     _loadPresetsFromDisk();
     
     "L2,L1,L2,H1,H2,H1,L2,L1,L2,L1".split(',').forEach((t) {
@@ -184,9 +180,9 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   Future<void> _initMidi() async {
-    final success = await _midiService.init();
+    await _midiService.init();
     if (mounted) {
-      setState(() => _isMidiReady = success);
+      setState(() => _isMidiReady = _midiService.isReady);
     }
   }
 
