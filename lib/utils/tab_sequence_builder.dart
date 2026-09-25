@@ -5,7 +5,6 @@ import '../models/gp_note.dart';
 import '../models/lick_preset.dart';
 import '../scale_engine.dart';
 
-/// Pre-calculated absolute MIDI event model.
 class ScheduledMidiEvent implements Comparable<ScheduledMidiEvent> {
   final double timeMs;
   final String type; // 'note_on', 'note_off', 'pitch_bend'
@@ -37,7 +36,6 @@ class ScheduledMidiEvent implements Comparable<ScheduledMidiEvent> {
   }
 }
 
-/// Pure-Dart utility for calculating note sequences, rhythms, accents, and absolute timeline matrices.
 class TabSequenceBuilder {
   final ScaleEngine engine;
   TabSequenceBuilder({required this.engine});
@@ -46,7 +44,6 @@ class TabSequenceBuilder {
     return (ms * 10).round() / 10.0;
   }
 
-  /// Synthesizes an absolute, sorted timeline matrix across multiple tracks.
   static List<ScheduledMidiEvent> buildAbsoluteTimeline({
     required List<GpBeat> beats,
     required List<int> measureEnds,
@@ -65,16 +62,22 @@ class TabSequenceBuilder {
     int measureTempo = initialTempo;
 
     if (masterBars.isNotEmpty && currentMeasureIndex < masterBars.length) {
-      measureTempo = masterBars[currentMeasureIndex].tempo;
+      final mb = masterBars[currentMeasureIndex];
+      measureTempo = mb.tempo;
+      currentMeasureStartMs = mb.startMs / speedMultiplier;
     }
 
-    double beatAccumulatorInMeasureMs = 0.0;
+    double beatAccumulatorInMeasureQuarters = 0.0;
+    final Map<String, ScheduledMidiEvent> activeNoteOffs = {};
 
     for (int i = 0; i < beats.length; i++) {
       final beat = beats[i];
       final double effectiveTempo = measureTempo * speedMultiplier;
-      final double beatDurationMs = beat.duration * (60000.0 / effectiveTempo);
-      final double beatStartMs = roundMs(currentMeasureStartMs + beatAccumulatorInMeasureMs);
+      final double msPerQuarter = 60000.0 / effectiveTempo;
+
+      // Absolute accumulation natively respects the parser's shuffle duration
+      final double beatStartQuarters = beatAccumulatorInMeasureQuarters;
+      final double beatEndQuarters = beatStartQuarters + beat.duration;
 
       if (!beat.isRest) {
         for (final note in beat.notes) {
@@ -82,54 +85,83 @@ class TabSequenceBuilder {
 
           final int pitch = note.pitch != -1 ? note.pitch : 60;
           int velocity = isMainTrack ? 110 : 80;
-          double durationMs = beatDurationMs;
+
+          double noteOnMs = currentMeasureStartMs + (beatStartQuarters * msPerQuarter);
+          double noteOffMs = currentMeasureStartMs + (beatEndQuarters * msPerQuarter);
+          double durationMs = noteOffMs - noteOnMs;
 
           if (note.isMuted) {
             velocity = 20;
-            durationMs = min(beatDurationMs, 30.0);
+            noteOffMs = noteOnMs + min(durationMs, 30.0);
           } else if (note.isPalmMute) {
             velocity = (velocity * 0.6).round();
-            durationMs = beatDurationMs * 0.5;
-          } else if (!note.isTie && !note.isLegato) {
-            // Apply a tiny articulation gap to prevent legato bleeding/buffering
-            durationMs = max(1.0, durationMs - 1.0);
+            noteOffMs = noteOnMs + (durationMs * 0.5);
+          } else if (!note.isTie && !note.isLegato && !note.isLetRing) {
+            // Gap set to 40% of note duration up to 40ms to safely clear hardware buffers at any speed
+            double gap = min(40.0, durationMs * 0.40);
+            noteOffMs = max(noteOnMs + 5.0, noteOffMs - gap);
           }
 
-          final double noteOnMs = roundMs(beatStartMs);
-          final double noteOffMs = roundMs(beatStartMs + durationMs);
+          String noteKey = '${note.stringNum}_$pitch';
 
-          timeline.add(ScheduledMidiEvent(
-            timeMs: noteOnMs,
-            type: 'note_on',
-            channel: channel,
-            data1: pitch,
-            data2: velocity,
-            trackIndex: trackIndex,
-            beatIndex: i,
-            isMainTrack: isMainTrack,
-          ));
+          if (note.isTie && activeNoteOffs.containsKey(noteKey)) {
+            final prevOff = activeNoteOffs[noteKey]!;
+            timeline.remove(prevOff);
 
-          timeline.add(ScheduledMidiEvent(
-            timeMs: noteOffMs,
-            type: 'note_off',
-            channel: channel,
-            data1: pitch,
-            data2: 0,
-            trackIndex: trackIndex,
-            beatIndex: i,
-            isMainTrack: isMainTrack,
-          ));
+            final updatedOff = ScheduledMidiEvent(
+              timeMs: roundMs(noteOffMs),
+              type: 'note_off',
+              channel: channel,
+              data1: pitch,
+              data2: 0,
+              trackIndex: trackIndex,
+              beatIndex: i,
+              isMainTrack: isMainTrack,
+            );
+
+            timeline.add(updatedOff);
+            activeNoteOffs[noteKey] = updatedOff;
+          } else {
+            final noteOnEvent = ScheduledMidiEvent(
+              timeMs: roundMs(noteOnMs),
+              type: 'note_on',
+              channel: channel,
+              data1: pitch,
+              data2: velocity,
+              trackIndex: trackIndex,
+              beatIndex: i,
+              isMainTrack: isMainTrack,
+            );
+
+            final noteOffEvent = ScheduledMidiEvent(
+              timeMs: roundMs(noteOffMs),
+              type: 'note_off',
+              channel: channel,
+              data1: pitch,
+              data2: 0,
+              trackIndex: trackIndex,
+              beatIndex: i,
+              isMainTrack: isMainTrack,
+            );
+
+            timeline.add(noteOnEvent);
+            timeline.add(noteOffEvent);
+            activeNoteOffs[noteKey] = noteOffEvent;
+          }
         }
       }
 
-      beatAccumulatorInMeasureMs += beatDurationMs;
+      beatAccumulatorInMeasureQuarters += beat.duration;
 
       if (measureEnds.contains(i)) {
-        currentMeasureStartMs += beatAccumulatorInMeasureMs;
-        beatAccumulatorInMeasureMs = 0.0;
         currentMeasureIndex++;
+        beatAccumulatorInMeasureQuarters = 0.0;
         if (masterBars.isNotEmpty && currentMeasureIndex < masterBars.length) {
-          measureTempo = masterBars[currentMeasureIndex].tempo;
+          final mb = masterBars[currentMeasureIndex];
+          measureTempo = mb.tempo;
+          currentMeasureStartMs = mb.startMs / speedMultiplier;
+        } else {
+          currentMeasureStartMs += (beatEndQuarters * msPerQuarter);
         }
       }
     }
