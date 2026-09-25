@@ -5,11 +5,11 @@ import 'package:flutter_midi_pro/flutter_midi_pro.dart';
 class MidiService {
   static final MidiService _instance = MidiService._internal();
   factory MidiService() => _instance;
-
   MidiService._internal();
 
   final MidiPro midiPro = MidiPro();
   int? _soundfontId;
+
   bool _isInitializing = false;
   bool _isReady = false;
 
@@ -18,8 +18,8 @@ class MidiService {
 
   Future<void> init() async {
     if (_isReady || _isInitializing) return;
-
     _isInitializing = true;
+
     try {
       if (!midiPro.isInitialized) {
         await midiPro.init(sampleRate: 44100, bufferSize: 64, polyphony: 64);
@@ -29,28 +29,13 @@ class MidiService {
         assetPath: 'assets/guitar.sf2',
         program: 27,
       );
-
-      if (_soundfontId != null) {
-        await configurePitchBendSensitivity();
-      }
-
+      
       _isReady = true;
       debugPrint('[MIDI_SERVICE] Native MIDI engine & SoundFont initialized successfully.');
     } catch (e) {
       debugPrint('[MIDI_SERVICE] Setup Error: $e');
     } finally {
       _isInitializing = false;
-    }
-  }
-
-  Future<void> configurePitchBendSensitivity() async {
-    if (_soundfontId == null) return;
-    
-    // Configure pitch bend range to +/- 12 semitones across all 16 channels
-    for (int ch = 0; ch < 16; ch++) {
-      await midiPro.sendMidiEvent(status: 0xB0 | ch, data1: 101, data2: 0, sfId: _soundfontId!);
-      await midiPro.sendMidiEvent(status: 0xB0 | ch, data1: 100, data2: 0, sfId: _soundfontId!);
-      await midiPro.sendMidiEvent(status: 0xB0 | ch, data1: 6, data2: 12, sfId: _soundfontId!);
     }
   }
 

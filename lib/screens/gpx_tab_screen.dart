@@ -123,20 +123,31 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   void _spawnBendLoop(GpBend bend, double durationMs, int token, int bendToken, int channel) {
     final Stopwatch bendTimer = Stopwatch()..start();
     const int stepIntervalMs = 15;
+    
+    debugPrint('[BEND DEBUG] LOOP STARTED | Duration: ${durationMs}ms | Points: ${bend.envelope}');
+
     Future.doWhile(() async {
       if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
+        debugPrint('[BEND DEBUG] LOOP ABORTED/FINISHED | Resetting Pitch Bend.');
         await _resetPitchBend(channel: channel);
         return false;
       }
       final double elapsed = bendTimer.elapsedMilliseconds.toDouble();
       if (elapsed >= durationMs) {
+        debugPrint('[BEND DEBUG] LOOP COMPLETE | Resetting Pitch Bend.');
         await _resetPitchBend(channel: channel);
         return false;
       }
       final double progress = (elapsed / durationMs).clamp(0.0, 1.0);
       final double offsetSemitones = _interpolateBend(bend.envelope, progress);
-      // Assumes Pitch Bend RPN sensitivity is configured to 12 semitones
-      final int bendValue = (8192 + (offsetSemitones / 12.0) * 8191).clamp(0, 16383).round();
+      
+      final double safeOffset = offsetSemitones.clamp(-2.0, 2.0);
+      final int bendValue = (8192 + (safeOffset / 2.0) * 8191).clamp(0, 16383).round();
+      
+      if (elapsed % 100 < stepIntervalMs) {
+         debugPrint('[BEND DEBUG] T=${elapsed.round()}ms | Progress: ${(progress*100).toStringAsFixed(1)}% | Offset: $offsetSemitones st | Midi: $bendValue');
+      }
+
       await _sendPitchBend(bendValue, channel: channel);
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
       return true;
@@ -170,7 +181,8 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         offsetSemitones = 2.0 * progress;
       }
       
-      final int bendValue = (8192 + (offsetSemitones / 12.0) * 8191).clamp(0, 16383).round();
+      final double safeOffset = offsetSemitones.clamp(-2.0, 2.0);
+      final int bendValue = (8192 + (safeOffset / 2.0) * 8191).clamp(0, 16383).round();
       await _sendPitchBend(bendValue, channel: channel);
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
       return true;
@@ -195,7 +207,9 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         final double tSec = (elapsed - sustainStartMs) / 1000.0;
         final double lfo = sin(2 * pi * vibrato.frequency * tSec);
         final double offsetSemitones = lfo * (vibrato.amplitude * 0.4);
-        final int bendValue = (8192 + (offsetSemitones / 12.0) * 8191).clamp(0, 16383).round();
+        
+        final double safeOffset = offsetSemitones.clamp(-2.0, 2.0);
+        final int bendValue = (8192 + (safeOffset / 2.0) * 8191).clamp(0, 16383).round();
         await _sendPitchBend(bendValue, channel: channel);
       }
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
@@ -431,6 +445,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       _activeSoundingPitches.add(ev.data1);
       
       if (ev.bend != null && ev.durationMs != null) {
+        debugPrint('[BEND DEBUG] DISPATCH EVENT | Ch: ${ev.channel} | Max Offset: ${ev.bend!.maximumPitchOffset}');
         _currentBendToken++;
         _spawnBendLoop(ev.bend!, ev.durationMs!, token, _currentBendToken, ev.channel);
       } else if (ev.vibrato != null && ev.durationMs != null) {

@@ -3,6 +3,7 @@ import 'dart:isolate';
 import 'dart:math';
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:xml/xml.dart';
 import '../models/gp_beat.dart';
@@ -73,10 +74,16 @@ class GpxParserService {
       throw Exception('Invalid GP format. Ensure you are using a Guitar Pro (.gp/.gpx) file.');
     }
     ArchiveFile? gpifFile;
+    bool isGpx = false;
     for (final file in archive) {
       final String baseName = file.name.split('/').last.toLowerCase();
-      if (baseName == 'score.gpif' || baseName == 'main.xml') {
+      if (baseName == 'score.gpif') {
         gpifFile = file;
+        isGpx = true;
+        break;
+      } else if (baseName == 'main.xml') {
+        gpifFile = file;
+        isGpx = false;
         break;
       }
     }
@@ -105,7 +112,7 @@ class GpxParserService {
       initialNotesPerMeasure = masterBars.first.sixteenthCount;
       if (initialNotesPerMeasure <= 0) initialNotesPerMeasure = 16;
     }
-    final List<GpTrack> tracks = _parseTracksFromDocument(document);
+    final List<GpTrack> tracks = _parseTracksFromDocument(document, isGpx);
     return GpScore(
       fileName: fileName,
       filePath: filePath,
@@ -196,7 +203,7 @@ class GpxParserService {
     return false;
   }
 
-  static List<GpTrack> _parseTracksFromDocument(XmlDocument document) {
+  static List<GpTrack> _parseTracksFromDocument(XmlDocument document, bool isGpx) {
     final List<XmlElement> trackElements = document.findAllElements('Track').toList();
     final List<String> trackNames = [];
     final List<bool> trackIsPercussion = [];
@@ -242,6 +249,8 @@ class GpxParserService {
       }
     }
     final Map<String, GpNote> noteIdToNote = {};
+    int parsedBendCount = 0;
+
     for (final XmlElement note in document.findAllElements('Note')) {
       final String id = note.getAttribute('id') ?? '';
       if (id.isEmpty) continue;
@@ -291,43 +300,83 @@ class GpxParserService {
         else if (sVal.contains('shift')) slideType = SlideType.shift;
         else slideType = SlideType.legato;
       }
+
       GpBend? bend;
-      final directBend = note.findAllElements('Bend').firstOrNull;
+      final List<({double pos, double val})> rawPoints = [];
+
+      // 1. Check for direct <Bend> element
+      final XmlElement? directBend = note.findAllElements('Bend').firstOrNull;
       if (directBend != null) {
-        final List<({double pos, double val})> rawPoints = [];
         final pointNodes = directBend.findAllElements('Point').isNotEmpty
             ? directBend.findAllElements('Point')
             : directBend.findAllElements('BendPoint');
             
         for (final pt in pointNodes) {
-          final posStr = pt.getAttribute('position') ?? pt.getAttribute('pos');
-          final offStr = pt.getAttribute('offset') ?? pt.getAttribute('value');
+          final posStr = pt.getAttribute('position') ?? pt.getAttribute('pos') ?? pt.getAttribute('Position') ?? pt.getAttribute('Pos');
+          final offStr = pt.getAttribute('offset') ?? pt.getAttribute('value') ?? pt.getAttribute('Offset') ?? pt.getAttribute('Value');
           if (posStr != null && offStr != null) {
             final double p = double.tryParse(posStr) ?? 0.0;
             final double v = double.tryParse(offStr) ?? 0.0;
             rawPoints.add((pos: p, val: v));
           }
         }
-        
-        if (rawPoints.isNotEmpty) {
-          final List<BendPoint> points = [];
-          double maxOffsetSemitones = 0.0;
-          for (final raw in rawPoints) {
-            final double normalizedPos = (raw.pos / 100.0).clamp(0.0, 1.0); // Fix for 100% position basis
-            
-            double offsetSemitones = raw.val;
-            if (offsetSemitones >= 25) {
-              offsetSemitones = offsetSemitones / 50.0;
-            } else {
-              offsetSemitones = offsetSemitones / 2.0; 
+      }
+
+      // 2. Check for GPIF XML (<Property name="BendOriginOffset">)
+      if (rawPoints.isEmpty) {
+        final Map<String, double> propFloats = {};
+        bool hasBendedProp = false;
+        for (final prop in note.findAllElements('Property')) {
+          final pName = prop.getAttribute('name');
+          if (pName != null) {
+            if (pName == 'Bended') hasBendedProp = true;
+            final flt = prop.findElements('Float').firstOrNull?.innerText.trim();
+            if (flt != null) {
+              final double? val = double.tryParse(flt);
+              if (val != null) propFloats[pName] = val;
             }
-            if (offsetSemitones > maxOffsetSemitones) maxOffsetSemitones = offsetSemitones;
-            points.add(BendPoint(position: normalizedPos, offset: offsetSemitones));
           }
-          points.sort((a, b) => a.position.compareTo(b.position));
-          bend = GpBend(maximumPitchOffset: maxOffsetSemitones, envelope: points);
+        }
+
+        if (hasBendedProp || propFloats.keys.any((k) => k.contains('Bend'))) {
+          if (propFloats.containsKey('BendOriginOffset') && propFloats.containsKey('BendOriginValue')) {
+            rawPoints.add((pos: propFloats['BendOriginOffset']!, val: propFloats['BendOriginValue']!));
+          }
+          if (propFloats.containsKey('BendMiddleOffset1') && propFloats.containsKey('BendMiddleValue')) {
+            rawPoints.add((pos: propFloats['BendMiddleOffset1']!, val: propFloats['BendMiddleValue']!));
+          }
+          if (propFloats.containsKey('BendDestinationOffset') && propFloats.containsKey('BendDestinationValue')) {
+            rawPoints.add((pos: propFloats['BendDestinationOffset']!, val: propFloats['BendDestinationValue']!));
+          }
         }
       }
+
+      if (rawPoints.isNotEmpty) {
+        final List<BendPoint> points = [];
+        double maxOffsetSemitones = 0.0;
+        
+        rawPoints.sort((a, b) => a.pos.compareTo(b.pos));
+
+        for (final raw in rawPoints) {
+          final double normalizedPos = (raw.pos / 100.0).clamp(0.0, 1.0); 
+          
+          double offsetSemitones = raw.val;
+          if (raw.val > 10.0) {
+            offsetSemitones = raw.val / 50.0;
+          } else {
+            offsetSemitones = raw.val / 4.0;
+          }
+
+          if (offsetSemitones > maxOffsetSemitones) maxOffsetSemitones = offsetSemitones;
+          
+          points.add(BendPoint(position: normalizedPos, offset: offsetSemitones));
+        }
+        bend = GpBend(maximumPitchOffset: maxOffsetSemitones, envelope: points);
+        parsedBendCount++;
+        
+        debugPrint('[PARSER BEND DEBUG] SUCCESS | Note s:$displayString f:$fretNum | maxOffset: ${bend.maximumPitchOffset} semitones | points: ${bend.envelope}');
+      }
+
       GpVibrato? vibrato;
       if (note.findAllElements('Vibrato').isNotEmpty || _hasPropertyOrNode(note, ['Vibrato'])) {
         vibrato = const GpVibrato();
@@ -350,6 +399,9 @@ class GpxParserService {
         vibrato: vibrato,
       );
     }
+
+    debugPrint('[PARSER BEND DEBUG] Document parsing complete. Total notes with bends detected: $parsedBendCount');
+
     final Map<String, dynamic> beatIdToBeat = {};
     for (final XmlElement beat in document.findAllElements('Beat')) {
       final String id = beat.getAttribute('id') ?? '';
