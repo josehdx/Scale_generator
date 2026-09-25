@@ -87,7 +87,7 @@ class TabSequenceBuilder {
       if (!beat.isRest) {
         for (final note in beat.notes) {
           if (note.isRest) continue;
-          
+
           int pitch = note.pitch != -1 ? note.pitch : 60;
           int velocity = isMainTrack ? 110 : 80;
           double durationMs = beatDurationMs;

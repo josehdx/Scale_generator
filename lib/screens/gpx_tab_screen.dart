@@ -128,13 +128,17 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     final Stopwatch bendTimer = Stopwatch()..start();
     const int stepIntervalMs = 15;
     
+    debugPrint('[BEND DEBUG] LOOP STARTED | Duration: ${durationMs}ms | Points: ${bend.envelope}');
+
     Future.doWhile(() async {
       if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
+        debugPrint('[BEND DEBUG] LOOP ABORTED/FINISHED | Resetting Pitch Bend.');
         await _resetPitchBend(channel: channel);
         return false;
       }
       final double elapsed = bendTimer.elapsedMilliseconds.toDouble();
       if (elapsed >= durationMs) {
+        debugPrint('[BEND DEBUG] LOOP COMPLETE | Resetting Pitch Bend.');
         await _resetPitchBend(channel: channel);
         return false;
       }
@@ -144,6 +148,10 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       
       final double safeOffset = offsetSemitones.clamp(-2.0, 2.0);
       final int bendValue = (8192 + (safeOffset / 2.0) * 8191).clamp(0, 16383).round();
+
+      if (elapsed % 100 < stepIntervalMs) {
+         debugPrint('[BEND DEBUG] T=${elapsed.round()}ms | Progress: ${(progress*100).toStringAsFixed(1)}% | Offset: $offsetSemitones st | Midi: $bendValue');
+      }
 
       await _sendPitchBend(bendValue, channel: channel);
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
@@ -290,7 +298,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     final List<GpBeat> mainBeats = _parsedBeats;
     if (!_isMidiReady || mainBeats.isEmpty || _score == null) return;
 
-    final bool isSingleNoteSelected = _selectionStart != -1 && _selectionStart == _selectionEnd;
+    final bool isSingleNoteSelected = _selectionStart != -1 && _selectionEnd != -1 && _selectionStart == _selectionEnd;
     final bool isRangeSelected = _selectionStart != -1 && _selectionEnd != -1 && _selectionStart != _selectionEnd;
 
     final int selMin = isRangeSelected ? min(_selectionStart, _selectionEnd) : _selectionStart;
@@ -476,6 +484,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       _activeSoundingPitches.add(ev.data1);
       
       if (ev.bend != null && ev.durationMs != null) {
+        debugPrint('[BEND DEBUG] DISPATCH EVENT | Ch: ${ev.channel} | Max Offset: ${ev.bend!.maximumPitchOffset}');
         _currentBendToken++;
         _spawnBendLoop(ev.bend!, ev.durationMs!, token, _currentBendToken, ev.channel);
       } else if (ev.vibrato != null && ev.durationMs != null) {

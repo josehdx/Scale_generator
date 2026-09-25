@@ -22,15 +22,17 @@ class BendPainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     );
 
-    // Height calculation (approx. 7 lines: 6 strings + 1 top annotation area)
-    final double lineHeight = size.height / 7;
+    // Reserved top margin (12.0px) for topAnnotation text + bend curve apex.
+    // Line height is fixed at 13.2px (matching TextStyle fontSize 12 with height 1.1).
+    const double topMargin = 12.0;
+    const double lineHeight = 13.2;
 
     for (final note in beat.notes) {
       if (note.isRest || note.bend == null) continue;
       final bend = note.bend!;
-      final double startY = (note.stringNum) * lineHeight + (lineHeight / 2);
+      final double startY = topMargin + (note.stringNum) * lineHeight + (lineHeight / 2);
       final double startX = size.width / 2;
-      final double apexY = lineHeight / 2;
+      final double apexY = topMargin + (lineHeight / 2);
 
       final path = Path();
       path.moveTo(startX, startY);
@@ -38,11 +40,11 @@ class BendPainter extends CustomPainter {
       if (bend.hasRelease) {
         path.quadraticBezierTo(startX + 10, apexY, startX + 20, startY);
         _drawArrowHead(canvas, paint, startX + 20, startY, false);
-        _drawBendText(canvas, textPainter, bend.maximumPitchOffset, startX + 10, apexY - 14);
+        _drawBendText(canvas, textPainter, bend.maximumPitchOffset, startX + 10, apexY - 11.0);
       } else {
         path.quadraticBezierTo(startX + 10, startY, startX + 15, apexY);
         _drawArrowHead(canvas, paint, startX + 15, apexY, true);
-        _drawBendText(canvas, textPainter, bend.maximumPitchOffset, startX + 15, apexY - 14);
+        _drawBendText(canvas, textPainter, bend.maximumPitchOffset, startX + 15, apexY - 11.0);
       }
 
       canvas.drawPath(path, paint);
@@ -233,11 +235,11 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     if (_verticalController.hasClients) {
       final position = _verticalController.position;
       if (position.hasViewportDimension) {
-        double vertOffset = sysIndex * 135.0;
+        double vertOffset = sysIndex * 150.0;
         double currentVOffset = position.pixels;
         double vViewport = position.viewportDimension;
         
-        if (vertOffset < currentVOffset || vertOffset + 135.0 > currentVOffset + vViewport) {
+        if (vertOffset < currentVOffset || vertOffset + 150.0 > currentVOffset + vViewport) {
           _verticalController.animateTo(
             vertOffset,
             duration: const Duration(milliseconds: 150),
@@ -284,12 +286,15 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
         child: CustomPaint(
           foregroundPainter: BendPainter(beat, isPlaying ? Colors.black : Colors.amberAccent),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              const SizedBox(height: 12.0),
               Text(
                 topText,
                 style: TextStyle(
                   fontFamily: 'monospace',
                   fontSize: 12,
+                  height: 1.1,
                   fontWeight: FontWeight.bold,
                   color: isPlaying ? Colors.black : Colors.orangeAccent,
                 ),
@@ -302,6 +307,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                   style: TextStyle(
                     fontFamily: 'monospace',
                     fontSize: 12,
+                    height: 1.1,
                     fontWeight: FontWeight.bold,
                     color: isPlaying
                         ? (hasNote ? Colors.black : Colors.black38)
@@ -474,9 +480,10 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
               if (isMeasureEnd)
                 Column(
                   children: [
+                    const SizedBox(height: 12.0),
                     const Text(
                       " ",
-                      style: TextStyle(fontFamily: 'monospace', fontSize: 12),
+                      style: TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.1),
                     ),
                     ...List.generate(
                       6,
@@ -485,6 +492,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                         style: TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 12,
+                          height: 1.1,
                           color: Colors.white54,
                         ),
                       ),
@@ -499,9 +507,10 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
       rowChildren.add(
         Column(
           children: [
+            const SizedBox(height: 12.0),
             const Text(
               " ",
-              style: TextStyle(fontFamily: 'monospace', fontSize: 12),
+              style: TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.1),
             ),
             ...List.generate(
               6,
@@ -510,6 +519,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                 style: TextStyle(
                   fontFamily: 'monospace',
                   fontSize: 12,
+                  height: 1.1,
                   color: Colors.white54,
                 ),
               ),
@@ -522,17 +532,18 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
       systemWidgets.add(
         SizedBox(
-          height: 135.0,
+          height: 150.0,
           child: Padding(
-            padding: const EdgeInsets.only(bottom: 12.0),
+            padding: const EdgeInsets.only(bottom: 8.0),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Column(
                   children: [
+                    const SizedBox(height: 12.0),
                     const Text(
                       "   ",
-                      style: TextStyle(fontFamily: 'monospace', fontSize: 12),
+                      style: TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.1),
                     ),
                     ...stringLabels.map(
                       (lbl) => Text(
@@ -540,6 +551,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                         style: const TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 12,
+                          height: 1.1,
                           fontWeight: FontWeight.bold,
                           color: Colors.amberAccent,
                         ),

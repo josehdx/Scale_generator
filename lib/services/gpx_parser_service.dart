@@ -383,6 +383,7 @@ class GpxParserService {
             }
           }
         }
+
         if (hasBendedProp || propFloats.keys.any((k) => k.contains('Bend'))) {
           if (propFloats.containsKey('BendOriginOffset') && propFloats.containsKey('BendOriginValue')) {
             rawPoints.add((pos: propFloats['BendOriginOffset']!, val: propFloats['BendOriginValue']!));
@@ -413,12 +414,15 @@ class GpxParserService {
           } else {
             offsetSemitones = raw.val / 50.0;
           }
+
           if (offsetSemitones > maxOffsetSemitones) maxOffsetSemitones = offsetSemitones;
 
           points.add(BendPoint(position: normalizedPos, offset: offsetSemitones));
         }
         bend = GpBend(maximumPitchOffset: maxOffsetSemitones, envelope: points);
         parsedBendCount++;
+
+        debugPrint('[PARSER BEND DEBUG] SUCCESS | Note s:$displayString f:$fretNum | maxOffset: ${bend.maximumPitchOffset} semitones | points: ${bend.envelope}');
       }
 
       GpVibrato? vibrato;
@@ -444,6 +448,8 @@ class GpxParserService {
         vibrato: vibrato,
       );
     }
+
+    debugPrint('[PARSER BEND DEBUG] Document parsing complete. Total notes with bends detected: $parsedBendCount');
 
     final Map<String, dynamic> beatIdToBeat = {};
     for (final XmlElement beat in document.findAllElements('Beat')) {
