@@ -1,9 +1,6 @@
-// screens/gpx_tab_screen.dart
-
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
-
 import '../models/gp_beat.dart';
 import '../models/gp_note.dart';
 import '../models/gp_score.dart';
@@ -19,7 +16,6 @@ import '../widgets/playback_control_bar.dart';
 
 class GpxTabScreen extends StatefulWidget {
   const GpxTabScreen({super.key});
-
   @override
   State<GpxTabScreen> createState() => _GpxTabScreenState();
 }
@@ -27,7 +23,6 @@ class GpxTabScreen extends StatefulWidget {
 class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
-
   GpScore? _score;
   bool _isLoading = false;
   List<Map<String, String>> _recentFiles = [];
@@ -39,9 +34,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
   List<GpBeat> get _parsedBeats {
     if (_score == null || _score!.tracks.isEmpty) return [];
-
     final List<GpBeat> baseBeats = List<GpBeat>.from(_score!.tracks[_selectedTrackIndex].beats);
-
     if (_endRests > 0) {
       if (_selectionStart != -1 && _selectionEnd != -1) {
         int insertIdx = max(_selectionStart, _selectionEnd) + 1;
@@ -67,16 +60,11 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   int _currentPlayingIndex = -1;
   int _currentBendToken = 0;
   LoopMode _loopMode = LoopMode.off;
-
   final Set<int> _activeSoundingPitches = {};
   int _selectionStart = -1;
   int _selectionEnd = -1;
   int? _tapAnchorIndex;
   int _measuresPerLine = 3;
-
-  final Map<int, int> _standardTuning = {
-    1: 64, 2: 59, 3: 55, 4: 50, 5: 45, 6: 40, 7: 35, 8: 30,
-  };
 
   int _getTargetChannel(int trackIndex) {
     if (trackIndex == 0) return 12;
@@ -119,7 +107,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     if (envelope.isEmpty) return 0.0;
     if (progress <= envelope.first.position) return envelope.first.offset;
     if (progress >= envelope.last.position) return envelope.last.offset;
-
     for (int i = 0; i < envelope.length - 1; i++) {
       final p0 = envelope[i];
       final p1 = envelope[i + 1];
@@ -135,24 +122,55 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
   void _spawnBendLoop(GpBend bend, double durationMs, int token, int bendToken, int channel) {
     final Stopwatch bendTimer = Stopwatch()..start();
-    const int stepIntervalMs = 16;
-
+    const int stepIntervalMs = 15;
     Future.doWhile(() async {
       if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
         await _resetPitchBend(channel: channel);
         return false;
       }
-
       final double elapsed = bendTimer.elapsedMilliseconds.toDouble();
       if (elapsed >= durationMs) {
         await _resetPitchBend(channel: channel);
         return false;
       }
-
       final double progress = (elapsed / durationMs).clamp(0.0, 1.0);
       final double offsetSemitones = _interpolateBend(bend.envelope, progress);
-      final int bendValue = (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
+      // Assumes Pitch Bend RPN sensitivity is configured to 12 semitones
+      final int bendValue = (8192 + (offsetSemitones / 12.0) * 8191).clamp(0, 16383).round();
+      await _sendPitchBend(bendValue, channel: channel);
+      await Future.delayed(const Duration(milliseconds: stepIntervalMs));
+      return true;
+    });
+  }
 
+  void _spawnSlideLoop(SlideType slide, double durationMs, int token, int bendToken, int channel) {
+    if (slide == SlideType.none || slide == SlideType.legato || slide == SlideType.shift) return;
+    final Stopwatch slideTimer = Stopwatch()..start();
+    const int stepIntervalMs = 15;
+    Future.doWhile(() async {
+      if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
+        await _resetPitchBend(channel: channel);
+        return false;
+      }
+      final double elapsed = slideTimer.elapsedMilliseconds.toDouble();
+      if (elapsed >= durationMs) {
+        await _resetPitchBend(channel: channel);
+        return false;
+      }
+      final double progress = (elapsed / durationMs).clamp(0.0, 1.0);
+      
+      double offsetSemitones = 0.0;
+      if (slide == SlideType.intoFromBelow) {
+        offsetSemitones = -2.0 * (1.0 - progress);
+      } else if (slide == SlideType.intoFromAbove) {
+        offsetSemitones = 2.0 * (1.0 - progress);
+      } else if (slide == SlideType.outDownwards) {
+        offsetSemitones = -2.0 * progress;
+      } else if (slide == SlideType.outUpwards) {
+        offsetSemitones = 2.0 * progress;
+      }
+      
+      final int bendValue = (8192 + (offsetSemitones / 12.0) * 8191).clamp(0, 16383).round();
       await _sendPitchBend(bendValue, channel: channel);
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
       return true;
@@ -163,28 +181,23 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     final Stopwatch vibTimer = Stopwatch()..start();
     const int stepIntervalMs = 16;
     final double sustainStartMs = durationMs * 0.2;
-
     Future.doWhile(() async {
       if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
         await _resetPitchBend(channel: channel);
         return false;
       }
-
       final double elapsed = vibTimer.elapsedMilliseconds.toDouble();
       if (elapsed >= durationMs) {
         await _resetPitchBend(channel: channel);
         return false;
       }
-
       if (elapsed >= sustainStartMs) {
         final double tSec = (elapsed - sustainStartMs) / 1000.0;
         final double lfo = sin(2 * pi * vibrato.frequency * tSec);
         final double offsetSemitones = lfo * (vibrato.amplitude * 0.4);
-        final int bendValue = (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
-
+        final int bendValue = (8192 + (offsetSemitones / 12.0) * 8191).clamp(0, 16383).round();
         await _sendPitchBend(bendValue, channel: channel);
       }
-
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
       return true;
     });
@@ -221,14 +234,13 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       _isLoading = true;
       _score = null;
       _selectedTrackIndex = 0;
-      _soloedTracks = {0}; // Ensure track 0 is soloed on load
+      _soloedTracks = {0};
       _mutedTracks = {};
       _currentPlayingIndex = -1;
       _selectionStart = -1;
       _selectionEnd = -1;
       _tapAnchorIndex = null;
     });
-
     try {
       final result = await parseAction();
       if (result != null) {
@@ -258,13 +270,10 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   Future<void> _startPlayback() async {
     final List<GpBeat> mainBeats = _parsedBeats;
     if (!_isMidiReady || mainBeats.isEmpty || _score == null) return;
-
     final bool isSingleNoteSelected = _selectionStart != -1 && _selectionStart == _selectionEnd;
     final bool isRangeSelected = _selectionStart != -1 && _selectionEnd != -1 && _selectionStart != _selectionEnd;
-
     final int selMin = isRangeSelected ? min(_selectionStart, _selectionEnd) : _selectionStart;
     final int selMax = isRangeSelected ? (max(_selectionStart, _selectionEnd) + _endRests) : _selectionEnd;
-
     final int startIdx;
     if (_isPaused && _currentPlayingIndex >= 0 && _currentPlayingIndex < mainBeats.length) {
       startIdx = _currentPlayingIndex;
@@ -277,28 +286,23 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     } else {
       startIdx = 0;
     }
-
     final int endIdx = isRangeSelected
         ? selMax.clamp(0, mainBeats.length - 1)
         : ((_loopMode == LoopMode.selection && _selectionEnd != -1)
             ? _selectionEnd.clamp(0, mainBeats.length - 1)
             : mainBeats.length - 1);
-
     _isPaused = false;
     _playbackToken++;
     final int token = _playbackToken;
-
     setState(() {
       _isPlaying = true;
       _currentPlayingIndex = startIdx;
     });
-
     _midiService.playNote(key: 12, velocity: 1);
     await Future.delayed(const Duration(milliseconds: 100));
     _midiService.stopNote(key: 12);
-
     if (!mounted || _playbackToken != token || !_isPlaying) return;
-
+    
     final mainTimeline = TabSequenceBuilder.buildAbsoluteTimeline(
       beats: mainBeats,
       measureEnds: _parsedMeasureEnds,
@@ -309,14 +313,11 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       isMainTrack: true,
       speedMultiplier: _speedMultiplier,
     );
-
     if (mainTimeline.isEmpty) return;
-
     final double originStartMs = mainTimeline.firstWhere((e) => e.beatIndex == startIdx, orElse: () => mainTimeline.first).timeMs;
     final double originEndMs = mainTimeline.lastWhere((e) => e.beatIndex == endIdx, orElse: () => mainTimeline.last).timeMs;
-
     List<ScheduledMidiEvent> unifiedTimeline = [];
-
+    
     for (final ev in mainTimeline) {
       if (ev.beatIndex >= startIdx && ev.beatIndex <= endIdx) {
         unifiedTimeline.add(ScheduledMidiEvent(
@@ -328,14 +329,16 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
           trackIndex: ev.trackIndex,
           beatIndex: ev.beatIndex,
           isMainTrack: true,
+          bend: ev.bend,
+          vibrato: ev.vibrato, 
+          slideType: ev.slideType, 
+          durationMs: ev.durationMs,
         ));
       }
     }
-
     for (int tIdx = 0; tIdx < _score!.tracks.length; tIdx++) {
       if (tIdx == _selectedTrackIndex) continue;
       final bTrack = _score!.tracks[tIdx];
-
       final bTimeline = TabSequenceBuilder.buildAbsoluteTimeline(
         beats: bTrack.beats,
         measureEnds: bTrack.measureEndIndices,
@@ -346,7 +349,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         isMainTrack: false,
         speedMultiplier: _speedMultiplier,
       );
-
       for (final ev in bTimeline) {
         if (ev.timeMs >= originStartMs && ev.timeMs <= originEndMs) {
           unifiedTimeline.add(ScheduledMidiEvent(
@@ -358,31 +360,29 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
             trackIndex: ev.trackIndex,
             beatIndex: ev.beatIndex,
             isMainTrack: false,
+            bend: ev.bend,
+            vibrato: ev.vibrato, 
+            slideType: ev.slideType, 
+            durationMs: ev.durationMs,
           ));
         }
       }
     }
-
     unifiedTimeline.sort();
-
+    
     while (true) {
       if (!mounted || _playbackToken != token || !_isPlaying) return;
-
       final Stopwatch masterClock = Stopwatch()..start();
       int eventIndex = 0;
-
       while (eventIndex < unifiedTimeline.length) {
         if (!mounted || _playbackToken != token || !_isPlaying) {
           _cleanUpMidiState();
           return;
         }
-
         final ev = unifiedTimeline[eventIndex];
-
         final double targetMs = ev.timeMs;
         final double elapsedMs = masterClock.elapsedMicroseconds / 1000.0;
         final int waitMs = (targetMs - elapsedMs).round();
-
         if (waitMs > 0) {
           await Future.delayed(Duration(milliseconds: waitMs));
           if (!mounted || _playbackToken != token || !_isPlaying) {
@@ -390,26 +390,20 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
             return;
           }
         }
-
         while (eventIndex < unifiedTimeline.length &&
             unifiedTimeline[eventIndex].timeMs <= (masterClock.elapsedMicroseconds / 1000.0) + 2.0) {
           _dispatchMidiEvent(unifiedTimeline[eventIndex], token);
           eventIndex++;
         }
       }
-
       final double totalSongMs = originEndMs - originStartMs;
       final double currentElapsed = masterClock.elapsedMicroseconds / 1000.0;
       final int trailingWaitMs = (totalSongMs - currentElapsed).round();
-
       if (trailingWaitMs > 0) {
         await Future.delayed(Duration(milliseconds: trailingWaitMs));
       }
-
       _cleanUpMidiState();
-
       if (!mounted || _playbackToken != token || !_isPlaying) return;
-
       switch (_loopMode) {
         case LoopMode.off:
           setState(() {
@@ -419,7 +413,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
           return;
         case LoopMode.all:
         case LoopMode.selection:
-          // Keep looping
           break;
       }
     }
@@ -428,16 +421,25 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   void _dispatchMidiEvent(ScheduledMidiEvent ev, int token) {
     final int tIdx = ev.trackIndex;
     final bool shouldPlay = _soloedTracks.isNotEmpty ? _soloedTracks.contains(tIdx) : !_mutedTracks.contains(tIdx);
-
     if (ev.isMainTrack && mounted && ev.type == 'note_on') {
       setState(() => _currentPlayingIndex = ev.beatIndex);
     }
-
     if (!shouldPlay) return;
 
     if (ev.type == 'note_on') {
       _midiService.playNote(key: ev.data1, velocity: ev.data2, channel: ev.channel);
       _activeSoundingPitches.add(ev.data1);
+      
+      if (ev.bend != null && ev.durationMs != null) {
+        _currentBendToken++;
+        _spawnBendLoop(ev.bend!, ev.durationMs!, token, _currentBendToken, ev.channel);
+      } else if (ev.vibrato != null && ev.durationMs != null) {
+        _currentBendToken++;
+        _spawnVibratoLoop(ev.vibrato!, ev.durationMs!, token, _currentBendToken, ev.channel);
+      } else if (ev.slideType != SlideType.none && ev.durationMs != null) {
+        _currentBendToken++;
+        _spawnSlideLoop(ev.slideType, ev.durationMs!, token, _currentBendToken, ev.channel);
+      }
     } else if (ev.type == 'note_off') {
       _midiService.stopNote(key: ev.data1, channel: ev.channel);
       _activeSoundingPitches.remove(ev.data1);

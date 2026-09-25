@@ -1,5 +1,4 @@
 import 'dart:math';
-
 import '../models/gp_beat.dart';
 import '../models/gp_note.dart';
 import '../models/lick_preset.dart';
@@ -15,6 +14,10 @@ class ScheduledMidiEvent implements Comparable<ScheduledMidiEvent> {
   final int trackIndex;
   final int beatIndex;
   final bool isMainTrack;
+  final GpBend? bend;
+  final GpVibrato? vibrato;
+  final SlideType slideType;
+  final double? durationMs;
 
   const ScheduledMidiEvent({
     required this.timeMs,
@@ -25,6 +28,10 @@ class ScheduledMidiEvent implements Comparable<ScheduledMidiEvent> {
     required this.trackIndex,
     required this.beatIndex,
     required this.isMainTrack,
+    this.bend,
+    this.vibrato,
+    this.slideType = SlideType.none,
+    this.durationMs,
   });
 
   @override
@@ -63,11 +70,9 @@ class TabSequenceBuilder {
     int currentMeasureIndex = 0;
     double currentMeasureStartMs = 0.0;
     int measureTempo = initialTempo;
-
     if (masterBars.isNotEmpty && currentMeasureIndex < masterBars.length) {
       measureTempo = masterBars[currentMeasureIndex].tempo;
     }
-
     double beatAccumulatorInMeasureMs = 0.0;
 
     for (int i = 0; i < beats.length; i++) {
@@ -79,10 +84,20 @@ class TabSequenceBuilder {
       if (!beat.isRest) {
         for (final note in beat.notes) {
           if (note.isRest) continue;
-
-          final int pitch = note.pitch != -1 ? note.pitch : 60;
+          
+          int pitch = note.pitch != -1 ? note.pitch : 60;
           int velocity = isMainTrack ? 110 : 80;
           double durationMs = beatDurationMs;
+
+          if (note.isGhost) {
+            velocity = (velocity * 0.5).round();
+          }
+
+          if (note.harmonicType == HarmonicType.natural) {
+            pitch += 12; // Octave up
+          } else if (note.harmonicType == HarmonicType.artificial || note.harmonicType == HarmonicType.pinch) {
+            pitch += 24; // Two octaves up
+          }
 
           if (note.isMuted) {
             velocity = 20;
@@ -93,6 +108,10 @@ class TabSequenceBuilder {
           } else if (!note.isTie && !note.isLegato) {
             // Apply a tiny articulation gap to prevent legato bleeding/buffering
             durationMs = max(1.0, durationMs - 1.0);
+          }
+          
+          if (note.isLetRing) {
+            durationMs = beatDurationMs * 1.5; 
           }
 
           final double noteOnMs = roundMs(beatStartMs);
@@ -107,8 +126,11 @@ class TabSequenceBuilder {
             trackIndex: trackIndex,
             beatIndex: i,
             isMainTrack: isMainTrack,
+            bend: note.bend,
+            vibrato: note.vibrato,
+            slideType: note.slideType,
+            durationMs: durationMs,
           ));
-
           timeline.add(ScheduledMidiEvent(
             timeMs: noteOffMs,
             type: 'note_off',
@@ -121,9 +143,7 @@ class TabSequenceBuilder {
           ));
         }
       }
-
       beatAccumulatorInMeasureMs += beatDurationMs;
-
       if (measureEnds.contains(i)) {
         currentMeasureStartMs += beatAccumulatorInMeasureMs;
         beatAccumulatorInMeasureMs = 0.0;
@@ -133,7 +153,6 @@ class TabSequenceBuilder {
         }
       }
     }
-
     timeline.sort();
     return timeline;
   }
@@ -228,14 +247,15 @@ class TabSequenceBuilder {
     }
 
     engine.tunings[preset.tuning] ??= engine.openStrings;
-
     int stStr = 6;
     int enStr = 1;
+
     if (preset.system != "Single String Horizontal" && preset.fragment.contains('-') && !preset.fragment.contains('Strings')) {
       var parts = preset.fragment.split('-');
       stStr = (int.tryParse(parts[0]) ?? 6).clamp(1, 8);
       enStr = (int.tryParse(parts[1]) ?? 1).clamp(1, 8);
     }
+
     List<int> targetStrings = [];
     if (preset.system != "Single String Horizontal") {
       int minStr = min(stStr, enStr);
@@ -277,7 +297,6 @@ class TabSequenceBuilder {
           else if (preset.pathway == "4-Step 16th") patternNotes = engine.apply4StepSequence(baseNotes);
           else if (preset.pathway == "Note Skipping") patternNotes = engine.applyNoteSkipping(baseNotes);
           else patternNotes = baseNotes;
-
           if (preset.direction.startsWith("One-Way")) currentSequence = patternNotes;
           else currentSequence = [...patternNotes, ...patternNotes.reversed.skip(1).toList()];
         }
@@ -296,7 +315,6 @@ class TabSequenceBuilder {
         }
       }
     }
-
     return currentSequence;
   }
 
@@ -308,7 +326,6 @@ class TabSequenceBuilder {
         if (num != null && num > 0) return num * 4;
       }
     }
-
     List<String> parsed = parsePatternString(rhythm, customRhythmOverride: customRhythm);
     if (parsed.isEmpty) return 16;
     if (parsed.length == 3 && parsed[0] == "8th") return 12;
