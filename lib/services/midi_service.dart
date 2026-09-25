@@ -30,6 +30,10 @@ class MidiService {
         program: 27,
       );
       
+      if (_soundfontId != null) {
+        await configurePitchBendSensitivity();
+      }
+      
       _isReady = true;
       debugPrint('[MIDI_SERVICE] Native MIDI engine & SoundFont initialized successfully.');
     } catch (e) {
@@ -39,14 +43,26 @@ class MidiService {
     }
   }
 
-  Future<void> sendPitchBend(int value, {int channel = 0}) async {
+  Future<void> configurePitchBendSensitivity() async {
+    if (_soundfontId == null) return;
+    
+    // Configure pitch bend range to +/- 12 semitones across all 16 channels
+    for (int ch = 0; ch < 16; ch++) {
+      await midiPro.sendMidiEvent(status: 0xB0 | ch, data1: 101, data2: 0, sfId: _soundfontId!);
+      await midiPro.sendMidiEvent(status: 0xB0 | ch, data1: 100, data2: 0, sfId: _soundfontId!);
+      await midiPro.sendMidiEvent(status: 0xB0 | ch, data1: 6, data2: 12, sfId: _soundfontId!);
+    }
+  }
+
+  // PERFORMANCE FIX: Removed 'Future' and 'await'. Fire and forget.
+  void sendPitchBend(int value, {int channel = 0}) {
     if (!_isReady || _soundfontId == null) return;
     
     final int clamped = value.clamp(0, 16383);
     final int lsb = clamped & 0x7F;
     final int msb = (clamped >> 7) & 0x7F;
     
-    await midiPro.sendMidiEvent(
+    midiPro.sendMidiEvent(
       status: 0xE0 | (channel & 0x0F),
       data1: lsb,
       data2: msb,
@@ -54,8 +70,9 @@ class MidiService {
     );
   }
 
-  Future<void> resetPitchBend({int channel = 0}) async {
-    await sendPitchBend(8192, channel: channel);
+  // PERFORMANCE FIX: Synchronous reset
+  void resetPitchBend({int channel = 0}) {
+    sendPitchBend(8192, channel: channel);
   }
 
   void playNote({required int key, required int velocity, int channel = 0}) {

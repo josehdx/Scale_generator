@@ -22,8 +22,6 @@ class BendPainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     );
 
-    // Reserved top margin (12.0px) for topAnnotation text + bend curve apex.
-    // Line height is fixed at 13.2px (matching TextStyle fontSize 12 with height 1.1).
     const double topMargin = 12.0;
     const double lineHeight = 13.2;
 
@@ -467,12 +465,17 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (widget.playingIndexNotifier != null)
-                ValueListenableBuilder<int>(
-                  valueListenable: widget.playingIndexNotifier!,
-                  builder: (context, pIdx, child) {
-                    final bool isPlaying = (beatIndex == pIdx);
-                    return _buildBeatContainer(isPlaying, isSelected, topText, renderedStrings, beatIndex, beat);
-                  },
+                _BeatHighlightWrapper(
+                  beatIndex: beatIndex,
+                  playingIndexNotifier: widget.playingIndexNotifier!,
+                  builder: (isPlaying) => _buildBeatContainer(
+                    isPlaying,
+                    isSelected,
+                    topText,
+                    renderedStrings,
+                    beatIndex,
+                    beat,
+                  ),
                 )
               else
                 _buildBeatContainer(beatIndex == widget.currentPlayingIndex, isSelected, topText, renderedStrings, beatIndex, beat),
@@ -587,5 +590,54 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
         ),
       ),
     );
+  }
+}
+
+class _BeatHighlightWrapper extends StatefulWidget {
+  final int beatIndex;
+  final ValueNotifier<int> playingIndexNotifier;
+  final Widget Function(bool isPlaying) builder;
+
+  const _BeatHighlightWrapper({
+    Key? key,
+    required this.beatIndex,
+    required this.playingIndexNotifier,
+    required this.builder,
+  }) : super(key: key);
+
+  @override
+  State<_BeatHighlightWrapper> createState() => _BeatHighlightWrapperState();
+}
+
+class _BeatHighlightWrapperState extends State<_BeatHighlightWrapper> {
+  late bool _isPlaying;
+
+  @override
+  void initState() {
+    super.initState();
+    _isPlaying = widget.playingIndexNotifier.value == widget.beatIndex;
+    widget.playingIndexNotifier.addListener(_onIndexChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.playingIndexNotifier.removeListener(_onIndexChanged);
+    super.dispose();
+  }
+
+  void _onIndexChanged() {
+    final bool currentlyPlaying = widget.playingIndexNotifier.value == widget.beatIndex;
+    if (_isPlaying != currentlyPlaying) {
+      if (mounted) {
+        setState(() {
+          _isPlaying = currentlyPlaying;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.builder(_isPlaying);
   }
 }

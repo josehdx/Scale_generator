@@ -47,7 +47,6 @@ class ScheduledMidiEvent implements Comparable<ScheduledMidiEvent> {
 /// Pure-Dart utility for calculating note sequences, rhythms, accents, and absolute timeline matrices.
 class TabSequenceBuilder {
   final ScaleEngine engine;
-
   TabSequenceBuilder({required this.engine});
 
   static double roundMs(double ms) {
@@ -71,11 +70,9 @@ class TabSequenceBuilder {
     int currentMeasureIndex = 0;
     double currentMeasureStartMs = 0.0;
     int measureTempo = initialTempo;
-
     if (masterBars.isNotEmpty && currentMeasureIndex < masterBars.length) {
       measureTempo = masterBars[currentMeasureIndex].tempo;
     }
-
     double beatAccumulatorInMeasureMs = 0.0;
 
     for (int i = 0; i < beats.length; i++) {
@@ -87,10 +84,41 @@ class TabSequenceBuilder {
       if (!beat.isRest) {
         for (final note in beat.notes) {
           if (note.isRest) continue;
+          if (note.isTie) continue; // Note is handled by lookahead of previous note
 
           int pitch = note.pitch != -1 ? note.pitch : 60;
           int velocity = isMainTrack ? 110 : 80;
-          double durationMs = beatDurationMs;
+
+          // Process Ties dynamically for sustained bends & duration extensions
+          double totalDurationMs = beatDurationMs;
+          int lookAheadIdx = i + 1;
+          int lookAheadMeasureIdx = currentMeasureIndex;
+
+          while (lookAheadIdx < beats.length) {
+            final nextBeat = beats[lookAheadIdx];
+            int nextTempo = initialTempo;
+            if (masterBars.isNotEmpty && lookAheadMeasureIdx < masterBars.length) {
+              nextTempo = masterBars[lookAheadMeasureIdx].tempo;
+            }
+
+            if (!nextBeat.isRest) {
+              final nextNote = nextBeat.notes.where((n) => n.stringNum == note.stringNum).firstOrNull;
+              if (nextNote != null && nextNote.isTie) {
+                final double nextEffectiveTempo = nextTempo * speedMultiplier;
+                final double nextBeatDurMs = nextBeat.duration * (60000.0 / nextEffectiveTempo);
+                totalDurationMs += nextBeatDurMs;
+              } else {
+                break;
+              }
+            } else {
+              break;
+            }
+
+            if (measureEnds.contains(lookAheadIdx)) {
+              lookAheadMeasureIdx++;
+            }
+            lookAheadIdx++;
+          }
 
           if (note.isGhost) {
             velocity = (velocity * 0.5).round();
@@ -104,20 +132,20 @@ class TabSequenceBuilder {
 
           if (note.isMuted) {
             velocity = 20;
-            durationMs = min(beatDurationMs, 30.0);
+            totalDurationMs = min(totalDurationMs, 30.0);
           } else if (note.isPalmMute) {
             velocity = (velocity * 0.6).round();
-            durationMs = beatDurationMs * 0.5;
-          } else if (!note.isTie && !note.isLegato) {
-            durationMs = max(1.0, durationMs - 1.0);
+            totalDurationMs = totalDurationMs * 0.5;
+          } else if (!note.isLegato && totalDurationMs == beatDurationMs) {
+            totalDurationMs = max(1.0, totalDurationMs - 1.0);
           }
-
+          
           if (note.isLetRing) {
-            durationMs = beatDurationMs * 1.5; 
+            totalDurationMs = totalDurationMs * 1.5; 
           }
 
           final double noteOnMs = roundMs(beatStartMs);
-          final double noteOffMs = roundMs(beatStartMs + durationMs);
+          final double noteOffMs = roundMs(beatStartMs + totalDurationMs);
 
           timeline.add(ScheduledMidiEvent(
             timeMs: noteOnMs,
@@ -131,9 +159,8 @@ class TabSequenceBuilder {
             bend: note.bend,
             vibrato: note.vibrato,
             slideType: note.slideType,
-            durationMs: durationMs,
+            durationMs: totalDurationMs,
           ));
-
           timeline.add(ScheduledMidiEvent(
             timeMs: noteOffMs,
             type: 'note_off',
@@ -146,9 +173,7 @@ class TabSequenceBuilder {
           ));
         }
       }
-
       beatAccumulatorInMeasureMs += beatDurationMs;
-
       if (measureEnds.contains(i)) {
         currentMeasureStartMs += beatAccumulatorInMeasureMs;
         beatAccumulatorInMeasureMs = 0.0;
@@ -158,7 +183,6 @@ class TabSequenceBuilder {
         }
       }
     }
-
     timeline.sort();
     return timeline;
   }
@@ -303,7 +327,6 @@ class TabSequenceBuilder {
           else if (preset.pathway == "4-Step 16th") patternNotes = engine.apply4StepSequence(baseNotes);
           else if (preset.pathway == "Note Skipping") patternNotes = engine.applyNoteSkipping(baseNotes);
           else patternNotes = baseNotes;
-
           if (preset.direction.startsWith("One-Way")) currentSequence = patternNotes;
           else currentSequence = [...patternNotes, ...patternNotes.reversed.skip(1).toList()];
         }
