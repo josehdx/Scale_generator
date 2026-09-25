@@ -70,7 +70,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   int? _tapAnchorIndex;
   int _measuresPerLine = 3;
 
-  // --- ADVANCED TELEMETRY TRACKERS ---
   int _diagnosticMidiCalls = 0;
   double _diagnosticMaxDrift = 0.0;
   double _diagnosticMaxExecutionJitter = 0.0;
@@ -107,6 +106,13 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     }
   }
 
+  void _trackMidiSyncCall(String type, Function action) {
+    _diagnosticMidiCalls++;
+    final sw = Stopwatch()..start();
+    action();
+    sw.stop();
+  }
+
   void _sendPitchBend(int value, {int channel = 0}) {
     _diagnosticMidiCalls++;
     _midiService.sendPitchBend(value, channel: channel);
@@ -136,7 +142,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
   void _spawnBendLoop(GpBend bend, double durationMs, int token, int bendToken, int channel) async {
     final Stopwatch bendTimer = Stopwatch()..start();
-    const int stepIntervalMs = 30; // Increased to prevent JNI saturation
+    const int stepIntervalMs = 30; 
     int lastSentValue = -1;
     
     _diagnosticActiveLoops++;
@@ -368,11 +374,33 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     });
     _playingIndexNotifier.value = startIdx;
 
-    _midiService.playNote(key: 12, velocity: 1);
+    _trackMidiSyncCall('initNote', () => _midiService.playNote(key: 12, velocity: 1));
     await Future.delayed(const Duration(milliseconds: 100));
-    _midiService.stopNote(key: 12);
+    _trackMidiSyncCall('initNoteOff', () => _midiService.stopNote(key: 12));
 
     if (!mounted || _playbackToken != token || !_isPlaying) return;
+
+    double calculateMsForBeatIndex(int targetIndex) {
+      double ms = 0.0;
+      int measureIdx = 0;
+      int tpo = _score!.tempo;
+      if (_score!.masterBars.isNotEmpty) tpo = _score!.masterBars[0].tempo;
+      
+      for (int i = 0; i < targetIndex && i < mainBeats.length; i++) {
+        final double effTempo = tpo * _speedMultiplier;
+        ms += mainBeats[i].duration * (60000.0 / effTempo);
+        if (_parsedMeasureEnds.contains(i)) {
+          measureIdx++;
+          if (_score!.masterBars.isNotEmpty && measureIdx < _score!.masterBars.length) {
+            tpo = _score!.masterBars[measureIdx].tempo;
+          }
+        }
+      }
+      return TabSequenceBuilder.roundMs(ms);
+    }
+
+    final double originStartMs = calculateMsForBeatIndex(startIdx);
+    final double originEndMs = calculateMsForBeatIndex(endIdx + 1);
 
     final mainTimeline = TabSequenceBuilder.buildAbsoluteTimeline(
       beats: mainBeats,
@@ -387,29 +415,32 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
     if (mainTimeline.isEmpty) return;
 
-    final double originStartMs = mainTimeline.firstWhere((e) => e.beatIndex == startIdx, orElse: () => mainTimeline.first).timeMs;
-    final double originEndMs = mainTimeline.lastWhere((e) => e.beatIndex == endIdx, orElse: () => mainTimeline.last).timeMs;
-
     List<ScheduledMidiEvent> unifiedTimeline = [];
 
-    for (final ev in mainTimeline) {
-      if (ev.beatIndex >= startIdx && ev.beatIndex <= endIdx) {
-        unifiedTimeline.add(ScheduledMidiEvent(
-          timeMs: TabSequenceBuilder.roundMs(ev.timeMs - originStartMs),
-          type: ev.type,
-          channel: ev.channel,
-          data1: ev.data1,
-          data2: ev.data2,
-          trackIndex: ev.trackIndex,
-          beatIndex: ev.beatIndex,
-          isMainTrack: true,
-          bend: ev.bend,
-          vibrato: ev.vibrato,
-          slideType: ev.slideType,
-          durationMs: ev.durationMs,
-        ));
+    void _addEventsToUnifiedTimeline(List<ScheduledMidiEvent> sourceTimeline, bool isMainTrack) {
+      for (final ev in sourceTimeline) {
+        if (ev.timeMs >= originStartMs && ev.timeMs <= originEndMs) {
+          unifiedTimeline.add(ScheduledMidiEvent(
+            timeMs: TabSequenceBuilder.roundMs(ev.timeMs - originStartMs),
+            type: ev.type,
+            channel: ev.channel,
+            data1: ev.data1,
+            data2: ev.data2,
+            trackIndex: ev.trackIndex,
+            beatIndex: ev.beatIndex,
+            isMainTrack: isMainTrack,
+            bend: ev.bend,
+            vibrato: ev.vibrato,
+            slideType: ev.slideType,
+            durationMs: ev.durationMs,
+            isMuted: ev.isMuted,
+            isGhost: ev.isGhost,
+          ));
+        } 
       }
     }
+
+    _addEventsToUnifiedTimeline(mainTimeline, true);
 
     for (int tIdx = 0; tIdx < _score!.tracks.length; tIdx++) {
       if (tIdx == _selectedTrackIndex) continue;
@@ -424,25 +455,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         isMainTrack: false,
         speedMultiplier: _speedMultiplier,
       );
-
-      for (final ev in bTimeline) {
-        if (ev.timeMs >= originStartMs && ev.timeMs <= originEndMs) {
-          unifiedTimeline.add(ScheduledMidiEvent(
-            timeMs: TabSequenceBuilder.roundMs(ev.timeMs - originStartMs),
-            type: ev.type,
-            channel: ev.channel,
-            data1: ev.data1,
-            data2: ev.data2,
-            trackIndex: ev.trackIndex,
-            beatIndex: ev.beatIndex,
-            isMainTrack: false,
-            bend: ev.bend,
-            vibrato: ev.vibrato,
-            slideType: ev.slideType,
-            durationMs: ev.durationMs,
-          ));
-        }
-      }
+      _addEventsToUnifiedTimeline(bTimeline, false);
     }
 
     unifiedTimeline.sort();
@@ -472,7 +485,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
           }
         }
 
-        // --- TIMER vs EXECUTION JITTER TELEMETRY ---
         final double wokeUpAtMs = masterClock.elapsedMicroseconds / 1000.0;
         final double timerDrift = wokeUpAtMs - targetMs;
         if (timerDrift > _diagnosticMaxDrift) _diagnosticMaxDrift = timerDrift;
@@ -537,8 +549,11 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     if (!shouldPlay) return;
 
     if (ev.type == 'note_on') {
-      _midiService.playNote(key: ev.data1, velocity: ev.data2, channel: ev.channel);
-      _diagnosticMidiCalls++;
+      if (ev.isMuted || ev.isGhost) {
+        debugPrint('[EXPRESSIVITY DIAGNOSTIC] Firing ${ev.isMuted ? "Muted (x)" : "Ghost ()"} | Pitch: ${ev.data1} | Vel: ${ev.data2} | Dur: ${ev.durationMs}ms');
+      }
+      
+      _trackMidiSyncCall('playNote', () => _midiService.playNote(key: ev.data1, velocity: ev.data2, channel: ev.channel));
       _activeSoundingPitches.add(ev.data1);
       
       if (ev.bend != null && ev.durationMs != null) {
@@ -552,8 +567,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         _spawnSlideLoop(ev.slideType, ev.durationMs!, token, _currentBendToken, ev.channel);
       }
     } else if (ev.type == 'note_off') {
-      _midiService.stopNote(key: ev.data1, channel: ev.channel);
-      _diagnosticMidiCalls++;
+      _trackMidiSyncCall('stopNote', () => _midiService.stopNote(key: ev.data1, channel: ev.channel));
       _activeSoundingPitches.remove(ev.data1);
     }
   }

@@ -18,6 +18,8 @@ class ScheduledMidiEvent implements Comparable<ScheduledMidiEvent> {
   final GpVibrato? vibrato;
   final SlideType slideType;
   final double? durationMs;
+  final bool isMuted;
+  final bool isGhost;
 
   const ScheduledMidiEvent({
     required this.timeMs,
@@ -32,6 +34,8 @@ class ScheduledMidiEvent implements Comparable<ScheduledMidiEvent> {
     this.vibrato,
     this.slideType = SlideType.none,
     this.durationMs,
+    this.isMuted = false,
+    this.isGhost = false,
   });
 
   @override
@@ -84,44 +88,16 @@ class TabSequenceBuilder {
       if (!beat.isRest) {
         for (final note in beat.notes) {
           if (note.isRest) continue;
-          if (note.isTie) continue; // Note is handled by lookahead of previous note
 
           int pitch = note.pitch != -1 ? note.pitch : 60;
           int velocity = isMainTrack ? 110 : 80;
-
-          // Process Ties dynamically for sustained bends & duration extensions
           double totalDurationMs = beatDurationMs;
-          int lookAheadIdx = i + 1;
-          int lookAheadMeasureIdx = currentMeasureIndex;
 
-          while (lookAheadIdx < beats.length) {
-            final nextBeat = beats[lookAheadIdx];
-            int nextTempo = initialTempo;
-            if (masterBars.isNotEmpty && lookAheadMeasureIdx < masterBars.length) {
-              nextTempo = masterBars[lookAheadMeasureIdx].tempo;
-            }
-
-            if (!nextBeat.isRest) {
-              final nextNote = nextBeat.notes.where((n) => n.stringNum == note.stringNum).firstOrNull;
-              if (nextNote != null && nextNote.isTie) {
-                final double nextEffectiveTempo = nextTempo * speedMultiplier;
-                final double nextBeatDurMs = nextBeat.duration * (60000.0 / nextEffectiveTempo);
-                totalDurationMs += nextBeatDurMs;
-              } else {
-                break;
-              }
-            } else {
-              break;
-            }
-
-            if (measureEnds.contains(lookAheadIdx)) {
-              lookAheadMeasureIdx++;
-            }
-            lookAheadIdx++;
-          }
-
-          if (note.isGhost) {
-            velocity = (velocity * 0.5).round();
+          if (note.isTie) {
+            // Softly re-trigger tied notes to prevent SoundFont ADSR decay gaps
+            velocity = (velocity * 0.45).round().clamp(20, 127);
+          } else if (note.isGhost) {
+            velocity = (velocity * 0.70).round().clamp(40, 127);
           }
 
           if (note.harmonicType == HarmonicType.natural) {
@@ -131,8 +107,9 @@ class TabSequenceBuilder {
           }
 
           if (note.isMuted) {
-            velocity = 20;
-            totalDurationMs = min(totalDurationMs, 30.0);
+            // Maximize transient punch to ensure "x" translates audibly through synth
+            velocity = 115; 
+            totalDurationMs = min(totalDurationMs, 150.0); 
           } else if (note.isPalmMute) {
             velocity = (velocity * 0.6).round();
             totalDurationMs = totalDurationMs * 0.5;
@@ -160,6 +137,8 @@ class TabSequenceBuilder {
             vibrato: note.vibrato,
             slideType: note.slideType,
             durationMs: totalDurationMs,
+            isMuted: note.isMuted,
+            isGhost: note.isGhost || note.isTie,
           ));
           timeline.add(ScheduledMidiEvent(
             timeMs: noteOffMs,
@@ -170,6 +149,8 @@ class TabSequenceBuilder {
             trackIndex: trackIndex,
             beatIndex: i,
             isMainTrack: isMainTrack,
+            isMuted: note.isMuted,
+            isGhost: note.isGhost || note.isTie,
           ));
         }
       }
