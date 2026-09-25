@@ -1,3 +1,5 @@
+// screens/gpx_tab_screen.dart
+
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -29,17 +31,17 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   GpScore? _score;
   bool _isLoading = false;
   List<Map<String, String>> _recentFiles = [];
-
   int _selectedTrackIndex = 0;
-  Set<int> _soloedTracks = {};
+  Set<int> _soloedTracks = {0}; // Prioritize selected track by default
   Set<int> _mutedTracks = {};
-
   int _endRests = 0;
   double _speedMultiplier = 1.0;
 
   List<GpBeat> get _parsedBeats {
     if (_score == null || _score!.tracks.isEmpty) return [];
+
     final List<GpBeat> baseBeats = List<GpBeat>.from(_score!.tracks[_selectedTrackIndex].beats);
+
     if (_endRests > 0) {
       if (_selectionStart != -1 && _selectionEnd != -1) {
         int insertIdx = max(_selectionStart, _selectionEnd) + 1;
@@ -65,8 +67,8 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   int _currentPlayingIndex = -1;
   int _currentBendToken = 0;
   LoopMode _loopMode = LoopMode.off;
-  final Set<int> _activeSoundingPitches = {};
 
+  final Set<int> _activeSoundingPitches = {};
   int _selectionStart = -1;
   int _selectionEnd = -1;
   int? _tapAnchorIndex;
@@ -117,6 +119,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     if (envelope.isEmpty) return 0.0;
     if (progress <= envelope.first.position) return envelope.first.offset;
     if (progress >= envelope.last.position) return envelope.last.offset;
+
     for (int i = 0; i < envelope.length - 1; i++) {
       final p0 = envelope[i];
       final p1 = envelope[i + 1];
@@ -133,19 +136,23 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   void _spawnBendLoop(GpBend bend, double durationMs, int token, int bendToken, int channel) {
     final Stopwatch bendTimer = Stopwatch()..start();
     const int stepIntervalMs = 16;
+
     Future.doWhile(() async {
       if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
         await _resetPitchBend(channel: channel);
         return false;
       }
+
       final double elapsed = bendTimer.elapsedMilliseconds.toDouble();
       if (elapsed >= durationMs) {
         await _resetPitchBend(channel: channel);
         return false;
       }
+
       final double progress = (elapsed / durationMs).clamp(0.0, 1.0);
       final double offsetSemitones = _interpolateBend(bend.envelope, progress);
       final int bendValue = (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
+
       await _sendPitchBend(bendValue, channel: channel);
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
       return true;
@@ -156,23 +163,28 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     final Stopwatch vibTimer = Stopwatch()..start();
     const int stepIntervalMs = 16;
     final double sustainStartMs = durationMs * 0.2;
+
     Future.doWhile(() async {
       if (!mounted || _playbackToken != token || _currentBendToken != bendToken || !_isPlaying) {
         await _resetPitchBend(channel: channel);
         return false;
       }
+
       final double elapsed = vibTimer.elapsedMilliseconds.toDouble();
       if (elapsed >= durationMs) {
         await _resetPitchBend(channel: channel);
         return false;
       }
+
       if (elapsed >= sustainStartMs) {
         final double tSec = (elapsed - sustainStartMs) / 1000.0;
         final double lfo = sin(2 * pi * vibrato.frequency * tSec);
         final double offsetSemitones = lfo * (vibrato.amplitude * 0.4);
         final int bendValue = (8192 + (offsetSemitones / 2.0) * 8191).clamp(0, 16383).round();
+
         await _sendPitchBend(bendValue, channel: channel);
       }
+
       await Future.delayed(const Duration(milliseconds: stepIntervalMs));
       return true;
     });
@@ -209,13 +221,14 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       _isLoading = true;
       _score = null;
       _selectedTrackIndex = 0;
-      _soloedTracks = {0}; 
+      _soloedTracks = {0}; // Ensure track 0 is soloed on load
       _mutedTracks = {};
       _currentPlayingIndex = -1;
       _selectionStart = -1;
       _selectionEnd = -1;
       _tapAnchorIndex = null;
     });
+
     try {
       final result = await parseAction();
       if (result != null) {
@@ -322,6 +335,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     for (int tIdx = 0; tIdx < _score!.tracks.length; tIdx++) {
       if (tIdx == _selectedTrackIndex) continue;
       final bTrack = _score!.tracks[tIdx];
+
       final bTimeline = TabSequenceBuilder.buildAbsoluteTimeline(
         beats: bTrack.beats,
         measureEnds: bTrack.measureEndIndices,
@@ -364,6 +378,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         }
 
         final ev = unifiedTimeline[eventIndex];
+
         final double targetMs = ev.timeMs;
         final double elapsedMs = masterClock.elapsedMicroseconds / 1000.0;
         final int waitMs = (targetMs - elapsedMs).round();
@@ -404,6 +419,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
           return;
         case LoopMode.all:
         case LoopMode.selection:
+          // Keep looping
           break;
       }
     }
@@ -449,7 +465,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     _playbackToken++;
     _cleanUpMidiState();
     _isPaused = false;
-
     if (mounted) {
       setState(() {
         _isPlaying = false;
@@ -542,7 +557,14 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
                             selectedTrackIndex: _selectedTrackIndex,
                             soloedTracks: _soloedTracks,
                             mutedTracks: _mutedTracks,
-                            onSelectTrack: (i) { _stopPlayback(resetPosition: true); setState(() { _selectedTrackIndex = i; _selectionStart = -1; _selectionEnd = -1; }); },
+                            onSelectTrack: (i) {
+                              _stopPlayback(resetPosition: true);
+                              setState(() {
+                                _selectedTrackIndex = i;
+                                _selectionStart = -1;
+                                _selectionEnd = -1;
+                              });
+                            },
                             onToggleSolo: (i) => setState(() { if (_soloedTracks.contains(i)) _soloedTracks.remove(i); else { _soloedTracks.add(i); _mutedTracks.remove(i); } }),
                             onToggleMute: (i) => setState(() { if (_mutedTracks.contains(i)) _mutedTracks.remove(i); else { _mutedTracks.add(i); _soloedTracks.remove(i); } }),
                           ),

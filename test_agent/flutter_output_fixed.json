@@ -21088,21 +21088,42 @@
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 48166.8,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 48166.8,
     "type": "note_on",
     "channel": 12,
     "data1": 59,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 48206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 48206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
+  },
+  {
+    "time_ms": 48206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 59,
+    "data2": 0
   },
   {
     "time_ms": 48250.0,
@@ -21337,45 +21358,45 @@
   },
   {
     "time_ms": 48500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 48500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
-    "data2": 0
-  },
-  {
-    "time_ms": 48500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 59,
-    "data2": 0
-  },
-  {
-    "time_ms": 48500.1,
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 48500.1,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 48500.1,
     "type": "note_on",
     "channel": 12,
     "data1": 59,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 48540.1,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 48540.1,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
+  },
+  {
+    "time_ms": 48540.1,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 59,
+    "data2": 0
   },
   {
     "time_ms": 48562.5,
@@ -21400,45 +21421,45 @@
   },
   {
     "time_ms": 48666.8,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 48666.8,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
-    "data2": 0
-  },
-  {
-    "time_ms": 48666.8,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 59,
-    "data2": 0
-  },
-  {
-    "time_ms": 48666.8,
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 48666.8,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 48666.8,
     "type": "note_on",
     "channel": 12,
     "data1": 59,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 48706.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 48706.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
+  },
+  {
+    "time_ms": 48706.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 59,
+    "data2": 0
   },
   {
     "time_ms": 48750.0,
@@ -21628,27 +21649,6 @@
     "channel": 10,
     "data1": 53,
     "data2": 114
-  },
-  {
-    "time_ms": 49000.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 49000.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
-    "data2": 0
-  },
-  {
-    "time_ms": 49000.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 59,
-    "data2": 0
   },
   {
     "time_ms": 49000.1,
@@ -22215,21 +22215,42 @@
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 50166.8,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 50166.8,
     "type": "note_on",
     "channel": 12,
     "data1": 59,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 50206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 50206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
+  },
+  {
+    "time_ms": 50206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 59,
+    "data2": 0
   },
   {
     "time_ms": 50250.0,
@@ -22426,27 +22447,6 @@
     "channel": 10,
     "data1": 53,
     "data2": 114
-  },
-  {
-    "time_ms": 50500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 50500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
-    "data2": 0
-  },
-  {
-    "time_ms": 50500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 59,
-    "data2": 0
   },
   {
     "time_ms": 50500.1,
@@ -23335,21 +23335,42 @@
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 52166.8,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 52166.8,
     "type": "note_on",
     "channel": 12,
     "data1": 59,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 52206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 52206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
+  },
+  {
+    "time_ms": 52206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 59,
+    "data2": 0
   },
   {
     "time_ms": 52250.0,
@@ -23546,27 +23567,6 @@
     "channel": 10,
     "data1": 53,
     "data2": 114
-  },
-  {
-    "time_ms": 52500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 52500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
-    "data2": 0
-  },
-  {
-    "time_ms": 52500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 59,
-    "data2": 0
   },
   {
     "time_ms": 52500.1,
@@ -23839,21 +23839,21 @@
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 53000.1,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 53000.1,
     "type": "note_on",
     "channel": 12,
     "data1": 59,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 53000.1,
@@ -23861,6 +23861,27 @@
     "channel": 12,
     "data1": 64,
     "data2": 89
+  },
+  {
+    "time_ms": 53040.1,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 53040.1,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
+  },
+  {
+    "time_ms": 53040.1,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 59,
+    "data2": 0
   },
   {
     "time_ms": 53062.5,
@@ -23887,27 +23908,6 @@
     "time_ms": 53166.8,
     "type": "note_off",
     "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 53166.8,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
-    "data2": 0
-  },
-  {
-    "time_ms": 53166.8,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 59,
-    "data2": 0
-  },
-  {
-    "time_ms": 53166.8,
-    "type": "note_off",
-    "channel": 12,
     "data1": 64,
     "data2": 0
   },
@@ -23916,21 +23916,21 @@
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 53166.8,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 53166.8,
     "type": "note_on",
     "channel": 12,
     "data1": 59,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 53166.8,
@@ -23938,6 +23938,27 @@
     "channel": 12,
     "data1": 64,
     "data2": 89
+  },
+  {
+    "time_ms": 53206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 53206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
+  },
+  {
+    "time_ms": 53206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 59,
+    "data2": 0
   },
   {
     "time_ms": 53250.0,
@@ -24160,27 +24181,6 @@
     "time_ms": 53666.8,
     "type": "note_off",
     "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 53666.8,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
-    "data2": 0
-  },
-  {
-    "time_ms": 53666.8,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 59,
-    "data2": 0
-  },
-  {
-    "time_ms": 53666.8,
-    "type": "note_off",
-    "channel": 12,
     "data1": 64,
     "data2": 0
   },
@@ -24441,21 +24441,42 @@
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 54166.8,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 54166.8,
     "type": "note_on",
     "channel": 12,
     "data1": 59,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 54206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 54206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
+  },
+  {
+    "time_ms": 54206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 59,
+    "data2": 0
   },
   {
     "time_ms": 54250.0,
@@ -24652,27 +24673,6 @@
     "channel": 10,
     "data1": 53,
     "data2": 114
-  },
-  {
-    "time_ms": 54500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 54500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
-    "data2": 0
-  },
-  {
-    "time_ms": 54500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 59,
-    "data2": 0
   },
   {
     "time_ms": 54500.1,
@@ -25519,21 +25519,42 @@
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 56166.8,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 56166.8,
     "type": "note_on",
     "channel": 12,
     "data1": 59,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 56206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 56206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
+  },
+  {
+    "time_ms": 56206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 59,
+    "data2": 0
   },
   {
     "time_ms": 56250.0,
@@ -25751,27 +25772,6 @@
     "channel": 10,
     "data1": 42,
     "data2": 89
-  },
-  {
-    "time_ms": 56500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 56500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
-    "data2": 0
-  },
-  {
-    "time_ms": 56500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 59,
-    "data2": 0
   },
   {
     "time_ms": 56500.1,
@@ -26597,21 +26597,42 @@
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 58166.8,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 58166.8,
     "type": "note_on",
     "channel": 12,
     "data1": 59,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 58206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 58206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
+  },
+  {
+    "time_ms": 58206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 59,
+    "data2": 0
   },
   {
     "time_ms": 58250.0,
@@ -26801,27 +26822,6 @@
     "channel": 10,
     "data1": 42,
     "data2": 89
-  },
-  {
-    "time_ms": 58500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 58500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
-    "data2": 0
-  },
-  {
-    "time_ms": 58500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 59,
-    "data2": 0
   },
   {
     "time_ms": 58500.1,
@@ -27647,21 +27647,42 @@
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 60166.8,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 60166.8,
     "type": "note_on",
     "channel": 12,
     "data1": 59,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 60206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 60206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
+  },
+  {
+    "time_ms": 60206.8,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 59,
+    "data2": 0
   },
   {
     "time_ms": 60250.0,
@@ -27858,27 +27879,6 @@
     "channel": 10,
     "data1": 42,
     "data2": 89
-  },
-  {
-    "time_ms": 60500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 60500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
-    "data2": 0
-  },
-  {
-    "time_ms": 60500.1,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 59,
-    "data2": 0
   },
   {
     "time_ms": 60500.1,
@@ -29789,230 +29789,230 @@
     "type": "note_on",
     "channel": 12,
     "data1": 45,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 64250.1,
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 64250.1,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
-    "time_ms": 64312.5,
-    "type": "note_off",
-    "channel": 1,
-    "data1": 40,
-    "data2": 0
-  },
-  {
-    "time_ms": 64312.5,
-    "type": "note_off",
-    "channel": 1,
-    "data1": 64,
-    "data2": 0
-  },
-  {
-    "time_ms": 64312.5,
-    "type": "note_on",
-    "channel": 1,
-    "data1": 52,
-    "data2": 114
-  },
-  {
-    "time_ms": 64312.5,
-    "type": "note_on",
-    "channel": 1,
-    "data1": 70,
-    "data2": 114
-  },
-  {
-    "time_ms": 64312.5,
-    "type": "note_on",
-    "channel": 1,
-    "data1": 74,
-    "data2": 114
-  },
-  {
-    "time_ms": 64312.5,
-    "type": "note_on",
-    "channel": 3,
-    "data1": 64,
-    "data2": 102
-  },
-  {
-    "time_ms": 64312.5,
-    "type": "note_on",
-    "channel": 7,
-    "data1": 40,
-    "data2": 102
-  },
-  {
-    "time_ms": 64312.5,
-    "type": "note_on",
-    "channel": 10,
-    "data1": 36,
-    "data2": 114
-  },
-  {
-    "time_ms": 64312.5,
-    "type": "note_on",
-    "channel": 10,
-    "data1": 46,
-    "data2": 89
-  },
-  {
-    "time_ms": 64333.3,
-    "type": "note_off",
-    "channel": 1,
-    "data1": 40,
-    "data2": 0
-  },
-  {
-    "time_ms": 64333.3,
-    "type": "note_off",
-    "channel": 1,
-    "data1": 64,
-    "data2": 0
-  },
-  {
-    "time_ms": 64333.3,
-    "type": "note_off",
-    "channel": 7,
-    "data1": 40,
-    "data2": 0
-  },
-  {
-    "time_ms": 64375.0,
-    "type": "note_off",
-    "channel": 1,
-    "data1": 52,
-    "data2": 0
-  },
-  {
-    "time_ms": 64375.0,
-    "type": "note_off",
-    "channel": 1,
-    "data1": 70,
-    "data2": 0
-  },
-  {
-    "time_ms": 64375.0,
-    "type": "note_off",
-    "channel": 1,
-    "data1": 74,
-    "data2": 0
-  },
-  {
-    "time_ms": 64375.0,
-    "type": "note_off",
-    "channel": 3,
-    "data1": 64,
-    "data2": 0
-  },
-  {
-    "time_ms": 64375.0,
-    "type": "note_off",
-    "channel": 10,
-    "data1": 36,
-    "data2": 0
-  },
-  {
-    "time_ms": 64375.0,
-    "type": "note_off",
-    "channel": 10,
-    "data1": 46,
-    "data2": 0
-  },
-  {
-    "time_ms": 64375.0,
-    "type": "note_on",
-    "channel": 1,
-    "data1": 71,
-    "data2": 114
-  },
-  {
-    "time_ms": 64500.0,
-    "type": "note_off",
-    "channel": 1,
-    "data1": 71,
-    "data2": 0
-  },
-  {
-    "time_ms": 64500.0,
-    "type": "note_off",
-    "channel": 7,
-    "data1": 40,
-    "data2": 0
-  },
-  {
-    "time_ms": 64500.0,
-    "type": "note_on",
-    "channel": 1,
-    "data1": 40,
-    "data2": 114
-  },
-  {
-    "time_ms": 64500.0,
-    "type": "note_on",
-    "channel": 7,
-    "data1": 40,
-    "data2": 102
-  },
-  {
-    "time_ms": 64500.0,
-    "type": "note_on",
-    "channel": 10,
-    "data1": 38,
-    "data2": 114
-  },
-  {
-    "time_ms": 64500.0,
-    "type": "note_on",
-    "channel": 10,
-    "data1": 42,
-    "data2": 89
-  },
-  {
-    "time_ms": 64562.5,
-    "type": "note_off",
-    "channel": 10,
-    "data1": 38,
-    "data2": 0
-  },
-  {
-    "time_ms": 64562.5,
-    "type": "note_off",
-    "channel": 10,
-    "data1": 42,
-    "data2": 0
-  },
-  {
-    "time_ms": 64583.5,
+    "time_ms": 64290.1,
     "type": "note_off",
     "channel": 12,
     "data1": 45,
     "data2": 0
   },
   {
-    "time_ms": 64583.5,
+    "time_ms": 64290.1,
     "type": "note_off",
     "channel": 12,
     "data1": 50,
     "data2": 0
   },
   {
-    "time_ms": 64583.5,
+    "time_ms": 64290.1,
     "type": "note_off",
     "channel": 12,
     "data1": 55,
+    "data2": 0
+  },
+  {
+    "time_ms": 64312.5,
+    "type": "note_off",
+    "channel": 1,
+    "data1": 40,
+    "data2": 0
+  },
+  {
+    "time_ms": 64312.5,
+    "type": "note_off",
+    "channel": 1,
+    "data1": 64,
+    "data2": 0
+  },
+  {
+    "time_ms": 64312.5,
+    "type": "note_on",
+    "channel": 1,
+    "data1": 52,
+    "data2": 114
+  },
+  {
+    "time_ms": 64312.5,
+    "type": "note_on",
+    "channel": 1,
+    "data1": 70,
+    "data2": 114
+  },
+  {
+    "time_ms": 64312.5,
+    "type": "note_on",
+    "channel": 1,
+    "data1": 74,
+    "data2": 114
+  },
+  {
+    "time_ms": 64312.5,
+    "type": "note_on",
+    "channel": 3,
+    "data1": 64,
+    "data2": 102
+  },
+  {
+    "time_ms": 64312.5,
+    "type": "note_on",
+    "channel": 7,
+    "data1": 40,
+    "data2": 102
+  },
+  {
+    "time_ms": 64312.5,
+    "type": "note_on",
+    "channel": 10,
+    "data1": 36,
+    "data2": 114
+  },
+  {
+    "time_ms": 64312.5,
+    "type": "note_on",
+    "channel": 10,
+    "data1": 46,
+    "data2": 89
+  },
+  {
+    "time_ms": 64333.3,
+    "type": "note_off",
+    "channel": 1,
+    "data1": 40,
+    "data2": 0
+  },
+  {
+    "time_ms": 64333.3,
+    "type": "note_off",
+    "channel": 1,
+    "data1": 64,
+    "data2": 0
+  },
+  {
+    "time_ms": 64333.3,
+    "type": "note_off",
+    "channel": 7,
+    "data1": 40,
+    "data2": 0
+  },
+  {
+    "time_ms": 64375.0,
+    "type": "note_off",
+    "channel": 1,
+    "data1": 52,
+    "data2": 0
+  },
+  {
+    "time_ms": 64375.0,
+    "type": "note_off",
+    "channel": 1,
+    "data1": 70,
+    "data2": 0
+  },
+  {
+    "time_ms": 64375.0,
+    "type": "note_off",
+    "channel": 1,
+    "data1": 74,
+    "data2": 0
+  },
+  {
+    "time_ms": 64375.0,
+    "type": "note_off",
+    "channel": 3,
+    "data1": 64,
+    "data2": 0
+  },
+  {
+    "time_ms": 64375.0,
+    "type": "note_off",
+    "channel": 10,
+    "data1": 36,
+    "data2": 0
+  },
+  {
+    "time_ms": 64375.0,
+    "type": "note_off",
+    "channel": 10,
+    "data1": 46,
+    "data2": 0
+  },
+  {
+    "time_ms": 64375.0,
+    "type": "note_on",
+    "channel": 1,
+    "data1": 71,
+    "data2": 114
+  },
+  {
+    "time_ms": 64500.0,
+    "type": "note_off",
+    "channel": 1,
+    "data1": 71,
+    "data2": 0
+  },
+  {
+    "time_ms": 64500.0,
+    "type": "note_off",
+    "channel": 7,
+    "data1": 40,
+    "data2": 0
+  },
+  {
+    "time_ms": 64500.0,
+    "type": "note_on",
+    "channel": 1,
+    "data1": 40,
+    "data2": 114
+  },
+  {
+    "time_ms": 64500.0,
+    "type": "note_on",
+    "channel": 7,
+    "data1": 40,
+    "data2": 102
+  },
+  {
+    "time_ms": 64500.0,
+    "type": "note_on",
+    "channel": 10,
+    "data1": 38,
+    "data2": 114
+  },
+  {
+    "time_ms": 64500.0,
+    "type": "note_on",
+    "channel": 10,
+    "data1": 42,
+    "data2": 89
+  },
+  {
+    "time_ms": 64562.5,
+    "type": "note_off",
+    "channel": 10,
+    "data1": 38,
+    "data2": 0
+  },
+  {
+    "time_ms": 64562.5,
+    "type": "note_off",
+    "channel": 10,
+    "data1": 42,
     "data2": 0
   },
   {
@@ -30839,230 +30839,230 @@
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 66250.1,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 66250.1,
     "type": "note_on",
     "channel": 12,
     "data1": 59,
-    "data2": 89
+    "data2": 20
   },
   {
-    "time_ms": 66312.5,
-    "type": "note_off",
-    "channel": 1,
-    "data1": 40,
-    "data2": 0
-  },
-  {
-    "time_ms": 66312.5,
-    "type": "note_off",
-    "channel": 1,
-    "data1": 64,
-    "data2": 0
-  },
-  {
-    "time_ms": 66312.5,
-    "type": "note_on",
-    "channel": 1,
-    "data1": 52,
-    "data2": 114
-  },
-  {
-    "time_ms": 66312.5,
-    "type": "note_on",
-    "channel": 1,
-    "data1": 70,
-    "data2": 114
-  },
-  {
-    "time_ms": 66312.5,
-    "type": "note_on",
-    "channel": 1,
-    "data1": 74,
-    "data2": 114
-  },
-  {
-    "time_ms": 66312.5,
-    "type": "note_on",
-    "channel": 3,
-    "data1": 64,
-    "data2": 102
-  },
-  {
-    "time_ms": 66312.5,
-    "type": "note_on",
-    "channel": 7,
-    "data1": 40,
-    "data2": 102
-  },
-  {
-    "time_ms": 66312.5,
-    "type": "note_on",
-    "channel": 10,
-    "data1": 36,
-    "data2": 114
-  },
-  {
-    "time_ms": 66312.5,
-    "type": "note_on",
-    "channel": 10,
-    "data1": 46,
-    "data2": 89
-  },
-  {
-    "time_ms": 66333.3,
-    "type": "note_off",
-    "channel": 1,
-    "data1": 40,
-    "data2": 0
-  },
-  {
-    "time_ms": 66333.3,
-    "type": "note_off",
-    "channel": 1,
-    "data1": 64,
-    "data2": 0
-  },
-  {
-    "time_ms": 66333.3,
-    "type": "note_off",
-    "channel": 7,
-    "data1": 40,
-    "data2": 0
-  },
-  {
-    "time_ms": 66375.0,
-    "type": "note_off",
-    "channel": 1,
-    "data1": 52,
-    "data2": 0
-  },
-  {
-    "time_ms": 66375.0,
-    "type": "note_off",
-    "channel": 1,
-    "data1": 70,
-    "data2": 0
-  },
-  {
-    "time_ms": 66375.0,
-    "type": "note_off",
-    "channel": 1,
-    "data1": 74,
-    "data2": 0
-  },
-  {
-    "time_ms": 66375.0,
-    "type": "note_off",
-    "channel": 3,
-    "data1": 64,
-    "data2": 0
-  },
-  {
-    "time_ms": 66375.0,
-    "type": "note_off",
-    "channel": 10,
-    "data1": 36,
-    "data2": 0
-  },
-  {
-    "time_ms": 66375.0,
-    "type": "note_off",
-    "channel": 10,
-    "data1": 46,
-    "data2": 0
-  },
-  {
-    "time_ms": 66375.0,
-    "type": "note_on",
-    "channel": 1,
-    "data1": 71,
-    "data2": 114
-  },
-  {
-    "time_ms": 66500.0,
-    "type": "note_off",
-    "channel": 1,
-    "data1": 71,
-    "data2": 0
-  },
-  {
-    "time_ms": 66500.0,
-    "type": "note_off",
-    "channel": 7,
-    "data1": 40,
-    "data2": 0
-  },
-  {
-    "time_ms": 66500.0,
-    "type": "note_on",
-    "channel": 1,
-    "data1": 40,
-    "data2": 114
-  },
-  {
-    "time_ms": 66500.0,
-    "type": "note_on",
-    "channel": 7,
-    "data1": 40,
-    "data2": 102
-  },
-  {
-    "time_ms": 66500.0,
-    "type": "note_on",
-    "channel": 10,
-    "data1": 38,
-    "data2": 114
-  },
-  {
-    "time_ms": 66500.0,
-    "type": "note_on",
-    "channel": 10,
-    "data1": 42,
-    "data2": 89
-  },
-  {
-    "time_ms": 66562.5,
-    "type": "note_off",
-    "channel": 10,
-    "data1": 38,
-    "data2": 0
-  },
-  {
-    "time_ms": 66562.5,
-    "type": "note_off",
-    "channel": 10,
-    "data1": 42,
-    "data2": 0
-  },
-  {
-    "time_ms": 66583.5,
+    "time_ms": 66290.1,
     "type": "note_off",
     "channel": 12,
     "data1": 50,
     "data2": 0
   },
   {
-    "time_ms": 66583.5,
+    "time_ms": 66290.1,
     "type": "note_off",
     "channel": 12,
     "data1": 55,
     "data2": 0
   },
   {
-    "time_ms": 66583.5,
+    "time_ms": 66290.1,
     "type": "note_off",
     "channel": 12,
     "data1": 59,
+    "data2": 0
+  },
+  {
+    "time_ms": 66312.5,
+    "type": "note_off",
+    "channel": 1,
+    "data1": 40,
+    "data2": 0
+  },
+  {
+    "time_ms": 66312.5,
+    "type": "note_off",
+    "channel": 1,
+    "data1": 64,
+    "data2": 0
+  },
+  {
+    "time_ms": 66312.5,
+    "type": "note_on",
+    "channel": 1,
+    "data1": 52,
+    "data2": 114
+  },
+  {
+    "time_ms": 66312.5,
+    "type": "note_on",
+    "channel": 1,
+    "data1": 70,
+    "data2": 114
+  },
+  {
+    "time_ms": 66312.5,
+    "type": "note_on",
+    "channel": 1,
+    "data1": 74,
+    "data2": 114
+  },
+  {
+    "time_ms": 66312.5,
+    "type": "note_on",
+    "channel": 3,
+    "data1": 64,
+    "data2": 102
+  },
+  {
+    "time_ms": 66312.5,
+    "type": "note_on",
+    "channel": 7,
+    "data1": 40,
+    "data2": 102
+  },
+  {
+    "time_ms": 66312.5,
+    "type": "note_on",
+    "channel": 10,
+    "data1": 36,
+    "data2": 114
+  },
+  {
+    "time_ms": 66312.5,
+    "type": "note_on",
+    "channel": 10,
+    "data1": 46,
+    "data2": 89
+  },
+  {
+    "time_ms": 66333.3,
+    "type": "note_off",
+    "channel": 1,
+    "data1": 40,
+    "data2": 0
+  },
+  {
+    "time_ms": 66333.3,
+    "type": "note_off",
+    "channel": 1,
+    "data1": 64,
+    "data2": 0
+  },
+  {
+    "time_ms": 66333.3,
+    "type": "note_off",
+    "channel": 7,
+    "data1": 40,
+    "data2": 0
+  },
+  {
+    "time_ms": 66375.0,
+    "type": "note_off",
+    "channel": 1,
+    "data1": 52,
+    "data2": 0
+  },
+  {
+    "time_ms": 66375.0,
+    "type": "note_off",
+    "channel": 1,
+    "data1": 70,
+    "data2": 0
+  },
+  {
+    "time_ms": 66375.0,
+    "type": "note_off",
+    "channel": 1,
+    "data1": 74,
+    "data2": 0
+  },
+  {
+    "time_ms": 66375.0,
+    "type": "note_off",
+    "channel": 3,
+    "data1": 64,
+    "data2": 0
+  },
+  {
+    "time_ms": 66375.0,
+    "type": "note_off",
+    "channel": 10,
+    "data1": 36,
+    "data2": 0
+  },
+  {
+    "time_ms": 66375.0,
+    "type": "note_off",
+    "channel": 10,
+    "data1": 46,
+    "data2": 0
+  },
+  {
+    "time_ms": 66375.0,
+    "type": "note_on",
+    "channel": 1,
+    "data1": 71,
+    "data2": 114
+  },
+  {
+    "time_ms": 66500.0,
+    "type": "note_off",
+    "channel": 1,
+    "data1": 71,
+    "data2": 0
+  },
+  {
+    "time_ms": 66500.0,
+    "type": "note_off",
+    "channel": 7,
+    "data1": 40,
+    "data2": 0
+  },
+  {
+    "time_ms": 66500.0,
+    "type": "note_on",
+    "channel": 1,
+    "data1": 40,
+    "data2": 114
+  },
+  {
+    "time_ms": 66500.0,
+    "type": "note_on",
+    "channel": 7,
+    "data1": 40,
+    "data2": 102
+  },
+  {
+    "time_ms": 66500.0,
+    "type": "note_on",
+    "channel": 10,
+    "data1": 38,
+    "data2": 114
+  },
+  {
+    "time_ms": 66500.0,
+    "type": "note_on",
+    "channel": 10,
+    "data1": 42,
+    "data2": 89
+  },
+  {
+    "time_ms": 66562.5,
+    "type": "note_off",
+    "channel": 10,
+    "data1": 38,
+    "data2": 0
+  },
+  {
+    "time_ms": 66562.5,
+    "type": "note_off",
+    "channel": 10,
+    "data1": 42,
     "data2": 0
   },
   {
@@ -31945,21 +31945,42 @@
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 68250.1,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 68250.1,
     "type": "note_on",
     "channel": 12,
     "data1": 59,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 68290.1,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 68290.1,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
+  },
+  {
+    "time_ms": 68290.1,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 59,
+    "data2": 0
   },
   {
     "time_ms": 68312.5,
@@ -32169,27 +32190,6 @@
     "type": "note_off",
     "channel": 10,
     "data1": 42,
-    "data2": 0
-  },
-  {
-    "time_ms": 68583.5,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 68583.5,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
-    "data2": 0
-  },
-  {
-    "time_ms": 68583.5,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 59,
     "data2": 0
   },
   {
@@ -94049,21 +94049,42 @@
     "type": "note_on",
     "channel": 12,
     "data1": 45,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 194333.6,
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 194333.6,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 194373.6,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 45,
+    "data2": 0
+  },
+  {
+    "time_ms": 194373.6,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 194373.6,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
   },
   {
     "time_ms": 194375.0,
@@ -94182,27 +94203,6 @@
     "type": "note_off",
     "channel": 10,
     "data1": 46,
-    "data2": 0
-  },
-  {
-    "time_ms": 194667.0,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 45,
-    "data2": 0
-  },
-  {
-    "time_ms": 194667.0,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 194667.0,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
     "data2": 0
   },
   {
@@ -95197,21 +95197,42 @@
     "type": "note_on",
     "channel": 12,
     "data1": 45,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 196333.6,
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 196333.6,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 196373.6,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 45,
+    "data2": 0
+  },
+  {
+    "time_ms": 196373.6,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 196373.6,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
   },
   {
     "time_ms": 196375.0,
@@ -95330,27 +95351,6 @@
     "type": "note_off",
     "channel": 10,
     "data1": 46,
-    "data2": 0
-  },
-  {
-    "time_ms": 196667.0,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 45,
-    "data2": 0
-  },
-  {
-    "time_ms": 196667.0,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 196667.0,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
     "data2": 0
   },
   {
@@ -96317,21 +96317,42 @@
     "type": "note_on",
     "channel": 12,
     "data1": 45,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 198333.6,
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 198333.6,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 198373.6,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 45,
+    "data2": 0
+  },
+  {
+    "time_ms": 198373.6,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 198373.6,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
   },
   {
     "time_ms": 198375.0,
@@ -96450,27 +96471,6 @@
     "type": "note_off",
     "channel": 10,
     "data1": 46,
-    "data2": 0
-  },
-  {
-    "time_ms": 198667.0,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 45,
-    "data2": 0
-  },
-  {
-    "time_ms": 198667.0,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 198667.0,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
     "data2": 0
   },
   {
@@ -97444,21 +97444,42 @@
     "type": "note_on",
     "channel": 12,
     "data1": 45,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 200333.6,
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 200333.6,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 200373.6,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 45,
+    "data2": 0
+  },
+  {
+    "time_ms": 200373.6,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 200373.6,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
   },
   {
     "time_ms": 200375.0,
@@ -97598,27 +97619,6 @@
     "type": "note_off",
     "channel": 10,
     "data1": 46,
-    "data2": 0
-  },
-  {
-    "time_ms": 200667.0,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 45,
-    "data2": 0
-  },
-  {
-    "time_ms": 200667.0,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 200667.0,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
     "data2": 0
   },
   {
@@ -99684,21 +99684,42 @@
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 204417.0,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 204417.0,
     "type": "note_on",
     "channel": 12,
     "data1": 59,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 204457.0,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 204457.0,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
+  },
+  {
+    "time_ms": 204457.0,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 59,
+    "data2": 0
   },
   {
     "time_ms": 204500.0,
@@ -99762,27 +99783,6 @@
     "channel": 1,
     "data1": 40,
     "data2": 114
-  },
-  {
-    "time_ms": 204750.3,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 204750.3,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
-    "data2": 0
-  },
-  {
-    "time_ms": 204750.3,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 59,
-    "data2": 0
   },
   {
     "time_ms": 204750.3,
@@ -100804,21 +100804,42 @@
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 206417.0,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 206417.0,
     "type": "note_on",
     "channel": 12,
     "data1": 59,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 206457.0,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 206457.0,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
+  },
+  {
+    "time_ms": 206457.0,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 59,
+    "data2": 0
   },
   {
     "time_ms": 206500.0,
@@ -100882,27 +100903,6 @@
     "channel": 1,
     "data1": 40,
     "data2": 114
-  },
-  {
-    "time_ms": 206750.3,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 206750.3,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
-    "data2": 0
-  },
-  {
-    "time_ms": 206750.3,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 59,
-    "data2": 0
   },
   {
     "time_ms": 206750.3,
@@ -101903,21 +101903,42 @@
     "type": "note_on",
     "channel": 12,
     "data1": 50,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 208417.0,
     "type": "note_on",
     "channel": 12,
     "data1": 55,
-    "data2": 89
+    "data2": 20
   },
   {
     "time_ms": 208417.0,
     "type": "note_on",
     "channel": 12,
     "data1": 59,
-    "data2": 89
+    "data2": 20
+  },
+  {
+    "time_ms": 208457.0,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 50,
+    "data2": 0
+  },
+  {
+    "time_ms": 208457.0,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 55,
+    "data2": 0
+  },
+  {
+    "time_ms": 208457.0,
+    "type": "note_off",
+    "channel": 12,
+    "data1": 59,
+    "data2": 0
   },
   {
     "time_ms": 208500.0,
@@ -102114,27 +102135,6 @@
     "channel": 3,
     "data1": 69,
     "data2": 102
-  },
-  {
-    "time_ms": 208750.3,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 50,
-    "data2": 0
-  },
-  {
-    "time_ms": 208750.3,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 55,
-    "data2": 0
-  },
-  {
-    "time_ms": 208750.3,
-    "type": "note_off",
-    "channel": 12,
-    "data1": 59,
-    "data2": 0
   },
   {
     "time_ms": 208750.3,

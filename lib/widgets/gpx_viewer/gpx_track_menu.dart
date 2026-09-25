@@ -11,6 +11,9 @@ void showGpxTrackMenu(
   required void Function(int trackIndex) onToggleSolo,
   required void Function(int trackIndex) onToggleMute,
 }) {
+  // Initialize the local state variable with the passed-in selection
+  int localSelectedIndex = selectedTrackIndex;
+
   showModalBottomSheet(
     context: context,
     backgroundColor: Colors.grey.shade900,
@@ -41,7 +44,10 @@ void showGpxTrackMenu(
                   itemCount: tracks.length,
                   itemBuilder: (context, i) {
                     final track = tracks[i];
-                    final isSelected = selectedTrackIndex == i;
+                    
+                    // FIX: Use localSelectedIndex so the highlight updates instantly
+                    final isSelected = localSelectedIndex == i; 
+                    
                     final isSolo = soloedTracks.contains(i);
                     final isMuted = mutedTracks.contains(i);
 
@@ -65,16 +71,26 @@ void showGpxTrackMenu(
                           ),
                         ),
                         onTap: () {
+                          setModalState(() {
+                            // FIX: Update local index to move the blue highlight
+                            localSelectedIndex = i;
+                            
+                            // Strictly solo the new track
+                            soloedTracks.clear();
+                            mutedTracks.clear();
+                            soloedTracks.add(i);
+                          });
+                          // Inform the parent screen of the change
                           onSelectTrack(i);
-                          setModalState(() {});
                         },
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             GestureDetector(
                               onTap: () {
-                                onToggleSolo(i);
-                                setModalState(() {});
+                                setModalState(() {
+                                  onToggleSolo(i);
+                                });
                               },
                               child: Container(
                                 width: 32,
@@ -97,8 +113,9 @@ void showGpxTrackMenu(
                             const SizedBox(width: 8),
                             GestureDetector(
                               onTap: () {
-                                onToggleMute(i);
-                                setModalState(() {});
+                                setModalState(() {
+                                  onToggleMute(i);
+                                });
                               },
                               child: Container(
                                 width: 32,
