@@ -31,19 +31,24 @@ class GpxParserService {
       type: FileType.any,
       withData: true,
     );
+
     if (result == null || result.files.isEmpty) return null;
+
     final file = result.files.single;
     if (!file.name.toLowerCase().endsWith('.gp') && !file.name.toLowerCase().endsWith('.gpx')) {
       throw Exception('Invalid file type. Please select a .gp or .gpx file.');
     }
+
     final docsDir = await getApplicationDocumentsDirectory();
     final persistentPath = '${docsDir.path}/${file.name}';
     final persistentFile = File(persistentPath);
+
     if (file.bytes != null) {
       await persistentFile.writeAsBytes(file.bytes!);
     } else if (file.path != null) {
       await File(file.path!).copy(persistentPath);
     }
+
     return await parseGpFile(file.name, persistentPath, file.bytes);
   }
 
@@ -56,6 +61,7 @@ class GpxParserService {
     } else {
       throw Exception('Could not read file data.');
     }
+
     return Isolate.run(() => _processScoreData({
           'fileName': fileName,
           'filePath': path ?? '',
@@ -67,14 +73,17 @@ class GpxParserService {
     final String fileName = args['fileName'];
     final String filePath = args['filePath'];
     final List<int> bytes = args['bytes'];
+
     final Archive archive;
     try {
       archive = ZipDecoder().decodeBytes(bytes);
     } on FormatException {
       throw Exception('Invalid GP format. Ensure you are using a Guitar Pro (.gp/.gpx) file.');
     }
+
     ArchiveFile? gpifFile;
     bool isGpx = false;
+
     for (final file in archive) {
       final String baseName = file.name.split('/').last.toLowerCase();
       if (baseName == 'score.gpif') {
@@ -87,13 +96,17 @@ class GpxParserService {
         break;
       }
     }
+
     if (gpifFile == null) {
       throw Exception('Invalid .gp file: Could not find score.gpif or main.xml.');
     }
+
     final String gpifContent = String.fromCharCodes(gpifFile.content as List<int>);
     final XmlDocument document = XmlDocument.parse(gpifContent);
+
     final String title = document.findAllElements('Title').firstOrNull?.innerText ?? 'Unknown Title';
     final String artist = document.findAllElements('Artist').firstOrNull?.innerText ?? 'Unknown Artist';
+
     int initialTempo = 120;
     final firstGlobalTempo = document
         .findAllElements('Automation')
@@ -102,17 +115,21 @@ class GpxParserService {
         ?.findElements('Value')
         .firstOrNull
         ?.innerText;
+
     if (firstGlobalTempo != null) {
       final parts = firstGlobalTempo.split(' ');
       if (parts.isNotEmpty) initialTempo = int.tryParse(parts[0]) ?? 120;
     }
+
     final List<MasterBarEvent> masterBars = _parseMasterBars(document, initialTempo);
     int initialNotesPerMeasure = 16;
     if (masterBars.isNotEmpty) {
       initialNotesPerMeasure = masterBars.first.sixteenthCount;
       if (initialNotesPerMeasure <= 0) initialNotesPerMeasure = 16;
     }
+
     final List<GpTrack> tracks = _parseTracksFromDocument(document, isGpx);
+
     return GpScore(
       fileName: fileName,
       filePath: filePath,
@@ -128,6 +145,7 @@ class GpxParserService {
   static List<MasterBarEvent> _parseMasterBars(XmlDocument document, int initialTempo) {
     final List<XmlElement> masterBarNodes = document.findAllElements('MasterBar').toList();
     final Map<int, int> barIndexToTempo = {};
+
     for (final automation in document.findAllElements('Automation')) {
       final type = automation.findElements('Type').firstOrNull?.innerText;
       if (type == 'Tempo') {
@@ -139,12 +157,14 @@ class GpxParserService {
         if (tVal != null && bIdx != null) barIndexToTempo[bIdx] = tVal;
       }
     }
+
     final List<MasterBarEvent> events = [];
     int currentTempo = initialTempo;
     int currentNumerator = 4;
     int currentDenominator = 4;
     int cumulativeTick = 0;
     double cumulativeMs = 0.0;
+
     for (int i = 0; i < masterBarNodes.length; i++) {
       final mb = masterBarNodes[i];
       final String? timeText = mb.findElements('Time').firstOrNull?.innerText.trim();
@@ -158,6 +178,7 @@ class GpxParserService {
           currentDenominator = d;
         }
       }
+
       final localTempoVal = mb
           .findAllElements('Automation')
           .where((e) => e.findElements('Type').firstOrNull?.innerText == 'Tempo')
@@ -165,6 +186,7 @@ class GpxParserService {
           ?.findElements('Value')
           .firstOrNull
           ?.innerText;
+
       if (localTempoVal != null && localTempoVal.isNotEmpty) {
         final parts = localTempoVal.split(' ');
         final t = int.tryParse(parts[0]);
@@ -172,11 +194,13 @@ class GpxParserService {
       } else if (barIndexToTempo.containsKey(i)) {
         currentTempo = barIndexToTempo[i]!;
       }
+
       final String tf = mb.findElements('TripletFeel').firstOrNull?.innerText ?? '';
       
       final double quarters = currentNumerator * (4.0 / currentDenominator);
       final int ticks = (quarters * 960).round();
       final double durationMs = quarters * (60000.0 / currentTempo);
+
       events.add(MasterBarEvent(
         barIndex: i,
         tempo: currentTempo,
@@ -187,9 +211,11 @@ class GpxParserService {
         durationMs: durationMs,
         tripletFeel: tf,
       ));
+
       cumulativeTick += ticks;
       cumulativeMs += durationMs;
     }
+
     return events;
   }
 
@@ -207,6 +233,7 @@ class GpxParserService {
     final List<XmlElement> trackElements = document.findAllElements('Track').toList();
     final List<String> trackNames = [];
     final List<bool> trackIsPercussion = [];
+
     for (final t in trackElements) {
       final name = t.findElements('Name').firstOrNull?.innerText.trim() ?? 'Track';
       final isPerc = t.findElements('IsPercussion').firstOrNull?.innerText.toLowerCase() == 'true' ||
@@ -214,10 +241,12 @@ class GpxParserService {
       trackNames.add(name);
       trackIsPercussion.add(isPerc);
     }
+
     if (trackNames.isEmpty) {
       trackNames.add('All Tracks');
       trackIsPercussion.add(false);
     }
+
     final Map<String, double> rhythmMap = {};
     final rhythmsElement = document.findAllElements('Rhythms').firstOrNull;
     if (rhythmsElement != null) {
@@ -236,30 +265,37 @@ class GpxParserService {
           case '64th': val = 0.0625; break;
           default: val = 1.0;
         }
+
         final dotCount = int.tryParse(rhythm.findElements('AugmentationDot').firstOrNull?.getAttribute('count') ?? '0') ?? 0;
         if (dotCount == 1) val *= 1.5;
         else if (dotCount == 2) val *= 1.75;
+
         final tuplet = rhythm.findElements('PrimaryTuplet').firstOrNull;
         if (tuplet != null) {
           final numVal = int.tryParse(tuplet.getAttribute('num') ?? '3') ?? 3;
           final denVal = int.tryParse(tuplet.getAttribute('den') ?? '2') ?? 2;
           val *= (denVal / numVal);
         }
+
         rhythmMap[id] = val;
       }
     }
+
     final Map<String, GpNote> noteIdToNote = {};
     int parsedBendCount = 0;
 
     for (final XmlElement note in document.findAllElements('Note')) {
       final String id = note.getAttribute('id') ?? '';
       if (id.isEmpty) continue;
+
       final XmlElement? strNode = note.findAllElements('String').firstOrNull ?? note.findAllElements('Str').firstOrNull;
       final XmlElement? fretNode = note.findAllElements('Fret').firstOrNull ?? note.findAllElements('FretNum').firstOrNull;
       final XmlElement? midiNode = note.findAllElements('MidiNumber').firstOrNull ?? note.findAllElements('Pitch').firstOrNull;
+
       int displayString = 1;
       int fretNum = 0;
       int pitch = 60;
+
       if (strNode != null && fretNode != null) {
         final int? stringNum = int.tryParse(strNode.innerText.trim());
         final int? fNum = int.tryParse(fretNode.innerText.trim());
@@ -273,26 +309,38 @@ class GpxParserService {
         displayString = -1;
         fretNum = pitch;
       }
+
       bool isTie = _hasPropertyOrNode(note, ['Tie', 'Tied']);
       bool isLetRing = _hasPropertyOrNode(note, ['LetRing']);
       bool isMuted = _hasPropertyOrNode(note, ['Muted', 'Mute', 'Dead']);
       bool isPalmMute = _hasPropertyOrNode(note, ['PalmMute', 'PalmMuted']);
       bool isLegato = _hasPropertyOrNode(note, ['Legato', 'Hopo']);
       bool isTap = _hasPropertyOrNode(note, ['Tap', 'Tapped', 'Tapping']);
+
       final ghostText = note.findAllElements('Ghost').firstOrNull?.innerText.toLowerCase();
       bool isGhost = (ghostText == '1' || ghostText == 'true') || _hasPropertyOrNode(note, ['Ghost']);
+
       HarmonicType harmonicType = HarmonicType.none;
       final harmonicNode = note.findAllElements('Harmonic').firstOrNull;
-      if (harmonicNode != null) {
-        final typeText = (harmonicNode.getAttribute('type') ?? harmonicNode.getAttribute('flags') ?? '').toLowerCase();
+      if (harmonicNode != null || _hasPropertyOrNode(note, ['Harmonic', 'HarmonicType'])) {
+        final typeText = (harmonicNode?.getAttribute('type') ??
+                harmonicNode?.getAttribute('flags') ??
+                harmonicNode?.innerText ??
+                '')
+            .toLowerCase();
         if (typeText.contains('artificial')) harmonicType = HarmonicType.artificial;
         else if (typeText.contains('pinch')) harmonicType = HarmonicType.pinch;
         else harmonicType = HarmonicType.natural;
       }
+
       SlideType slideType = SlideType.none;
       final slideNode = note.findAllElements('Slide').firstOrNull;
-      if (slideNode != null) {
-        final sVal = (slideNode.getAttribute('type') ?? slideNode.getAttribute('flags') ?? '').toLowerCase();
+      if (slideNode != null || _hasPropertyOrNode(note, ['Slide'])) {
+        final sVal = (slideNode?.getAttribute('type') ??
+                slideNode?.getAttribute('flags') ??
+                slideNode?.innerText ??
+                '')
+            .toLowerCase();
         if (sVal.contains('below')) slideType = SlideType.intoFromBelow;
         else if (sVal.contains('above')) slideType = SlideType.intoFromAbove;
         else if (sVal.contains('down')) slideType = SlideType.outDownwards;
@@ -304,13 +352,12 @@ class GpxParserService {
       GpBend? bend;
       final List<({double pos, double val})> rawPoints = [];
 
-      // 1. Check for direct <Bend> element
       final XmlElement? directBend = note.findAllElements('Bend').firstOrNull;
       if (directBend != null) {
         final pointNodes = directBend.findAllElements('Point').isNotEmpty
             ? directBend.findAllElements('Point')
             : directBend.findAllElements('BendPoint');
-            
+
         for (final pt in pointNodes) {
           final posStr = pt.getAttribute('position') ?? pt.getAttribute('pos') ?? pt.getAttribute('Position') ?? pt.getAttribute('Pos');
           final offStr = pt.getAttribute('offset') ?? pt.getAttribute('value') ?? pt.getAttribute('Offset') ?? pt.getAttribute('Value');
@@ -322,7 +369,6 @@ class GpxParserService {
         }
       }
 
-      // 2. Check for GPIF XML (<Property name="BendOriginOffset">)
       if (rawPoints.isEmpty) {
         final Map<String, double> propFloats = {};
         bool hasBendedProp = false;
@@ -337,7 +383,6 @@ class GpxParserService {
             }
           }
         }
-
         if (hasBendedProp || propFloats.keys.any((k) => k.contains('Bend'))) {
           if (propFloats.containsKey('BendOriginOffset') && propFloats.containsKey('BendOriginValue')) {
             rawPoints.add((pos: propFloats['BendOriginOffset']!, val: propFloats['BendOriginValue']!));
@@ -354,33 +399,33 @@ class GpxParserService {
       if (rawPoints.isNotEmpty) {
         final List<BendPoint> points = [];
         double maxOffsetSemitones = 0.0;
-        
+
         rawPoints.sort((a, b) => a.pos.compareTo(b.pos));
+        final double maxPos = rawPoints.map((p) => p.pos).fold(0.0, max);
+        final double posDenominator = maxPos > 1.0 ? maxPos : 1.0;
 
         for (final raw in rawPoints) {
-          final double normalizedPos = (raw.pos / 100.0).clamp(0.0, 1.0); 
+          final double normalizedPos = (raw.pos / posDenominator).clamp(0.0, 1.0);
           
-          double offsetSemitones = raw.val;
-          if (raw.val > 10.0) {
-            offsetSemitones = raw.val / 50.0;
-          } else {
+          double offsetSemitones;
+          if (raw.val <= 32.0) {
             offsetSemitones = raw.val / 4.0;
+          } else {
+            offsetSemitones = raw.val / 50.0;
           }
-
           if (offsetSemitones > maxOffsetSemitones) maxOffsetSemitones = offsetSemitones;
-          
+
           points.add(BendPoint(position: normalizedPos, offset: offsetSemitones));
         }
         bend = GpBend(maximumPitchOffset: maxOffsetSemitones, envelope: points);
         parsedBendCount++;
-        
-        debugPrint('[PARSER BEND DEBUG] SUCCESS | Note s:$displayString f:$fretNum | maxOffset: ${bend.maximumPitchOffset} semitones | points: ${bend.envelope}');
       }
 
       GpVibrato? vibrato;
       if (note.findAllElements('Vibrato').isNotEmpty || _hasPropertyOrNode(note, ['Vibrato'])) {
         vibrato = const GpVibrato();
       }
+
       noteIdToNote[id] = GpNote(
         stringNum: displayString,
         fretNum: fretNum,
@@ -400,14 +445,14 @@ class GpxParserService {
       );
     }
 
-    debugPrint('[PARSER BEND DEBUG] Document parsing complete. Total notes with bends detected: $parsedBendCount');
-
     final Map<String, dynamic> beatIdToBeat = {};
     for (final XmlElement beat in document.findAllElements('Beat')) {
       final String id = beat.getAttribute('id') ?? '';
       if (id.isEmpty) continue;
+
       final String rhythmRef = beat.findElements('Rhythm').firstOrNull?.getAttribute('ref') ?? '';
       final double beatDuration = rhythmMap[rhythmRef] ?? 1.0;
+
       final String notesText = beat.findElements('Notes').firstOrNull?.innerText ?? '';
       final List<GpNote> notes = notesText
           .trim()
@@ -415,16 +460,20 @@ class GpxParserService {
           .where((s) => s.isNotEmpty && noteIdToNote.containsKey(s))
           .map((nid) => noteIdToNote[nid]!)
           .toList();
+
       if (notes.isEmpty) notes.add(GpNote.rest(duration: beatDuration));
+
       beatIdToBeat[id] = {
         'notes': notes,
         'rhythm': beatDuration,
       };
     }
+
     final Map<String, List<dynamic>> voiceIdToBeats = {};
     for (final XmlElement voice in document.findAllElements('Voice')) {
       final String id = voice.getAttribute('id') ?? '';
       if (id.isEmpty) continue;
+
       final String beatsText = voice.findElements('Beats').firstOrNull?.innerText ?? '';
       final List<dynamic> beats = [];
       for (final String bid in beatsText.trim().split(' ').where((s) => s.isNotEmpty)) {
@@ -432,46 +481,60 @@ class GpxParserService {
       }
       voiceIdToBeats[id] = beats;
     }
+
     final Map<String, List<GpBeat>> barIdToBeats = {};
     final Map<String, bool> barShuffleMap = {};
+
     for (final XmlElement bar in document.findAllElements('Bar')) {
       final String id = bar.getAttribute('id') ?? '';
       if (id.isEmpty) continue;
+
       final String tf = bar.findElements('TripletFeel').firstOrNull?.innerText.toLowerCase() ?? '';
       final String sh = bar.findElements('Shuffle').firstOrNull?.innerText.toLowerCase() ?? '';
       
       if (tf.contains('8th') || tf.contains('triplet') || tf.contains('shuffle') || sh.isNotEmpty) {
         barShuffleMap[id] = true;
       }
+
       final String voicesText = bar.findElements('Voices').firstOrNull?.innerText ?? '';
       final List<String> voiceIds = voicesText.trim().split(' ').where((s) => s.isNotEmpty).toList();
+
       final Map<double, List<GpNote>> positionNotes = {};
       final Map<double, double> positionDurations = {};
+
       for (int vIdx = 0; vIdx < voiceIds.length; vIdx++) {
         final voiceId = voiceIds[vIdx];
         final List<dynamic> vBeats = voiceIdToBeats[voiceId] ?? [];
         double currentPos = 0.0;
+
         for (final beat in vBeats) {
           final List<GpNote> beatNotes = beat['notes'];
           final double beatDur = beat['rhythm'];
+
           final double keyPos = (currentPos * 10000).round() / 10000.0;
           positionNotes.putIfAbsent(keyPos, () => []);
           positionDurations.putIfAbsent(keyPos, () => beatDur);
+
           for (final n in beatNotes) {
             if (!n.isRest) positionNotes[keyPos]!.add(n);
           }
+
           currentPos += beatDur;
         }
       }
+
       final List<double> sortedPositions = positionNotes.keys.toList()..sort();
       final List<GpBeat> mergedBarBeats = [];
+
       for (int pIdx = 0; pIdx < sortedPositions.length; pIdx++) {
         final double pos = sortedPositions[pIdx];
         final List<GpNote> notesAtPos = positionNotes[pos]!;
         double dur = positionDurations[pos] ?? 0.25;
+
         if (pIdx < sortedPositions.length - 1) {
           dur = sortedPositions[pIdx + 1] - pos;
         }
+
         if (notesAtPos.isEmpty) {
           mergedBarBeats.add(GpBeat.rest(duration: dur));
         } else {
@@ -482,28 +545,35 @@ class GpxParserService {
           ));
         }
       }
+
       barIdToBeats[id] = mergedBarBeats;
     }
+
     final List<List<GpBeat>> trackBeats = List.generate(trackNames.length, (_) => []);
     final List<List<int>> trackMeasureEnds = List.generate(trackNames.length, (_) => []);
+
     for (final XmlElement masterBar in document.findAllElements('MasterBar')) {
       final String tf = masterBar.findElements('TripletFeel').firstOrNull?.innerText.toLowerCase() ?? '';
       final String sh = masterBar.findElements('Shuffle').firstOrNull?.innerText.toLowerCase() ?? '';
       
       final bool shuffle8th = tf.contains('8th') || tf.contains('triplet') || sh.isNotEmpty;
       final bool shuffle16th = tf.contains('16th');
+
       final String barsText = masterBar.findElements('Bars').firstOrNull?.innerText ?? '';
       final List<String> barIds = barsText.trim().split(' ').where((s) => s.isNotEmpty).toList();
+
       for (int i = 0; i < barIds.length && i < trackBeats.length; i++) {
         final String barId = barIds[i];
         final bool isBarShuffle8th = shuffle8th || (barShuffleMap[barId] == true);
         final List<GpBeat> barBeats = barIdToBeats[barId] ?? [];
         
         double measurePositionQuarters = 0.0;
+
         for (final beat in barBeats) {
           final List<GpNote> beatNotes = beat.notes;
           double baseRhythm = beat.duration;
           double finalRhythm = baseRhythm;
+
           if (isBarShuffle8th && (baseRhythm - 0.5).abs() < 0.01) {
             final int eighthIndex = (measurePositionQuarters / 0.5).round();
             if (eighthIndex % 2 == 0) {
@@ -519,7 +589,9 @@ class GpxParserService {
               finalRhythm = 0.25 * (2.0 / 3.0);
             }
           }
+
           measurePositionQuarters += baseRhythm;
+
           final List<GpNote> notesWithDuration = beatNotes
               .map((orig) => GpNote(
                     stringNum: orig.stringNum,
@@ -539,6 +611,7 @@ class GpxParserService {
                     vibrato: orig.vibrato,
                   ))
               .toList();
+
           trackBeats[i].add(GpBeat(
             notes: notesWithDuration,
             duration: finalRhythm,
@@ -546,11 +619,13 @@ class GpxParserService {
             strumDirection: beat.strumDirection,
           ));
         }
+
         if (trackBeats[i].isNotEmpty) {
           trackMeasureEnds[i].add(trackBeats[i].length - 1);
         }
       }
     }
+
     if (trackBeats.any((t) => t.isNotEmpty)) {
       return [
         for (int i = 0; i < trackNames.length; i++)
@@ -562,6 +637,7 @@ class GpxParserService {
           ),
       ];
     }
+
     return [GpTrack(id: '0', name: 'Empty Track', beats: [])];
   }
 }

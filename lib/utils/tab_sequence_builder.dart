@@ -47,6 +47,7 @@ class ScheduledMidiEvent implements Comparable<ScheduledMidiEvent> {
 /// Pure-Dart utility for calculating note sequences, rhythms, accents, and absolute timeline matrices.
 class TabSequenceBuilder {
   final ScaleEngine engine;
+
   TabSequenceBuilder({required this.engine});
 
   static double roundMs(double ms) {
@@ -70,9 +71,11 @@ class TabSequenceBuilder {
     int currentMeasureIndex = 0;
     double currentMeasureStartMs = 0.0;
     int measureTempo = initialTempo;
+
     if (masterBars.isNotEmpty && currentMeasureIndex < masterBars.length) {
       measureTempo = masterBars[currentMeasureIndex].tempo;
     }
+
     double beatAccumulatorInMeasureMs = 0.0;
 
     for (int i = 0; i < beats.length; i++) {
@@ -106,10 +109,9 @@ class TabSequenceBuilder {
             velocity = (velocity * 0.6).round();
             durationMs = beatDurationMs * 0.5;
           } else if (!note.isTie && !note.isLegato) {
-            // Apply a tiny articulation gap to prevent legato bleeding/buffering
             durationMs = max(1.0, durationMs - 1.0);
           }
-          
+
           if (note.isLetRing) {
             durationMs = beatDurationMs * 1.5; 
           }
@@ -131,6 +133,7 @@ class TabSequenceBuilder {
             slideType: note.slideType,
             durationMs: durationMs,
           ));
+
           timeline.add(ScheduledMidiEvent(
             timeMs: noteOffMs,
             type: 'note_off',
@@ -143,7 +146,9 @@ class TabSequenceBuilder {
           ));
         }
       }
+
       beatAccumulatorInMeasureMs += beatDurationMs;
+
       if (measureEnds.contains(i)) {
         currentMeasureStartMs += beatAccumulatorInMeasureMs;
         beatAccumulatorInMeasureMs = 0.0;
@@ -153,6 +158,7 @@ class TabSequenceBuilder {
         }
       }
     }
+
     timeline.sort();
     return timeline;
   }
@@ -297,6 +303,7 @@ class TabSequenceBuilder {
           else if (preset.pathway == "4-Step 16th") patternNotes = engine.apply4StepSequence(baseNotes);
           else if (preset.pathway == "Note Skipping") patternNotes = engine.applyNoteSkipping(baseNotes);
           else patternNotes = baseNotes;
+
           if (preset.direction.startsWith("One-Way")) currentSequence = patternNotes;
           else currentSequence = [...patternNotes, ...patternNotes.reversed.skip(1).toList()];
         }
