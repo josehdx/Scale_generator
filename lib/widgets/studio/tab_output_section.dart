@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../models/gp_beat.dart';
 import '../interactive_tab_display.dart';
 
-class TabOutputSection extends StatelessWidget {
+class TabOutputSection extends StatefulWidget {
   final List<GpBeat> currentSequence;
   final String generatedTab;
   final String autoTimeSignature;
@@ -31,14 +31,44 @@ class TabOutputSection extends StatelessWidget {
   });
 
   @override
+  State<TabOutputSection> createState() => _TabOutputSectionState();
+}
+
+class _TabOutputSectionState extends State<TabOutputSection> {
+  late ValueNotifier<int> _localPlayingNotifier;
+
+  @override
+  void initState() {
+    super.initState();
+    _localPlayingNotifier = ValueNotifier(-1);
+    widget.activeNoteNotifier.addListener(_syncNotifier);
+  }
+
+  @override
+  void dispose() {
+    widget.activeNoteNotifier.removeListener(_syncNotifier);
+    _localPlayingNotifier.dispose();
+    super.dispose();
+  }
+
+  void _syncNotifier() {
+    final noteData = widget.activeNoteNotifier.value;
+    if (noteData != null && !noteData['isPreview']) {
+      _localPlayingNotifier.value = noteData['index'];
+    } else {
+      _localPlayingNotifier.value = -1;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (currentSequence.isEmpty) {
+    if (widget.currentSequence.isEmpty) {
       return Container(
         margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8)),
         width: double.infinity,
-        child: Text(generatedTab, style: const TextStyle(fontFamily: 'monospace', color: Colors.greenAccent)),
+        child: Text(widget.generatedTab, style: const TextStyle(fontFamily: 'monospace', color: Colors.greenAccent)),
       );
     }
     
@@ -58,7 +88,7 @@ class TabOutputSection extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text("Time Signature: $autoTimeSignature (Driven Automatically)", style: const TextStyle(fontSize: 11, color: Colors.amberAccent, fontWeight: FontWeight.bold)),
+                Text("Time Signature: ${widget.autoTimeSignature} (Driven Automatically)", style: const TextStyle(fontSize: 11, color: Colors.amberAccent, fontWeight: FontWeight.bold)),
                 const Icon(Icons.lock_outline, size: 12, color: Colors.grey),
               ],
             ),
@@ -66,23 +96,16 @@ class TabOutputSection extends StatelessWidget {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(8.0),
-              child: ValueListenableBuilder<Map<String, dynamic>?>(
-                valueListenable: activeNoteNotifier,
-                builder: (context, noteData, child) {
-                  int playingIdx = -1;
-                  if (noteData != null && !noteData['isPreview']) playingIdx = noteData['index'];
-                  
-                  return InteractiveTabDisplay(
-                    sequence: currentSequence,
-                    notesPerMeasure: notesPerMeasure,
-                    measuresPerLine: measuresPerLine <= 0 ? 999 : measuresPerLine,
-                    currentPlayingIndex: playingIdx,
-                    selectionStart: selectionStart,
-                    selectionEnd: selectionEnd,
-                    tuningStr: selectedTuning,
-                    onBeatTapped: onBeatTapped,
-                  );
-                },
+              child: InteractiveTabDisplay(
+                sequence: widget.currentSequence,
+                notesPerMeasure: widget.notesPerMeasure,
+                measuresPerLine: widget.measuresPerLine <= 0 ? 999 : widget.measuresPerLine,
+                currentPlayingIndex: -1,
+                playingIndexNotifier: _localPlayingNotifier,
+                selectionStart: widget.selectionStart,
+                selectionEnd: widget.selectionEnd,
+                tuningStr: widget.selectedTuning,
+                onBeatTapped: widget.onBeatTapped,
               ),
             ),
           ),

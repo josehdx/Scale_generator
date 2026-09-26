@@ -41,15 +41,39 @@ class SavedPresetsScreen extends StatefulWidget {
 class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticKeepAliveClientMixin {
   final Set<String> _selectedIds = {};
   final Map<String, GlobalKey> _itemKeys = {};
+  final Map<String, bool> _validationCache = {};
 
   @override
   bool get wantKeepAlive => true;
 
   @override
+  void initState() {
+    super.initState();
+    _rebuildValidationCache();
+  }
+
+  @override
   void didUpdateWidget(covariant SavedPresetsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    
+    if (widget.savedPresets != oldWidget.savedPresets) {
+      _rebuildValidationCache();
+      
+      // [FIX]: Memory Leak Resolution. Clear orphaned GlobalKeys from map.
+      final currentIds = widget.savedPresets.map((p) => p.id).toSet();
+      _itemKeys.removeWhere((key, _) => !currentIds.contains(key));
+    }
+
     if (widget.activePreviewId != oldWidget.activePreviewId && widget.activePreviewId != null) {
       _scrollToActivePreview();
+    }
+  }
+
+  void _rebuildValidationCache() {
+    _validationCache.clear();
+    for (var preset in widget.savedPresets) {
+      final (_, issues) = PresetSanitizer.validateAndSanitize(preset);
+      _validationCache[preset.id] = issues.isNotEmpty;
     }
   }
 
@@ -285,8 +309,7 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
                     bool isActive = widget.activePreviewId == preset.id;
                     bool isPlayingThis = isActive && widget.isPreviewPlaying;
                     
-                    final (_, issues) = PresetSanitizer.validateAndSanitize(preset);
-                    final bool hasMisalignment = issues.isNotEmpty;
+                    final bool hasMisalignment = _validationCache[preset.id] ?? false;
                     
                     return Card(
                       key: ValueKey(preset.id),
@@ -329,9 +352,9 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
                               ),
                               if (hasMisalignment) ...[
                                 const SizedBox(width: 8),
-                                Tooltip(
-                                  message: issues.map((i) => i.message).join('\n'),
-                                  child: const Icon(Icons.warning_amber_rounded, size: 18, color: Colors.amberAccent),
+                                const Tooltip(
+                                  message: "Sequence length mismatch detected.",
+                                  child: Icon(Icons.warning_amber_rounded, size: 18, color: Colors.amberAccent),
                                 ),
                               ],
                             ],

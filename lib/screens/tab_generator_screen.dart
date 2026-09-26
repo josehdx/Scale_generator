@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -24,6 +25,7 @@ import '../widgets/studio/pathways_section.dart';
 import '../widgets/studio/formatting_section.dart';
 import '../widgets/studio/tab_output_section.dart';
 import '../widgets/studio/studio_dialogs.dart';
+
 import 'saved_presets_screen.dart';
 import 'gpx_tab_screen.dart';
 
@@ -44,6 +46,7 @@ class _KeepAliveWrapperState extends State<KeepAliveWrapper> with AutomaticKeepA
 
 class TabGeneratorScreen extends StatefulWidget {
   const TabGeneratorScreen({super.key});
+
   @override
   State<TabGeneratorScreen> createState() => _TabGeneratorScreenState();
 }
@@ -53,9 +56,10 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   final MidiService _midiService = MidiService();
   final PresetStorageService _storage = PresetStorageService();
   late final TabSequenceBuilder _builder;
-  late PageController _pageController;
 
+  late PageController _pageController;
   int _selectedPageIndex = 0;
+
   bool _isPlaying = false;
   bool _isPreviewPlaying = false;
   bool _isPreviewLooping = false;
@@ -63,8 +67,8 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   int _playbackToken = 0;
   bool _isMidiReady = false;
   bool _isLooping = false;
-
   bool _isFretboardVisible = true;
+
   bool _isTheoryExpanded = false;
   bool _isPathwaysExpanded = false;
   bool _isFormattingExpanded = false;
@@ -77,6 +81,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   int _selectionStart = -1;
   int _selectionEnd = -1;
   int? _tapAnchorIndex;
+
   int _selectedInstrumentIndex = 27;
 
   // State Values
@@ -90,7 +95,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   int _singleStringTarget = 1;
   String _customNpsProfile = "3,4,3,4,3,3";
   final TextEditingController _customNpsController = TextEditingController(text: "3,4,3,4,3,3");
-
   final TextEditingController _manualTabController = TextEditingController(text: "6:5, 6:8, 5:5, 5:7");
   String _manualSelectedDuration = "16th";
 
@@ -102,6 +106,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   int _breakInterval = 0;
   int _breakLength = 4;
   int _endRests = 0;
+
   int _measuresPerLine = 1;
   int _tempo = 120;
   String _selectedRhythmPattern = "Straight 16ths";
@@ -138,7 +143,6 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
   }
 
   String get _autoTimeSignature => "$_dynamicBeatsPerMeasure/4";
-
   String get _currentNps {
     List<String> parsedRhythm = _builder.parsePatternString(_selectedRhythmPattern, customRhythmOverride: _customRhythmController.text);
     double maxMultiplier = 1.0;
@@ -572,22 +576,16 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
                 if (_isFretboardVisible)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                    child: ValueListenableBuilder<Map<String, dynamic>?>(
-                      valueListenable: _activeNoteNotifier,
-                      builder: (context, noteData, child) {
-                        return InteractiveFretboard(
-                          engine: _engine, selectedKey: _selectedKey, selectedScale: _selectedScale, startFret: _startFret, 
-                          selectedTuning: _selectedTuning,
-                          activeString: (noteData != null && !(noteData['isPreview'] as bool)) ? noteData['string'] : null,
-                          activeFret: (noteData != null && !(noteData['isPreview'] as bool)) ? noteData['fret'] : null,
-                          previewString: (noteData != null && noteData['isPreview'] as bool) ? noteData['string'] : null,
-                          previewFret: (noteData != null && noteData['isPreview'] as bool) ? noteData['fret'] : null,
-                          isAccent: noteData?['isAccent'],
-                          isManualMode: _selectedSystem == "Manual Entry",
-                          scrollController: _fretboardScrollController, 
-                          onNoteTapped: _handleFretboardTap,
-                        );
-                      },
+                    child: InteractiveFretboard(
+                      engine: _engine, 
+                      selectedKey: _selectedKey, 
+                      selectedScale: _selectedScale, 
+                      startFret: _startFret, 
+                      selectedTuning: _selectedTuning,
+                      activeNoteNotifier: _activeNoteNotifier,
+                      isManualMode: _selectedSystem == "Manual Entry",
+                      scrollController: _fretboardScrollController, 
+                      onNoteTapped: _handleFretboardTap,
                     ),
                   ),
                 const SizedBox(height: 8),
@@ -752,7 +750,7 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> {
             onReorderPresets: (o, n) async { setState(() { if(n>o)n--; _savedPresets.insert(n, _savedPresets.removeAt(o)); }); await _storage.savePresets(_savedPresets); },
             onImport: _importPresets
           ),
-          const GpxTabScreen(),
+          GpxTabScreen(),
         ],
       ),
     );

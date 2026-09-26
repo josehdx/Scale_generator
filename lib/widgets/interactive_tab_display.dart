@@ -7,7 +7,6 @@ import '../models/master_bar_event.dart';
 class BendPainter extends CustomPainter {
   final GpBeat beat;
   final Color color;
-
   BendPainter(this.beat, this.color);
 
   @override
@@ -22,15 +21,18 @@ class BendPainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     );
 
-    const double topMargin = 12.0;
-    const double lineHeight = 13.2;
+    // [FIX] Strict geometry constants.
+    const double topMargin = 36.0;
+    const double lineHeight = 18.0;
 
     for (final note in beat.notes) {
       if (note.isRest || note.bend == null) continue;
       final bend = note.bend!;
-      final double startY = topMargin + (note.stringNum) * lineHeight + (lineHeight / 2);
+
+      // Calculate perfect center of the corresponding strict Container row
+      final double startY = topMargin + lineHeight + ((note.stringNum - 1) * lineHeight) + (lineHeight / 2);
       final double startX = size.width / 2;
-      final double apexY = topMargin + (lineHeight / 2);
+      final double apexY = 16.0; // Peak in the safe margin area
 
       final path = Path();
       path.moveTo(startX, startY);
@@ -38,11 +40,11 @@ class BendPainter extends CustomPainter {
       if (bend.hasRelease) {
         path.quadraticBezierTo(startX + 10, apexY, startX + 20, startY);
         _drawArrowHead(canvas, paint, startX + 20, startY, false);
-        _drawBendText(canvas, textPainter, bend.maximumPitchOffset, startX + 10, apexY - 11.0);
+        _drawBendText(canvas, textPainter, bend.maximumPitchOffset, startX + 10, apexY - 14.0);
       } else {
         path.quadraticBezierTo(startX + 10, startY, startX + 15, apexY);
         _drawArrowHead(canvas, paint, startX + 15, apexY, true);
-        _drawBendText(canvas, textPainter, bend.maximumPitchOffset, startX + 15, apexY - 11.0);
+        _drawBendText(canvas, textPainter, bend.maximumPitchOffset, startX + 15, apexY - 14.0);
       }
 
       canvas.drawPath(path, paint);
@@ -151,6 +153,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
   List<({int start, int end})> _calculateSystems() {
     if (widget.sequence.isEmpty) return [];
+
     final ends = widget.measureEndIndices;
     if (ends != null && ends.isNotEmpty) {
       final List<({int start, int end})> systems = [];
@@ -162,6 +165,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
         if (mEnd >= widget.sequence.length) {
           mEnd = widget.sequence.length - 1;
         }
+
         currentMeasureInSystem++;
 
         if (currentMeasureInSystem == widget.measuresPerLine || m == ends.length - 1) {
@@ -172,6 +176,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
           systems.add((start: sysStart, end: sysEnd));
           sysStart = sysEnd;
           currentMeasureInSystem = 0;
+
           if (sysStart >= widget.sequence.length) break;
         }
       }
@@ -201,8 +206,10 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
   @override
   void didUpdateWidget(covariant InteractiveTabDisplay oldWidget) {
     super.didUpdateWidget(oldWidget);
+    
     final systems = _calculateSystems();
     final int totalSystems = systems.length;
+
     while (_horizontalControllers.length > totalSystems) {
       final orphanedController = _horizontalControllers.removeLast();
       orphanedController.dispose();
@@ -219,7 +226,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     final systems = _calculateSystems();
     int sysIndex = -1;
     int noteIndexInSys = 0;
-
+    
     for (int i = 0; i < systems.length; i++) {
       if (noteIndex >= systems[i].start && noteIndex < systems[i].end) {
         sysIndex = i;
@@ -233,11 +240,11 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     if (_verticalController.hasClients) {
       final position = _verticalController.position;
       if (position.hasViewportDimension) {
-        double vertOffset = sysIndex * 150.0;
+        double vertOffset = sysIndex * 190.0; // [FIX] Adjusted height boundary
         double currentVOffset = position.pixels;
         double vViewport = position.viewportDimension;
         
-        if (vertOffset < currentVOffset || vertOffset + 150.0 > currentVOffset + vViewport) {
+        if (vertOffset < currentVOffset || vertOffset + 190.0 > currentVOffset + vViewport) {
           _verticalController.animateTo(
             vertOffset,
             duration: const Duration(milliseconds: 150),
@@ -250,6 +257,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     if (sysIndex < _horizontalControllers.length && _horizontalControllers[sysIndex].hasClients) {
       final controller = _horizontalControllers[sysIndex];
       final position = controller.position;
+
       if (position.hasViewportDimension && position.maxScrollExtent > 0) {
         final int systemNotesCount = max(1, systems[sysIndex].end - systems[sysIndex].start);
         
@@ -259,6 +267,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
         final double totalContentWidth = position.maxScrollExtent + position.viewportDimension;
         final double targetOffset = (totalContentWidth * noteProgressRatio) - (position.viewportDimension / 2.0);
+
         final double safeOffset = targetOffset.clamp(0.0, position.maxScrollExtent);
 
         if ((safeOffset - position.pixels).abs() > 4.0) {
@@ -286,32 +295,38 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const SizedBox(height: 12.0),
-              Text(
-                topText,
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                  height: 1.1,
-                  fontWeight: FontWeight.bold,
-                  color: isPlaying ? Colors.black : Colors.orangeAccent,
+              const SizedBox(height: 36.0), // [FIX] Top margin
+              Container(
+                height: 18.0, // [FIX] Strict line height
+                alignment: Alignment.center,
+                child: Text(
+                  topText,
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: isPlaying ? Colors.black : Colors.orangeAccent,
+                  ),
                 ),
               ),
               ...List.generate(6, (strIdx) {
                 final String textVal = renderedStrings[strIdx];
                 final bool hasNote = textVal.contains(RegExp(r'[0-9x<>()/\\=]'));
-                return Text(
-                  textVal,
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                    height: 1.1,
-                    fontWeight: FontWeight.bold,
-                    color: isPlaying
-                        ? (hasNote ? Colors.black : Colors.black38)
-                        : (isSelected
-                            ? Colors.cyanAccent
-                            : Colors.greenAccent),
+                return Container(
+                  height: 18.0, // [FIX] Strict line height
+                  alignment: Alignment.center,
+                  child: Text(
+                    textVal,
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: isPlaying
+                          ? (hasNote ? Colors.black : Colors.black38)
+                          : (isSelected
+                              ? Colors.cyanAccent
+                              : Colors.greenAccent),
+                    ),
                   ),
                 );
               }),
@@ -340,6 +355,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
       for (int beatIndex = sys.start; beatIndex < sys.end; beatIndex++) {
         final beat = widget.sequence[beatIndex];
+
         int effectiveEnd = (widget.selectionStart != -1 && widget.selectionEnd != -1)
             ? max(widget.selectionStart, widget.selectionEnd)
             : -1;
@@ -361,6 +377,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
             beatIndex <= effectiveEnd);
             
         final bool isMeasureEnd = _isMeasureEnd(beatIndex);
+
         int maxColWidth = 3;
         List<String> renderedStrings = List.filled(6, "");
         String topAnnotation = "";
@@ -425,10 +442,6 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
               topAnnotation += "PM";
             }
 
-            if (noteOnString.isLetRing && !topAnnotation.contains("LR")) {
-              topAnnotation += "LR";
-            }
-
             String text = "-$val-";
             renderedStrings[strIdx] = text;
             if (text.length > maxColWidth) {
@@ -441,7 +454,6 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
         if (topAnnotation.isNotEmpty) {
           topText = " $topAnnotation";
         }
-
         if (topText.length > maxColWidth) {
           maxColWidth = topText.length;
         }
@@ -479,24 +491,24 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                 )
               else
                 _buildBeatContainer(beatIndex == widget.currentPlayingIndex, isSelected, topText, renderedStrings, beatIndex, beat),
-
+              
               if (isMeasureEnd)
                 Column(
                   children: [
-                    const SizedBox(height: 12.0),
-                    const Text(
-                      " ",
-                      style: TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.1),
-                    ),
+                    const SizedBox(height: 36.0),
+                    Container(height: 18.0, alignment: Alignment.center, child: const Text(" ")),
                     ...List.generate(
                       6,
-                      (_) => const Text(
-                        "|",
-                        style: TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 12,
-                          height: 1.1,
-                          color: Colors.white54,
+                      (_) => Container(
+                        height: 18.0,
+                        alignment: Alignment.center,
+                        child: const Text(
+                          "|",
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                            color: Colors.white54,
+                          ),
                         ),
                       ),
                     ),
@@ -510,20 +522,20 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
       rowChildren.add(
         Column(
           children: [
-            const SizedBox(height: 12.0),
-            const Text(
-              " ",
-              style: TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.1),
-            ),
+            const SizedBox(height: 36.0),
+            Container(height: 18.0, alignment: Alignment.center, child: const Text(" ")),
             ...List.generate(
               6,
-              (_) => const Text(
-                "|",
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                  height: 1.1,
-                  color: Colors.white54,
+              (_) => Container(
+                height: 18.0,
+                alignment: Alignment.center,
+                child: const Text(
+                  "|",
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    color: Colors.white54,
+                  ),
                 ),
               ),
             ),
@@ -535,7 +547,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
       systemWidgets.add(
         SizedBox(
-          height: 150.0,
+          height: 190.0, // [FIX] Expanded container to enclose 36 margin + (7 * 18 texts) = 162 total
           child: Padding(
             padding: const EdgeInsets.only(bottom: 8.0),
             child: Row(
@@ -543,20 +555,20 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
               children: [
                 Column(
                   children: [
-                    const SizedBox(height: 12.0),
-                    const Text(
-                      "   ",
-                      style: TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.1),
-                    ),
+                    const SizedBox(height: 36.0),
+                    Container(height: 18.0, alignment: Alignment.center, child: const Text(" ")),
                     ...stringLabels.map(
-                      (lbl) => Text(
-                        "$lbl|",
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 12,
-                          height: 1.1,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.amberAccent,
+                      (lbl) => Container(
+                        height: 18.0,
+                        alignment: Alignment.center,
+                        child: Text(
+                          "$lbl|",
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.amberAccent,
+                          ),
                         ),
                       ),
                     ),

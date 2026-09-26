@@ -28,15 +28,25 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   GpScore? _score;
   bool _isLoading = false;
   List<Map<String, String>> _recentFiles = [];
+
   int _selectedTrackIndex = 0;
-  Set<int> _soloedTracks = {0};
+  Set<int> _soloedTracks = {0}; 
   Set<int> _mutedTracks = {};
+
   int _endRests = 0;
   double _speedMultiplier = 1.0;
 
-  List<GpBeat> get _parsedBeats {
-    if (_score == null || _score!.tracks.isEmpty) return [];
+  List<GpBeat> _cachedParsedBeats = [];
+
+  List<GpBeat> get _parsedBeats => _cachedParsedBeats;
+
+  void _rebuildParsedBeatsCache() {
+    if (_score == null || _score!.tracks.isEmpty) {
+      _cachedParsedBeats = [];
+      return;
+    }
     final List<GpBeat> baseBeats = List<GpBeat>.from(_score!.tracks[_selectedTrackIndex].beats);
+
     if (_endRests > 0) {
       if (_selectionStart != -1 && _selectionEnd != -1) {
         int insertIdx = max(_selectionStart, _selectionEnd) + 1;
@@ -46,7 +56,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         baseBeats.addAll(List.generate(_endRests, (_) => GpBeat.rest(duration: 0.25)));
       }
     }
-    return baseBeats;
+    _cachedParsedBeats = baseBeats;
   }
 
   List<int> get _parsedMeasureEnds {
@@ -62,12 +72,12 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
   int _currentBendToken = 0;
   LoopMode _loopMode = LoopMode.off;
   final Set<int> _activeSoundingPitches = {};
-
   final ValueNotifier<int> _playingIndexNotifier = ValueNotifier<int>(-1);
 
   int _selectionStart = -1;
   int _selectionEnd = -1;
   int? _tapAnchorIndex;
+
   int _measuresPerLine = 3;
 
   int _diagnosticMidiCalls = 0;
@@ -126,7 +136,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     if (envelope.isEmpty) return 0.0;
     if (progress <= envelope.first.position) return envelope.first.offset;
     if (progress >= envelope.last.position) return envelope.last.offset;
-
     for (int i = 0; i < envelope.length - 1; i++) {
       final p0 = envelope[i];
       final p1 = envelope[i + 1];
@@ -157,7 +166,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
           _resetPitchBend(channel: channel);
           return false;
         }
-
         final double progress = (elapsed / durationMs).clamp(0.0, 1.0);
         final double offsetSemitones = _interpolateBend(bend.envelope, progress);
         
@@ -195,7 +203,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
           _resetPitchBend(channel: channel);
           return false;
         }
-
         final double progress = (elapsed / durationMs).clamp(0.0, 1.0);
         
         double offsetSemitones = 0.0;
@@ -208,7 +215,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         } else if (slide == SlideType.outUpwards) {
           offsetSemitones = 2.0 * progress;
         }
-
+        
         final double safeOffset = offsetSemitones.clamp(-12.0, 12.0);
         final int bendValue = (8192 + (safeOffset / 12.0) * 8191).clamp(0, 16383).round();
 
@@ -243,7 +250,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
           _resetPitchBend(channel: channel);
           return false;
         }
-
         if (elapsed >= sustainStartMs) {
           final double tSec = (elapsed - sustainStartMs) / 1000.0;
           final double lfo = sin(2 * pi * vibrato.frequency * tSec);
@@ -257,7 +263,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
             lastSentValue = bendValue;
           }
         }
-
         await Future.delayed(const Duration(milliseconds: stepIntervalMs));
         return true;
       });
@@ -311,7 +316,10 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         if (saveRecent) {
           _recentFiles = await RecentFilesService.add(_recentFiles, result.fileName, result.filePath);
         }
-        setState(() => _score = result);
+        setState(() {
+           _score = result;
+           _rebuildParsedBeatsCache();
+        });
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -327,6 +335,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       _selectionStart = -1;
       _selectionEnd = -1;
       _tapAnchorIndex = null;
+      _rebuildParsedBeatsCache();
     });
   }
 
@@ -336,7 +345,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
     final bool isSingleNoteSelected = _selectionStart != -1 && _selectionEnd != -1 && _selectionStart == _selectionEnd;
     final bool isRangeSelected = _selectionStart != -1 && _selectionEnd != -1 && _selectionStart != _selectionEnd;
-
     final int selMin = isRangeSelected ? min(_selectionStart, _selectionEnd) : _selectionStart;
     final int selMax = isRangeSelected ? (max(_selectionStart, _selectionEnd) + _endRests) : _selectionEnd;
 
@@ -372,12 +380,13 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     setState(() {
       _isPlaying = true;
     });
+
     _playingIndexNotifier.value = startIdx;
 
     _trackMidiSyncCall('initNote', () => _midiService.playNote(key: 12, velocity: 1));
     await Future.delayed(const Duration(milliseconds: 100));
     _trackMidiSyncCall('initNoteOff', () => _midiService.stopNote(key: 12));
-
+    
     if (!mounted || _playbackToken != token || !_isPlaying) return;
 
     double calculateMsForBeatIndex(int targetIndex) {
@@ -414,7 +423,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     );
 
     if (mainTimeline.isEmpty) return;
-
     List<ScheduledMidiEvent> unifiedTimeline = [];
 
     void _addEventsToUnifiedTimeline(List<ScheduledMidiEvent> sourceTimeline, bool isMainTrack) {
@@ -462,7 +470,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
 
     while (true) {
       if (!mounted || _playbackToken != token || !_isPlaying) return;
-
       final Stopwatch masterClock = Stopwatch()..start();
       int eventIndex = 0;
 
@@ -490,11 +497,13 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         if (timerDrift > _diagnosticMaxDrift) _diagnosticMaxDrift = timerDrift;
 
         final Stopwatch execSw = Stopwatch()..start();
+
         while (eventIndex < unifiedTimeline.length &&
             unifiedTimeline[eventIndex].timeMs <= (masterClock.elapsedMicroseconds / 1000.0) + 2.0) {
           _dispatchMidiEvent(unifiedTimeline[eventIndex], token);
           eventIndex++;
         }
+
         execSw.stop();
         if (execSw.elapsedMicroseconds / 1000.0 > _diagnosticMaxExecutionJitter) {
           _diagnosticMaxExecutionJitter = execSw.elapsedMicroseconds / 1000.0;
@@ -515,13 +524,11 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
       final double totalSongMs = originEndMs - originStartMs;
       final double currentElapsed = masterClock.elapsedMicroseconds / 1000.0;
       final int trailingWaitMs = (totalSongMs - currentElapsed).round();
-
       if (trailingWaitMs > 0) {
         await Future.delayed(Duration(milliseconds: trailingWaitMs));
       }
 
       _cleanUpMidiState();
-
       if (!mounted || _playbackToken != token || !_isPlaying) return;
 
       switch (_loopMode) {
@@ -549,10 +556,6 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
     if (!shouldPlay) return;
 
     if (ev.type == 'note_on') {
-      if (ev.isMuted || ev.isGhost) {
-        debugPrint('[EXPRESSIVITY DIAGNOSTIC] Firing ${ev.isMuted ? "Muted (x)" : "Ghost ()"} | Pitch: ${ev.data1} | Vel: ${ev.data2} | Dur: ${ev.durationMs}ms');
-      }
-      
       _trackMidiSyncCall('playNote', () => _midiService.playNote(key: ev.data1, velocity: ev.data2, channel: ev.channel));
       _activeSoundingPitches.add(ev.data1);
       
@@ -629,12 +632,14 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
         _selectionEnd = max(_tapAnchorIndex!, index);
         _tapAnchorIndex = null;
       }
+      _rebuildParsedBeatsCache();
     });
   }
 
   void _clearSelection() {
     setState(() {
       _selectionStart = -1; _selectionEnd = -1; _tapAnchorIndex = null;
+      _rebuildParsedBeatsCache();
     });
     if (!_isPlaying && _parsedBeats.isNotEmpty) _playingIndexNotifier.value = 0;
   }
@@ -695,6 +700,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
                                 _selectedTrackIndex = i;
                                 _selectionStart = -1;
                                 _selectionEnd = -1;
+                                _rebuildParsedBeatsCache();
                               });
                             },
                             onToggleSolo: (i) => setState(() { if (_soloedTracks.contains(i)) _soloedTracks.remove(i); else { _soloedTracks.add(i); _mutedTracks.remove(i); } }),
@@ -773,7 +779,7 @@ class _GpxTabScreenState extends State<GpxTabScreen> with AutomaticKeepAliveClie
                 onToggleLoop: _cycleLoopMode, onSave: () {}, onCopy: () {}, onClearSelection: _clearSelection,
                 isPaused: _isPaused, gpLoopMode: _loopMode, onCycleLoopMode: _cycleLoopMode,
                 onRewind: _rewind, speedMultiplier: _speedMultiplier, onSpeedChanged: (s) => setState(() => _speedMultiplier = s.clamp(0.1, 2.0)),
-                endRests: _endRests, onEndRestsChanged: (v) => setState(() => _endRests = v),
+                endRests: _endRests, onEndRestsChanged: (v) { setState(() { _endRests = v; _rebuildParsedBeatsCache(); }); },
               ),
             ),
           ],
