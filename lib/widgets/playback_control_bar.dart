@@ -24,28 +24,21 @@ class PlaybackControlBar extends StatelessWidget {
   // --- GP Viewer extensions (all optional, backward-compatible) ---
   /// True when playback has been paused mid-track (position preserved).
   final bool isPaused;
-
   /// When non-null the bar renders in GP-viewer mode:
   /// - Play/Pause/Resume button with pause semantics.
   /// - 3-state loop icon (off -> all -> selection).
   final LoopMode? gpLoopMode;
-
   /// Callback that cycles [gpLoopMode] through off -> all -> selection -> off.
   /// Required when [gpLoopMode] is non-null.
   final VoidCallback? onCycleLoopMode;
-
   /// Rewinds playback position to note 0.
   final VoidCallback? onRewind;
-
   /// Current playback speed multiplier (e.g. 1.0).
   final double? speedMultiplier;
-
   /// Callback to change playback speed multiplier.
   final ValueChanged<double>? onSpeedChanged;
-
   /// Number of dynamic rests inserted at selection / end.
   final int? endRests;
-
   /// Callback to adjust rest count.
   final ValueChanged<int>? onEndRestsChanged;
 
@@ -76,7 +69,6 @@ class PlaybackControlBar extends StatelessWidget {
   });
 
   // --- Helpers ---
-
   /// Icon for the current [LoopMode].
   IconData _loopIcon(LoopMode mode) {
     switch (mode) {
@@ -114,117 +106,175 @@ class PlaybackControlBar extends StatelessWidget {
   }
 
   // --- Build ---
-
   void _showSpeedDialog(BuildContext context) {
     if (onSpeedChanged == null) return;
-
     double current = speedMultiplier ?? 1.0;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF222222),
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Playback Speed',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      Text(
-                        '${current.toStringAsFixed(1)}x',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blueAccent,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.remove_circle_outline, color: Colors.white70),
-                        onPressed: current > 0.15
-                            ? () {
-                                final next = ((current - 0.1) * 10).round() / 10.0;
-                                final clamped = next.clamp(0.1, 2.0);
-                                setModalState(() => current = clamped);
-                                onSpeedChanged!(clamped);
-                              }
-                            : null,
-                      ),
-                      Expanded(
-                        child: Slider(
-                          value: current.clamp(0.1, 2.0),
-                          min: 0.1,
-                          max: 2.0,
-                          divisions: 19,
-                          label: '${current.toStringAsFixed(1)}x',
-                          activeColor: Colors.blueAccent,
-                          inactiveColor: Colors.grey.shade800,
-                          onChanged: (val) {
-                            final snapped = ((val * 10).round() / 10.0).clamp(0.1, 2.0);
-                            setModalState(() => current = snapped);
-                            onSpeedChanged!(snapped);
-                          },
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.add_circle_outline, color: Colors.white70),
-                        onPressed: current < 1.95
-                            ? () {
-                                final next = ((current + 0.1) * 10).round() / 10.0;
-                                final clamped = next.clamp(0.1, 2.0);
-                                setModalState(() => current = clamped);
-                                onSpeedChanged!(clamped);
-                              }
-                            : null,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((preset) {
-                      final bool isSelected = (current - preset).abs() < 0.04;
-                      return ChoiceChip(
-                        label: Text(
-                          '${preset}x',
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: StatefulBuilder(
+            builder: (context, setModalState) {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Playback Speed',
                           style: TextStyle(
-                            fontSize: 12,
-                            color: isSelected ? Colors.white : Colors.grey.shade300,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
                           ),
                         ),
-                        selected: isSelected,
-                        selectedColor: Colors.blueAccent,
-                        backgroundColor: Colors.grey.shade800,
-                        onSelected: (_) {
-                          setModalState(() => current = preset);
-                          onSpeedChanged!(preset);
-                        },
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ),
-            );
-          },
+                        GestureDetector(
+                          onTap: () {
+                            final TextEditingController ctrl = TextEditingController(text: current.toStringAsFixed(2));
+                            showDialog(
+                              context: context,
+                              builder: (dialogCtx) => AlertDialog(
+                                backgroundColor: Colors.grey.shade900,
+                                title: const Text('Set Speed (0.10 - 2.00)', style: TextStyle(color: Colors.white, fontSize: 16)),
+                                content: TextField(
+                                  controller: ctrl,
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  style: const TextStyle(color: Colors.white),
+                                  decoration: const InputDecoration(
+                                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
+                                  ),
+                                  autofocus: true,
+                                  onSubmitted: (val) {
+                                    double? parsed = double.tryParse(val);
+                                    if (parsed != null) {
+                                      double clamped = ((parsed * 100).round() / 100.0).clamp(0.1, 2.0);
+                                      setModalState(() => current = clamped);
+                                      onSpeedChanged!(clamped);
+                                    }
+                                    Navigator.pop(dialogCtx);
+                                  },
+                                ),
+                                actions: [
+                                  TextButton(
+                                    child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                                    onPressed: () => Navigator.pop(dialogCtx)
+                                  ),
+                                  ElevatedButton(
+                                    child: const Text('Set'),
+                                    onPressed: () {
+                                      double? parsed = double.tryParse(ctrl.text);
+                                      if (parsed != null) {
+                                        double clamped = ((parsed * 100).round() / 100.0).clamp(0.1, 2.0);
+                                        setModalState(() => current = clamped);
+                                        onSpeedChanged!(clamped);
+                                      }
+                                      Navigator.pop(dialogCtx);
+                                    }
+                                  )
+                                ],
+                              ),
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade800,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '${current.toStringAsFixed(2)}x',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blueAccent,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.remove_circle_outline, color: Colors.white70),
+                          onPressed: current > 0.10
+                              ? () {
+                                  final next = ((current - 0.01) * 100).round() / 100.0;
+                                  final clamped = next.clamp(0.1, 2.0);
+                                  setModalState(() => current = clamped);
+                                  onSpeedChanged!(clamped);
+                                }
+                              : null,
+                        ),
+                        Expanded(
+                          child: Slider(
+                            value: current.clamp(0.1, 2.0),
+                            min: 0.1,
+                            max: 2.0,
+                            divisions: 190,
+                            label: '${current.toStringAsFixed(2)}x',
+                            activeColor: Colors.blueAccent,
+                            inactiveColor: Colors.grey.shade800,
+                            onChanged: (val) {
+                              final snapped = ((val * 100).round() / 100.0).clamp(0.1, 2.0);
+                              setModalState(() => current = snapped);
+                              onSpeedChanged!(snapped);
+                            },
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.add_circle_outline, color: Colors.white70),
+                          onPressed: current < 2.00
+                              ? () {
+                                  final next = ((current + 0.01) * 100).round() / 100.0;
+                                  final clamped = next.clamp(0.1, 2.0);
+                                  setModalState(() => current = clamped);
+                                  onSpeedChanged!(clamped);
+                                }
+                              : null,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((preset) {
+                        final bool isSelected = (current - preset).abs() < 0.005;
+                        return ChoiceChip(
+                          label: Text(
+                            '${preset}x',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isSelected ? Colors.white : Colors.grey.shade300,
+                            ),
+                          ),
+                          selected: isSelected,
+                          selectedColor: Colors.blueAccent,
+                          backgroundColor: Colors.grey.shade800,
+                          onSelected: (_) {
+                            setModalState(() => current = preset);
+                            onSpeedChanged!(preset);
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         );
       },
     );
@@ -304,7 +354,6 @@ class PlaybackControlBar extends StatelessWidget {
                       foregroundColor: Colors.white,
                     ),
                   ),
-
                 const SizedBox(width: 4),
 
                 // --- Stop (GP mode only = separate from Pause) ---
@@ -357,7 +406,7 @@ class PlaybackControlBar extends StatelessWidget {
                           const Icon(Icons.speed, size: 14, color: Colors.blueAccent),
                           const SizedBox(width: 4),
                           Text(
-                            '${(speedMultiplier ?? 1.0).toStringAsFixed(1)}x',
+                            '${(speedMultiplier ?? 1.0).toStringAsFixed(2)}x',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
@@ -394,7 +443,7 @@ class PlaybackControlBar extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 2.0),
               child: Text(
-                gpLoopMode == LoopMode.all ? '• Loop All' : '• Loop Selection',
+                gpLoopMode == LoopMode.all ? '  Loop All' : '  Loop Selection',
                 style: TextStyle(
                   fontSize: 10,
                   color: _loopColor(gpLoopMode!),
