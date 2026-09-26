@@ -72,6 +72,6 @@ def convert_mid_to_ground_truth(midi_path, output_json_path):
     print(f"Success: Wrote {len(events)} events to {output_json_path}")
 
 if __name__ == "__main__":
-    midi_input = "roadhouse_blues.mid"
+    midi_input = "benchmark.mid"
     json_output = "test_agent/ground_truth.json"
     convert_mid_to_ground_truth(midi_input, json_output)
