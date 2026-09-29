@@ -21,7 +21,6 @@ class BendPainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     );
 
-    // [FIX] Strict geometry constants.
     const double topMargin = 36.0;
     const double lineHeight = 18.0;
 
@@ -29,10 +28,9 @@ class BendPainter extends CustomPainter {
       if (note.isRest || note.bend == null) continue;
       final bend = note.bend!;
 
-      // Calculate perfect center of the corresponding strict Container row
       final double startY = topMargin + lineHeight + ((note.stringNum - 1) * lineHeight) + (lineHeight / 2);
       final double startX = size.width / 2;
-      final double apexY = 16.0; // Peak in the safe margin area
+      final double apexY = 16.0; 
 
       final path = Path();
       path.moveTo(startX, startY);
@@ -85,7 +83,9 @@ class BendPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant BendPainter oldDelegate) {
+    return oldDelegate.beat != beat || oldDelegate.color != color;
+  }
 }
 
 class InteractiveTabDisplay extends StatefulWidget {
@@ -121,14 +121,35 @@ class InteractiveTabDisplay extends StatefulWidget {
 }
 
 class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
+  static final RegExp _noteRegex = RegExp(r'[0-9x<>()/\\=]');
+  
   final ScrollController _verticalController = ScrollController();
-  final List<ScrollController> _horizontalControllers = [];
+  late List<ScrollController> _horizontalControllers;
+  late List<ValueNotifier<bool>> _beatNotifiers;
+  List<({int start, int end})> _cachedSystems = [];
+  
   int _lastScrolledIndex = -1;
+  int _lastActiveIndex = -1;
+
+  // Telemetry variables
+  DateTime? _lastScrollTime;
+  int _telemetryBuildCount = 0;
 
   @override
   void initState() {
     super.initState();
-    widget.playingIndexNotifier?.addListener(_onPlayheadChanged);
+    _cachedSystems = _calculateSystems();
+    _horizontalControllers = List.generate(_cachedSystems.length, (_) => ScrollController());
+    
+    _beatNotifiers = List.generate(widget.sequence.length, (_) => ValueNotifier<bool>(false));
+    
+    if (widget.playingIndexNotifier != null) {
+      _lastActiveIndex = widget.playingIndexNotifier!.value;
+      if (_lastActiveIndex >= 0 && _lastActiveIndex < _beatNotifiers.length) {
+        _beatNotifiers[_lastActiveIndex].value = true;
+      }
+      widget.playingIndexNotifier!.addListener(_onPlayheadChanged);
+    }
   }
 
   @override
@@ -138,16 +159,29 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     for (var controller in _horizontalControllers) {
       controller.dispose();
     }
+    for (var notifier in _beatNotifiers) {
+      notifier.dispose();
+    }
     super.dispose();
   }
 
   void _onPlayheadChanged() {
     if (widget.playingIndexNotifier != null) {
       final newIndex = widget.playingIndexNotifier!.value;
+      
+      if (_lastActiveIndex >= 0 && _lastActiveIndex < _beatNotifiers.length) {
+        _beatNotifiers[_lastActiveIndex].value = false;
+      }
+      if (newIndex >= 0 && newIndex < _beatNotifiers.length) {
+        _beatNotifiers[newIndex].value = true;
+      }
+
       if (newIndex != _lastScrolledIndex && newIndex >= 0) {
         _lastScrolledIndex = newIndex;
         _scrollToActiveNote(newIndex);
       }
+      
+      _lastActiveIndex = newIndex;
     }
   }
 
@@ -207,12 +241,27 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
   void didUpdateWidget(covariant InteractiveTabDisplay oldWidget) {
     super.didUpdateWidget(oldWidget);
     
-    final systems = _calculateSystems();
-    final int totalSystems = systems.length;
+    if (widget.sequence != oldWidget.sequence || widget.measuresPerLine != oldWidget.measuresPerLine) {
+      _cachedSystems = _calculateSystems();
 
-    while (_horizontalControllers.length > totalSystems) {
-      final orphanedController = _horizontalControllers.removeLast();
-      orphanedController.dispose();
+      while (_horizontalControllers.length > _cachedSystems.length) {
+        final orphanedController = _horizontalControllers.removeLast();
+        orphanedController.dispose();
+      }
+      while (_horizontalControllers.length < _cachedSystems.length) {
+        _horizontalControllers.add(ScrollController());
+      }
+      
+      for (var notifier in _beatNotifiers) {
+        notifier.dispose();
+      }
+      
+      _beatNotifiers = List.generate(widget.sequence.length, (_) => ValueNotifier<bool>(false));
+      
+      _lastActiveIndex = widget.playingIndexNotifier?.value ?? -1;
+      if (_lastActiveIndex >= 0 && _lastActiveIndex < _beatNotifiers.length) {
+        _beatNotifiers[_lastActiveIndex].value = true;
+      }
     }
     
     if (widget.playingIndexNotifier == null && widget.currentPlayingIndex != oldWidget.currentPlayingIndex) {
@@ -223,14 +272,13 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
   void _scrollToActiveNote(int noteIndex) {
     if (noteIndex < 0) return;
     
-    final systems = _calculateSystems();
     int sysIndex = -1;
     int noteIndexInSys = 0;
     
-    for (int i = 0; i < systems.length; i++) {
-      if (noteIndex >= systems[i].start && noteIndex < systems[i].end) {
+    for (int i = 0; i < _cachedSystems.length; i++) {
+      if (noteIndex >= _cachedSystems[i].start && noteIndex < _cachedSystems[i].end) {
         sysIndex = i;
-        noteIndexInSys = noteIndex - systems[i].start;
+        noteIndexInSys = noteIndex - _cachedSystems[i].start;
         break;
       }
     }
@@ -240,7 +288,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     if (_verticalController.hasClients) {
       final position = _verticalController.position;
       if (position.hasViewportDimension) {
-        double vertOffset = sysIndex * 190.0; // [FIX] Adjusted height boundary
+        double vertOffset = sysIndex * 190.0;
         double currentVOffset = position.pixels;
         double vViewport = position.viewportDimension;
         
@@ -259,7 +307,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
       final position = controller.position;
 
       if (position.hasViewportDimension && position.maxScrollExtent > 0) {
-        final int systemNotesCount = max(1, systems[sysIndex].end - systems[sysIndex].start);
+        final int systemNotesCount = max(1, _cachedSystems[sysIndex].end - _cachedSystems[sysIndex].start);
         
         final double noteProgressRatio = systemNotesCount > 1
             ? (noteIndexInSys / (systemNotesCount - 1)).clamp(0.0, 1.0)
@@ -277,7 +325,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     }
   }
 
-  Widget _buildBeatContainer(bool isPlaying, bool isSelected, String topText, List<String> renderedStrings, int beatIndex, GpBeat beat) {
+  Widget _buildBeatLayout(bool isPlaying, bool isSelected, String topText, List<String> renderedStrings, int beatIndex, GpBeat beat) {
     return GestureDetector(
       onTap: () => widget.onBeatTapped(beatIndex),
       child: Container(
@@ -295,9 +343,9 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const SizedBox(height: 36.0), // [FIX] Top margin
+              const SizedBox(height: 36.0),
               Container(
-                height: 18.0, // [FIX] Strict line height
+                height: 18.0,
                 alignment: Alignment.center,
                 child: Text(
                   topText,
@@ -311,9 +359,9 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
               ),
               ...List.generate(6, (strIdx) {
                 final String textVal = renderedStrings[strIdx];
-                final bool hasNote = textVal.contains(RegExp(r'[0-9x<>()/\\=]'));
+                final bool hasNote = textVal.contains(_noteRegex);
                 return Container(
-                  height: 18.0, // [FIX] Strict line height
+                  height: 18.0,
                   alignment: Alignment.center,
                   child: Text(
                     textVal,
@@ -339,317 +387,279 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
   @override
   Widget build(BuildContext context) {
-    final systems = _calculateSystems();
-    final int totalSystems = systems.length;
-
-    while (_horizontalControllers.length < totalSystems) {
-      _horizontalControllers.add(ScrollController());
-    }
-
     final List<String> stringLabels = ["e", "B", "G", "D", "A", "E"];
-    final List<Widget> systemWidgets = [];
 
-    for (int sIdx = 0; sIdx < systems.length; sIdx++) {
-      final sys = systems[sIdx];
-      final List<Widget> rowChildren = [];
-
-      for (int beatIndex = sys.start; beatIndex < sys.end; beatIndex++) {
-        final beat = widget.sequence[beatIndex];
-
-        int effectiveEnd = (widget.selectionStart != -1 && widget.selectionEnd != -1)
-            ? max(widget.selectionStart, widget.selectionEnd)
-            : -1;
-            
-        if (effectiveEnd != -1 && beatIndex > effectiveEnd && beat.isRest) {
-          bool allRests = true;
-          for (int r = effectiveEnd + 1; r <= beatIndex; r++) {
-            if (r < widget.sequence.length && !widget.sequence[r].isRest) {
-              allRests = false;
-              break;
+    return NotificationListener<ScrollNotification>(
+      onNotification: (ScrollNotification notification) {
+        if (notification is ScrollUpdateNotification) {
+          final now = DateTime.now();
+          if (_lastScrollTime != null) {
+            final deltaMs = now.difference(_lastScrollTime!).inMilliseconds;
+            if (deltaMs > 16) {
+              debugPrint('[SCROLL TELEMETRY] Dropped Frame: ${deltaMs}ms | Scroll Delta: ${notification.scrollDelta?.toStringAsFixed(1)}');
             }
           }
-          if (allRests) effectiveEnd = beatIndex;
+          _lastScrollTime = now;
+        } else if (notification is ScrollEndNotification) {
+          _lastScrollTime = null;
         }
+        return false;
+      },
+      child: Scrollbar(
+        controller: _verticalController,
+        thumbVisibility: true,
+        thickness: 6.0,
+        radius: const Radius.circular(4),
+        interactive: true,
+        child: ListView.builder(
+          controller: _verticalController,
+          physics: const BouncingScrollPhysics(),
+          itemCount: _cachedSystems.length,
+          itemBuilder: (context, sIdx) {
+            final Stopwatch renderSw = Stopwatch()..start();
+            final sys = _cachedSystems[sIdx];
+            final int systemBeatCount = sys.end - sys.start;
 
-        final bool isSelected = (widget.selectionStart != -1 &&
-            effectiveEnd != -1 &&
-            beatIndex >= min(widget.selectionStart, widget.selectionEnd) &&
-            beatIndex <= effectiveEnd);
-            
-        final bool isMeasureEnd = _isMeasureEnd(beatIndex);
-
-        int maxColWidth = 3;
-        List<String> renderedStrings = List.filled(6, "");
-        String topAnnotation = "";
-
-        if (beat.strumDirection == StrumDirection.down) {
-          topAnnotation += "v";
-        } else if (beat.strumDirection == StrumDirection.up) {
-          topAnnotation += "^";
-        }
-
-        for (int strIdx = 0; strIdx < 6; strIdx++) {
-          final int strNum = strIdx + 1;
-          final noteOnString = beat.noteOnString(strNum);
-
-          if (noteOnString != null && !noteOnString.isRest) {
-            String val = noteOnString.fretNum.toString();
-
-            if (noteOnString.isMuted) {
-              val = "x";
-            } else if (noteOnString.harmonicType != HarmonicType.none) {
-              val = "<$val>";
-            } else if (noteOnString.isGhost || noteOnString.isTie) {
-              val = "($val)";
-            }
-
-            if (noteOnString.slideType != SlideType.none) {
-              bool slideUp = noteOnString.slideType == SlideType.intoFromBelow ||
-                  noteOnString.slideType == SlideType.outUpwards ||
-                  noteOnString.slideType == SlideType.shift ||
-                  noteOnString.slideType == SlideType.legato;
-
-              if (beatIndex + 1 < widget.sequence.length) {
-                final nextBeat = widget.sequence[beatIndex + 1];
-                final nextNote = nextBeat.noteOnString(strNum);
-                if (nextNote != null && !nextNote.isRest) {
-                  slideUp = nextNote.fretNum > noteOnString.fretNum;
-                }
-              }
-
-              final String sChar = slideUp ? "/" : "\\";
-              if (!topAnnotation.contains(sChar)) topAnnotation += sChar;
-            }
-
-            if (noteOnString.isTap && !topAnnotation.contains("t")) {
-              topAnnotation += "t";
-            }
-
-            if (noteOnString.bend != null) {
-              final String bSymbol = noteOnString.bend!.hasRelease ? "br" : "b";
-              if (!topAnnotation.contains(bSymbol)) topAnnotation += bSymbol;
-            }
-
-            if (noteOnString.vibrato != null && !topAnnotation.contains("~")) {
-              topAnnotation += "~";
-            }
-
-            if (noteOnString.isLegato && !topAnnotation.contains("h")) {
-              topAnnotation += "h";
-            }
-
-            if (noteOnString.isPalmMute && !topAnnotation.contains("PM")) {
-              topAnnotation += "PM";
-            }
-
-            String text = "-$val-";
-            renderedStrings[strIdx] = text;
-            if (text.length > maxColWidth) {
-              maxColWidth = text.length;
-            }
-          }
-        }
-
-        String topText = "";
-        if (topAnnotation.isNotEmpty) {
-          topText = " $topAnnotation";
-        }
-        if (topText.length > maxColWidth) {
-          maxColWidth = topText.length;
-        }
-
-        for (int strIdx = 0; strIdx < 6; strIdx++) {
-          if (renderedStrings[strIdx].isEmpty) {
-            renderedStrings[strIdx] = "-" * maxColWidth;
-          } else {
-            renderedStrings[strIdx] = renderedStrings[strIdx].padRight(maxColWidth, '-');
-          }
-        }
-
-        if (topText.isEmpty) {
-          topText = " " * maxColWidth;
-        } else {
-          topText = topText.padRight(maxColWidth, ' ');
-        }
-
-        rowChildren.add(
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (widget.playingIndexNotifier != null)
-                _BeatHighlightWrapper(
-                  beatIndex: beatIndex,
-                  playingIndexNotifier: widget.playingIndexNotifier!,
-                  builder: (isPlaying) => _buildBeatContainer(
-                    isPlaying,
-                    isSelected,
-                    topText,
-                    renderedStrings,
-                    beatIndex,
-                    beat,
-                  ),
-                )
-              else
-                _buildBeatContainer(beatIndex == widget.currentPlayingIndex, isSelected, topText, renderedStrings, beatIndex, beat),
-              
-              if (isMeasureEnd)
-                Column(
+            final widgetToReturn = SizedBox(
+              height: 190.0,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SizedBox(height: 36.0),
-                    Container(height: 18.0, alignment: Alignment.center, child: const Text(" ")),
-                    ...List.generate(
-                      6,
-                      (_) => Container(
-                        height: 18.0,
-                        alignment: Alignment.center,
-                        child: const Text(
-                          "|",
-                          style: TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 12,
-                            color: Colors.white54,
+                    Column(
+                      children: [
+                        const SizedBox(height: 36.0),
+                        Container(height: 18.0, alignment: Alignment.center, child: const Text(" ")),
+                        ...stringLabels.map(
+                          (lbl) => Container(
+                            height: 18.0,
+                            alignment: Alignment.center,
+                            child: Text(
+                              "$lbl|",
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.amberAccent,
+                              ),
+                            ),
                           ),
                         ),
+                      ],
+                    ),
+                    Expanded(
+                      // [FIX] Dual-Axis Virtualization. Instantly culls horizontal overflow geometry during hit-tests.
+                      child: ListView.builder(
+                        controller: _horizontalControllers[sIdx],
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(),
+                        itemCount: systemBeatCount + 2, // Contains beats + Measure divider + Trailing padding
+                        itemBuilder: (context, horizontalIndex) {
+                          if (horizontalIndex < systemBeatCount) {
+                            final int beatIndex = sys.start + horizontalIndex;
+                            final beat = widget.sequence[beatIndex];
+
+                            int effectiveEnd = (widget.selectionStart != -1 && widget.selectionEnd != -1)
+                                ? max(widget.selectionStart, widget.selectionEnd)
+                                : -1;
+                                
+                            if (effectiveEnd != -1 && beatIndex > effectiveEnd && beat.isRest) {
+                              bool allRests = true;
+                              for (int r = effectiveEnd + 1; r <= beatIndex; r++) {
+                                if (r < widget.sequence.length && !widget.sequence[r].isRest) {
+                                  allRests = false;
+                                  break;
+                                }
+                              }
+                              if (allRests) effectiveEnd = beatIndex;
+                            }
+
+                            final bool isSelected = (widget.selectionStart != -1 &&
+                                effectiveEnd != -1 &&
+                                beatIndex >= min(widget.selectionStart, widget.selectionEnd) &&
+                                beatIndex <= effectiveEnd);
+                                
+                            final bool isMeasureEnd = _isMeasureEnd(beatIndex);
+
+                            int maxColWidth = 3;
+                            List<String> renderedStrings = List.filled(6, "");
+                            String topAnnotation = "";
+
+                            if (beat.strumDirection == StrumDirection.down) {
+                              topAnnotation += "v";
+                            } else if (beat.strumDirection == StrumDirection.up) {
+                              topAnnotation += "^";
+                            }
+
+                            for (int strIdx = 0; strIdx < 6; strIdx++) {
+                              final int strNum = strIdx + 1;
+                              final noteOnString = beat.noteOnString(strNum);
+
+                              if (noteOnString != null && !noteOnString.isRest) {
+                                String val = noteOnString.fretNum.toString();
+
+                                if (noteOnString.isMuted) {
+                                  val = "x";
+                                } else if (noteOnString.harmonicType != HarmonicType.none) {
+                                  val = "<$val>";
+                                } else if (noteOnString.isGhost || noteOnString.isTie) {
+                                  val = "($val)";
+                                }
+
+                                if (noteOnString.slideType != SlideType.none) {
+                                  bool slideUp = noteOnString.slideType == SlideType.intoFromBelow ||
+                                      noteOnString.slideType == SlideType.outUpwards ||
+                                      noteOnString.slideType == SlideType.shift ||
+                                      noteOnString.slideType == SlideType.legato;
+
+                                  if (beatIndex + 1 < widget.sequence.length) {
+                                    final nextBeat = widget.sequence[beatIndex + 1];
+                                    final nextNote = nextBeat.noteOnString(strNum);
+                                    if (nextNote != null && !nextNote.isRest) {
+                                      slideUp = nextNote.fretNum > noteOnString.fretNum;
+                                    }
+                                  }
+
+                                  final String sChar = slideUp ? "/" : "\\";
+                                  if (!topAnnotation.contains(sChar)) topAnnotation += sChar;
+                                }
+
+                                if (noteOnString.isTap && !topAnnotation.contains("t")) {
+                                  topAnnotation += "t";
+                                }
+
+                                if (noteOnString.bend != null) {
+                                  final String bSymbol = noteOnString.bend!.hasRelease ? "br" : "b";
+                                  if (!topAnnotation.contains(bSymbol)) topAnnotation += bSymbol;
+                                }
+
+                                if (noteOnString.vibrato != null && !topAnnotation.contains("~")) {
+                                  topAnnotation += "~";
+                                }
+
+                                if (noteOnString.isLegato && !topAnnotation.contains("h")) {
+                                  topAnnotation += "h";
+                                }
+
+                                if (noteOnString.isPalmMute && !topAnnotation.contains("PM")) {
+                                  topAnnotation += "PM";
+                                }
+
+                                String text = "-$val-";
+                                renderedStrings[strIdx] = text;
+                                if (text.length > maxColWidth) {
+                                  maxColWidth = text.length;
+                                }
+                              }
+                            }
+
+                            String topText = "";
+                            if (topAnnotation.isNotEmpty) {
+                              topText = " $topAnnotation";
+                            }
+                            if (topText.length > maxColWidth) {
+                              maxColWidth = topText.length;
+                            }
+
+                            for (int strIdx = 0; strIdx < 6; strIdx++) {
+                              if (renderedStrings[strIdx].isEmpty) {
+                                renderedStrings[strIdx] = "-" * maxColWidth;
+                              } else {
+                                renderedStrings[strIdx] = renderedStrings[strIdx].padRight(maxColWidth, '-');
+                              }
+                            }
+
+                            if (topText.isEmpty) {
+                              topText = " " * maxColWidth;
+                            } else {
+                              topText = topText.padRight(maxColWidth, ' ');
+                            }
+
+                            return Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (widget.playingIndexNotifier != null)
+                                  ValueListenableBuilder<bool>(
+                                    valueListenable: _beatNotifiers[beatIndex],
+                                    builder: (context, isPlaying, _) {
+                                      return _buildBeatLayout(isPlaying, isSelected, topText, renderedStrings, beatIndex, beat);
+                                    }
+                                  )
+                                else
+                                  _buildBeatLayout(beatIndex == widget.currentPlayingIndex, isSelected, topText, renderedStrings, beatIndex, beat),
+                                
+                                if (isMeasureEnd)
+                                  Column(
+                                    children: [
+                                      const SizedBox(height: 36.0),
+                                      Container(height: 18.0, alignment: Alignment.center, child: const Text(" ")),
+                                      ...List.generate(
+                                        6,
+                                        (_) => Container(
+                                          height: 18.0,
+                                          alignment: Alignment.center,
+                                          child: const Text(
+                                            "|",
+                                            style: TextStyle(
+                                              fontFamily: 'monospace',
+                                              fontSize: 12,
+                                              color: Colors.white54,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                              ],
+                            );
+                          } else if (horizontalIndex == systemBeatCount) {
+                            // Render trailing measure line if this is the end of the system
+                            return Column(
+                              children: [
+                                const SizedBox(height: 36.0),
+                                Container(height: 18.0, alignment: Alignment.center, child: const Text(" ")),
+                                ...List.generate(
+                                  6,
+                                  (_) => Container(
+                                    height: 18.0,
+                                    alignment: Alignment.center,
+                                    child: const Text(
+                                      "|",
+                                      style: TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: 12,
+                                        color: Colors.white54,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          } else {
+                            // Render trailing padding for scrolling comfort
+                            return const SizedBox(width: 48.0);
+                          }
+                        },
                       ),
                     ),
                   ],
-                ),
-            ],
-          ),
-        );
-      }
-
-      rowChildren.add(
-        Column(
-          children: [
-            const SizedBox(height: 36.0),
-            Container(height: 18.0, alignment: Alignment.center, child: const Text(" ")),
-            ...List.generate(
-              6,
-              (_) => Container(
-                height: 18.0,
-                alignment: Alignment.center,
-                child: const Text(
-                  "|",
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                    color: Colors.white54,
-                  ),
                 ),
               ),
-            ),
-          ],
-        ),
-      );
+            );
 
-      rowChildren.add(const SizedBox(width: 48.0));
+            renderSw.stop();
+            if (renderSw.elapsedMilliseconds > 2) {
+              _telemetryBuildCount++;
+              if (_telemetryBuildCount % 10 == 0) {
+                debugPrint('[RENDER TELEMETRY] Measure row $sIdx layout build time: ${renderSw.elapsedMicroseconds / 1000.0}ms');
+              }
+            }
 
-      systemWidgets.add(
-        SizedBox(
-          height: 190.0, // [FIX] Expanded container to enclose 36 margin + (7 * 18 texts) = 162 total
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 8.0),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Column(
-                  children: [
-                    const SizedBox(height: 36.0),
-                    Container(height: 18.0, alignment: Alignment.center, child: const Text(" ")),
-                    ...stringLabels.map(
-                      (lbl) => Container(
-                        height: 18.0,
-                        alignment: Alignment.center,
-                        child: Text(
-                          "$lbl|",
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.amberAccent,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    controller: _horizontalControllers[sIdx],
-                    scrollDirection: Axis.horizontal,
-                    child: Row(children: rowChildren),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Scrollbar(
-      controller: _verticalController,
-      thumbVisibility: true,
-      thickness: 6.0,
-      radius: const Radius.circular(4),
-      interactive: true,
-      child: SingleChildScrollView(
-        controller: _verticalController,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: systemWidgets,
+            return widgetToReturn;
+          },
         ),
       ),
     );
-  }
-}
-
-class _BeatHighlightWrapper extends StatefulWidget {
-  final int beatIndex;
-  final ValueNotifier<int> playingIndexNotifier;
-  final Widget Function(bool isPlaying) builder;
-
-  const _BeatHighlightWrapper({
-    Key? key,
-    required this.beatIndex,
-    required this.playingIndexNotifier,
-    required this.builder,
-  }) : super(key: key);
-
-  @override
-  State<_BeatHighlightWrapper> createState() => _BeatHighlightWrapperState();
-}
-
-class _BeatHighlightWrapperState extends State<_BeatHighlightWrapper> {
-  late bool _isPlaying;
-
-  @override
-  void initState() {
-    super.initState();
-    _isPlaying = widget.playingIndexNotifier.value == widget.beatIndex;
-    widget.playingIndexNotifier.addListener(_onIndexChanged);
-  }
-
-  @override
-  void dispose() {
-    widget.playingIndexNotifier.removeListener(_onIndexChanged);
-    super.dispose();
-  }
-
-  void _onIndexChanged() {
-    final bool currentlyPlaying = widget.playingIndexNotifier.value == widget.beatIndex;
-    if (_isPlaying != currentlyPlaying) {
-      if (mounted) {
-        setState(() {
-          _isPlaying = currentlyPlaying;
-        });
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return widget.builder(_isPlaying);
   }
 }
