@@ -4,6 +4,22 @@ import '../models/gp_beat.dart';
 import '../models/gp_note.dart';
 import '../models/master_bar_event.dart';
 
+class BeatRenderData {
+  final String topText;
+  final List<String> strings;
+  final List<bool> hasNotes;
+  final bool isMeasureEnd;
+  final GpBeat beat;
+
+  BeatRenderData({
+    required this.topText,
+    required this.strings,
+    required this.hasNotes,
+    required this.isMeasureEnd,
+    required this.beat,
+  });
+}
+
 class BendPainter extends CustomPainter {
   final GpBeat beat;
   final Color color;
@@ -126,22 +142,22 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
   final ScrollController _verticalController = ScrollController();
   late List<ScrollController> _horizontalControllers;
   late List<ValueNotifier<bool>> _beatNotifiers;
+  
   List<({int start, int end})> _cachedSystems = [];
+  List<BeatRenderData> _cachedRenderData = [];
+  Set<int> _measureEndSet = {};
+  int _effectiveSelectionEnd = -1;
   
   int _lastScrolledIndex = -1;
   int _lastActiveIndex = -1;
 
   // Telemetry variables
   DateTime? _lastScrollTime;
-  int _telemetryBuildCount = 0;
 
   @override
   void initState() {
     super.initState();
-    _cachedSystems = _calculateSystems();
-    _horizontalControllers = List.generate(_cachedSystems.length, (_) => ScrollController());
-    
-    _beatNotifiers = List.generate(widget.sequence.length, (_) => ValueNotifier<bool>(false));
+    _rebuildCache();
     
     if (widget.playingIndexNotifier != null) {
       _lastActiveIndex = widget.playingIndexNotifier!.value;
@@ -163,6 +179,141 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
       notifier.dispose();
     }
     super.dispose();
+  }
+
+  void _rebuildCache() {
+    _measureEndSet = widget.measureEndIndices?.toSet() ?? {};
+    _cachedSystems = _calculateSystems();
+    _effectiveSelectionEnd = _calculateEffectiveSelectionEnd();
+    
+    _horizontalControllers = List.generate(_cachedSystems.length, (_) => ScrollController());
+    _beatNotifiers = List.generate(widget.sequence.length, (_) => ValueNotifier<bool>(false));
+    
+    _cachedRenderData = List.generate(widget.sequence.length, (index) => _buildViewModelForBeat(index));
+  }
+
+  int _calculateEffectiveSelectionEnd() {
+    if (widget.selectionStart == -1 || widget.selectionEnd == -1) return -1;
+    
+    int end = max(widget.selectionStart, widget.selectionEnd);
+    for (int r = end + 1; r < widget.sequence.length; r++) {
+      if (widget.sequence[r].isRest) {
+        end = r;
+      } else {
+        break;
+      }
+    }
+    return end;
+  }
+
+  BeatRenderData _buildViewModelForBeat(int beatIndex) {
+    final beat = widget.sequence[beatIndex];
+    final bool isMeasureEnd = _measureEndSet.contains(beatIndex) || (beatIndex + 1) % widget.notesPerMeasure == 0;
+
+    int maxColWidth = 3;
+    List<String> renderedStrings = List.filled(6, "");
+    List<bool> hasNotes = List.filled(6, false);
+    String topAnnotation = "";
+
+    if (beat.strumDirection == StrumDirection.down) {
+      topAnnotation += "v";
+    } else if (beat.strumDirection == StrumDirection.up) {
+      topAnnotation += "^";
+    }
+
+    for (int strIdx = 0; strIdx < 6; strIdx++) {
+      final int strNum = strIdx + 1;
+      final noteOnString = beat.noteOnString(strNum);
+
+      if (noteOnString != null && !noteOnString.isRest) {
+        String val = noteOnString.fretNum.toString();
+
+        if (noteOnString.isMuted) {
+          val = "x";
+        } else if (noteOnString.harmonicType != HarmonicType.none) {
+          val = "<$val>";
+        } else if (noteOnString.isGhost || noteOnString.isTie) {
+          val = "($val)";
+        }
+
+        if (noteOnString.slideType != SlideType.none) {
+          bool slideUp = noteOnString.slideType == SlideType.intoFromBelow ||
+              noteOnString.slideType == SlideType.outUpwards ||
+              noteOnString.slideType == SlideType.shift ||
+              noteOnString.slideType == SlideType.legato;
+
+          if (beatIndex + 1 < widget.sequence.length) {
+            final nextBeat = widget.sequence[beatIndex + 1];
+            final nextNote = nextBeat.noteOnString(strNum);
+            if (nextNote != null && !nextNote.isRest) {
+              slideUp = nextNote.fretNum > noteOnString.fretNum;
+            }
+          }
+
+          final String sChar = slideUp ? "/" : "\\";
+          if (!topAnnotation.contains(sChar)) topAnnotation += sChar;
+        }
+
+        if (noteOnString.isTap && !topAnnotation.contains("t")) {
+          topAnnotation += "t";
+        }
+
+        if (noteOnString.bend != null) {
+          final String bSymbol = noteOnString.bend!.hasRelease ? "br" : "b";
+          if (!topAnnotation.contains(bSymbol)) topAnnotation += bSymbol;
+        }
+
+        if (noteOnString.vibrato != null && !topAnnotation.contains("~")) {
+          topAnnotation += "~";
+        }
+
+        if (noteOnString.isLegato && !topAnnotation.contains("h")) {
+          topAnnotation += "h";
+        }
+
+        if (noteOnString.isPalmMute && !topAnnotation.contains("PM")) {
+          topAnnotation += "PM";
+        }
+
+        String text = "-$val-";
+        renderedStrings[strIdx] = text;
+        if (text.length > maxColWidth) {
+          maxColWidth = text.length;
+        }
+      }
+    }
+
+    String topText = "";
+    if (topAnnotation.isNotEmpty) {
+      topText = " $topAnnotation";
+    }
+    if (topText.length > maxColWidth) {
+      maxColWidth = topText.length;
+    }
+
+    for (int strIdx = 0; strIdx < 6; strIdx++) {
+      if (renderedStrings[strIdx].isEmpty) {
+        renderedStrings[strIdx] = "-" * maxColWidth;
+        hasNotes[strIdx] = false;
+      } else {
+        hasNotes[strIdx] = _noteRegex.hasMatch(renderedStrings[strIdx]);
+        renderedStrings[strIdx] = renderedStrings[strIdx].padRight(maxColWidth, '-');
+      }
+    }
+
+    if (topText.isEmpty) {
+      topText = " " * maxColWidth;
+    } else {
+      topText = topText.padRight(maxColWidth, ' ');
+    }
+
+    return BeatRenderData(
+      topText: topText,
+      strings: renderedStrings,
+      hasNotes: hasNotes,
+      isMeasureEnd: isMeasureEnd,
+      beat: beat,
+    );
   }
 
   void _onPlayheadChanged() {
@@ -230,38 +381,28 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     return systems;
   }
 
-  bool _isMeasureEnd(int noteIndex) {
-    if (widget.measureEndIndices != null && widget.measureEndIndices!.isNotEmpty) {
-      return widget.measureEndIndices!.contains(noteIndex);
-    }
-    return (noteIndex + 1) % widget.notesPerMeasure == 0;
-  }
-
   @override
   void didUpdateWidget(covariant InteractiveTabDisplay oldWidget) {
     super.didUpdateWidget(oldWidget);
     
     if (widget.sequence != oldWidget.sequence || widget.measuresPerLine != oldWidget.measuresPerLine) {
-      _cachedSystems = _calculateSystems();
-
-      while (_horizontalControllers.length > _cachedSystems.length) {
-        final orphanedController = _horizontalControllers.removeLast();
-        orphanedController.dispose();
+      for (var controller in _horizontalControllers) {
+        controller.dispose();
       }
-      while (_horizontalControllers.length < _cachedSystems.length) {
-        _horizontalControllers.add(ScrollController());
-      }
-      
       for (var notifier in _beatNotifiers) {
         notifier.dispose();
       }
       
-      _beatNotifiers = List.generate(widget.sequence.length, (_) => ValueNotifier<bool>(false));
+      _rebuildCache();
       
       _lastActiveIndex = widget.playingIndexNotifier?.value ?? -1;
       if (_lastActiveIndex >= 0 && _lastActiveIndex < _beatNotifiers.length) {
         _beatNotifiers[_lastActiveIndex].value = true;
       }
+    } else if (widget.selectionStart != oldWidget.selectionStart || widget.selectionEnd != oldWidget.selectionEnd) {
+      setState(() {
+        _effectiveSelectionEnd = _calculateEffectiveSelectionEnd();
+      });
     }
     
     if (widget.playingIndexNotifier == null && widget.currentPlayingIndex != oldWidget.currentPlayingIndex) {
@@ -325,7 +466,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     }
   }
 
-  Widget _buildBeatLayout(bool isPlaying, bool isSelected, String topText, List<String> renderedStrings, int beatIndex, GpBeat beat) {
+  Widget _buildBeatLayout(bool isPlaying, bool isSelected, BeatRenderData data, int beatIndex) {
     return GestureDetector(
       onTap: () => widget.onBeatTapped(beatIndex),
       child: Container(
@@ -339,7 +480,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
           borderRadius: BorderRadius.circular(2),
         ),
         child: CustomPaint(
-          foregroundPainter: BendPainter(beat, isPlaying ? Colors.black : Colors.amberAccent),
+          foregroundPainter: BendPainter(data.beat, isPlaying ? Colors.black : Colors.amberAccent),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
@@ -348,7 +489,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                 height: 18.0,
                 alignment: Alignment.center,
                 child: Text(
-                  topText,
+                  data.topText,
                   style: TextStyle(
                     fontFamily: 'monospace',
                     fontSize: 12,
@@ -358,8 +499,8 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                 ),
               ),
               ...List.generate(6, (strIdx) {
-                final String textVal = renderedStrings[strIdx];
-                final bool hasNote = textVal.contains(_noteRegex);
+                final String textVal = data.strings[strIdx];
+                final bool hasNote = data.hasNotes[strIdx];
                 return Container(
                   height: 18.0,
                   alignment: Alignment.center,
@@ -416,11 +557,10 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
           physics: const BouncingScrollPhysics(),
           itemCount: _cachedSystems.length,
           itemBuilder: (context, sIdx) {
-            final Stopwatch renderSw = Stopwatch()..start();
             final sys = _cachedSystems[sIdx];
             final int systemBeatCount = sys.end - sys.start;
 
-            final widgetToReturn = SizedBox(
+            return SizedBox(
               height: 190.0,
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 8.0),
@@ -449,132 +589,20 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                       ],
                     ),
                     Expanded(
-                      // [FIX] Dual-Axis Virtualization. Instantly culls horizontal overflow geometry during hit-tests.
                       child: ListView.builder(
                         controller: _horizontalControllers[sIdx],
                         scrollDirection: Axis.horizontal,
                         physics: const BouncingScrollPhysics(),
-                        itemCount: systemBeatCount + 2, // Contains beats + Measure divider + Trailing padding
+                        itemCount: systemBeatCount + 2, 
                         itemBuilder: (context, horizontalIndex) {
                           if (horizontalIndex < systemBeatCount) {
                             final int beatIndex = sys.start + horizontalIndex;
-                            final beat = widget.sequence[beatIndex];
-
-                            int effectiveEnd = (widget.selectionStart != -1 && widget.selectionEnd != -1)
-                                ? max(widget.selectionStart, widget.selectionEnd)
-                                : -1;
-                                
-                            if (effectiveEnd != -1 && beatIndex > effectiveEnd && beat.isRest) {
-                              bool allRests = true;
-                              for (int r = effectiveEnd + 1; r <= beatIndex; r++) {
-                                if (r < widget.sequence.length && !widget.sequence[r].isRest) {
-                                  allRests = false;
-                                  break;
-                                }
-                              }
-                              if (allRests) effectiveEnd = beatIndex;
-                            }
+                            final BeatRenderData data = _cachedRenderData[beatIndex];
 
                             final bool isSelected = (widget.selectionStart != -1 &&
-                                effectiveEnd != -1 &&
+                                _effectiveSelectionEnd != -1 &&
                                 beatIndex >= min(widget.selectionStart, widget.selectionEnd) &&
-                                beatIndex <= effectiveEnd);
-                                
-                            final bool isMeasureEnd = _isMeasureEnd(beatIndex);
-
-                            int maxColWidth = 3;
-                            List<String> renderedStrings = List.filled(6, "");
-                            String topAnnotation = "";
-
-                            if (beat.strumDirection == StrumDirection.down) {
-                              topAnnotation += "v";
-                            } else if (beat.strumDirection == StrumDirection.up) {
-                              topAnnotation += "^";
-                            }
-
-                            for (int strIdx = 0; strIdx < 6; strIdx++) {
-                              final int strNum = strIdx + 1;
-                              final noteOnString = beat.noteOnString(strNum);
-
-                              if (noteOnString != null && !noteOnString.isRest) {
-                                String val = noteOnString.fretNum.toString();
-
-                                if (noteOnString.isMuted) {
-                                  val = "x";
-                                } else if (noteOnString.harmonicType != HarmonicType.none) {
-                                  val = "<$val>";
-                                } else if (noteOnString.isGhost || noteOnString.isTie) {
-                                  val = "($val)";
-                                }
-
-                                if (noteOnString.slideType != SlideType.none) {
-                                  bool slideUp = noteOnString.slideType == SlideType.intoFromBelow ||
-                                      noteOnString.slideType == SlideType.outUpwards ||
-                                      noteOnString.slideType == SlideType.shift ||
-                                      noteOnString.slideType == SlideType.legato;
-
-                                  if (beatIndex + 1 < widget.sequence.length) {
-                                    final nextBeat = widget.sequence[beatIndex + 1];
-                                    final nextNote = nextBeat.noteOnString(strNum);
-                                    if (nextNote != null && !nextNote.isRest) {
-                                      slideUp = nextNote.fretNum > noteOnString.fretNum;
-                                    }
-                                  }
-
-                                  final String sChar = slideUp ? "/" : "\\";
-                                  if (!topAnnotation.contains(sChar)) topAnnotation += sChar;
-                                }
-
-                                if (noteOnString.isTap && !topAnnotation.contains("t")) {
-                                  topAnnotation += "t";
-                                }
-
-                                if (noteOnString.bend != null) {
-                                  final String bSymbol = noteOnString.bend!.hasRelease ? "br" : "b";
-                                  if (!topAnnotation.contains(bSymbol)) topAnnotation += bSymbol;
-                                }
-
-                                if (noteOnString.vibrato != null && !topAnnotation.contains("~")) {
-                                  topAnnotation += "~";
-                                }
-
-                                if (noteOnString.isLegato && !topAnnotation.contains("h")) {
-                                  topAnnotation += "h";
-                                }
-
-                                if (noteOnString.isPalmMute && !topAnnotation.contains("PM")) {
-                                  topAnnotation += "PM";
-                                }
-
-                                String text = "-$val-";
-                                renderedStrings[strIdx] = text;
-                                if (text.length > maxColWidth) {
-                                  maxColWidth = text.length;
-                                }
-                              }
-                            }
-
-                            String topText = "";
-                            if (topAnnotation.isNotEmpty) {
-                              topText = " $topAnnotation";
-                            }
-                            if (topText.length > maxColWidth) {
-                              maxColWidth = topText.length;
-                            }
-
-                            for (int strIdx = 0; strIdx < 6; strIdx++) {
-                              if (renderedStrings[strIdx].isEmpty) {
-                                renderedStrings[strIdx] = "-" * maxColWidth;
-                              } else {
-                                renderedStrings[strIdx] = renderedStrings[strIdx].padRight(maxColWidth, '-');
-                              }
-                            }
-
-                            if (topText.isEmpty) {
-                              topText = " " * maxColWidth;
-                            } else {
-                              topText = topText.padRight(maxColWidth, ' ');
-                            }
+                                beatIndex <= _effectiveSelectionEnd);
 
                             return Row(
                               mainAxisSize: MainAxisSize.min,
@@ -583,13 +611,13 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                                   ValueListenableBuilder<bool>(
                                     valueListenable: _beatNotifiers[beatIndex],
                                     builder: (context, isPlaying, _) {
-                                      return _buildBeatLayout(isPlaying, isSelected, topText, renderedStrings, beatIndex, beat);
+                                      return _buildBeatLayout(isPlaying, isSelected, data, beatIndex);
                                     }
                                   )
                                 else
-                                  _buildBeatLayout(beatIndex == widget.currentPlayingIndex, isSelected, topText, renderedStrings, beatIndex, beat),
+                                  _buildBeatLayout(beatIndex == widget.currentPlayingIndex, isSelected, data, beatIndex),
                                 
-                                if (isMeasureEnd)
+                                if (data.isMeasureEnd)
                                   Column(
                                     children: [
                                       const SizedBox(height: 36.0),
@@ -614,7 +642,6 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                               ],
                             );
                           } else if (horizontalIndex == systemBeatCount) {
-                            // Render trailing measure line if this is the end of the system
                             return Column(
                               children: [
                                 const SizedBox(height: 36.0),
@@ -637,7 +664,6 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                               ],
                             );
                           } else {
-                            // Render trailing padding for scrolling comfort
                             return const SizedBox(width: 48.0);
                           }
                         },
@@ -647,16 +673,6 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                 ),
               ),
             );
-
-            renderSw.stop();
-            if (renderSw.elapsedMilliseconds > 2) {
-              _telemetryBuildCount++;
-              if (_telemetryBuildCount % 10 == 0) {
-                debugPrint('[RENDER TELEMETRY] Measure row $sIdx layout build time: ${renderSw.elapsedMicroseconds / 1000.0}ms');
-              }
-            }
-
-            return widgetToReturn;
           },
         ),
       ),
