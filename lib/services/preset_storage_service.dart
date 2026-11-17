@@ -76,6 +76,26 @@ class PresetStorageService {
     }
   }
 
+  /// Updates the tempo for a preset by [id] and persists the updated presets list.
+  Future<void> updatePresetTempo(String id, int newTempo) async {
+    final presets = await loadPresets();
+    final index = presets.indexWhere((p) => p.id == id);
+    if (index != -1) {
+      presets[index] = presets[index].copyWith(tempo: newTempo);
+      await savePresets(presets);
+    }
+  }
+
+  /// Updates an existing preset matching [preset.id] and persists the list.
+  Future<void> updatePreset(LickPreset preset) async {
+    final presets = await loadPresets();
+    final index = presets.indexWhere((p) => p.id == preset.id);
+    if (index != -1) {
+      presets[index] = preset;
+      await savePresets(presets);
+    }
+  }
+
   // ── Session ────────────────────────────────────────────────────────────────
 
   /// Loads the last auto-saved session preset, or `null` if none exists.
@@ -117,18 +137,68 @@ class PresetStorageService {
     }
   }
 
+  // ── Sorting ───────────────────────────────────────────────────────────────
+
+  /// Sorts a list of [presets] by [sortBy] ('Creation Date' or 'Name').
+  /// If [sortBy] is 'Creation Date', sorts by [LickPreset.createdAt] (fallback to list index/ID).
+  /// If [sortBy] is 'Name', sorts alphabetically by [LickPreset.name].
+  static List<LickPreset> sortPresets(
+    List<LickPreset> presets, {
+    String sortBy = 'Creation Date',
+    bool ascending = true,
+  }) {
+    final list = List<LickPreset>.from(presets);
+    if (sortBy == 'Name') {
+      list.sort((a, b) {
+        final comp = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        return ascending ? comp : -comp;
+      });
+    } else if (sortBy == 'Creation Date') {
+      list.sort((a, b) {
+        final comp = a.createdAt.compareTo(b.createdAt);
+        if (comp != 0) return ascending ? comp : -comp;
+        return ascending ? a.id.compareTo(b.id) : b.id.compareTo(a.id);
+      });
+    }
+    return list;
+  }
+
+  /// Encodes [presets] to a formatted JSON string, preserving order.
+  /// If [sortBy] is specified, sorts the presets before serialization.
+  static String encodePresets(
+    List<LickPreset> presets, {
+    String? sortBy,
+    bool ascending = true,
+  }) {
+    List<LickPreset> toEncode = List<LickPreset>.from(presets);
+    if (sortBy != null) {
+      toEncode = sortPresets(toEncode, sortBy: sortBy, ascending: ascending);
+    }
+    return const JsonEncoder.withIndent('  ').convert(toEncode.map((e) => e.toJson()).toList());
+  }
+
   // ── Export / Import ────────────────────────────────────────────────────────
 
   /// Exports [presets] as a JSON file via the platform Share sheet.
   /// Throws on error — callers should display a SnackBar on catch.
   ///
   /// [sharePositionOrigin] is required on iPad (the share sheet is a popover).
-  Future<void> exportPresets(List<LickPreset> presets, {Rect? sharePositionOrigin}) async {
+  /// If [sortBy] is specified, sorts [presets] using [sortPresets] before writing.
+  Future<void> exportPresets(
+    List<LickPreset> presets, {
+    Rect? sharePositionOrigin,
+    String? sortBy,
+    bool ascending = true,
+  }) async {
     if (presets.isEmpty) return;
-    final jsonString = const JsonEncoder.withIndent('  ').convert(presets.map((e) => e.toJson()).toList());
+    List<LickPreset> toExport = List<LickPreset>.from(presets);
+    if (sortBy != null) {
+      toExport = sortPresets(toExport, sortBy: sortBy, ascending: ascending);
+    }
+    final jsonString = const JsonEncoder.withIndent('  ').convert(toExport.map((e) => e.toJson()).toList());
     final directory = await getTemporaryDirectory();
-    final safeName = presets.length == 1
-        ? presets.first.name.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_')
+    final safeName = toExport.length == 1
+        ? toExport.first.name.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_')
         : 'TabStudio_Batch_${DateTime.now().millisecondsSinceEpoch}';
     final file = File('${directory.path}/$safeName.json');
     await file.writeAsString(jsonString);

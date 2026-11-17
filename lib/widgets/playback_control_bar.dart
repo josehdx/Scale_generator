@@ -20,6 +20,11 @@ class PlaybackControlBar extends StatelessWidget {
   final VoidCallback onSave;
   final VoidCallback onCopy;
   final VoidCallback onClearSelection;
+  /// Called when the red cross is tapped a second time (no active selection)
+  /// to reset any resting sections. When null the second-tap action is a no-op.
+  final VoidCallback? onClearRests;
+  /// Whether there are resting sections that can be cleared by a second tap.
+  final bool hasRests;
 
   // --- GP Viewer extensions (all optional, backward-compatible) ---
   /// True when playback has been paused mid-track (position preserved).
@@ -57,6 +62,8 @@ class PlaybackControlBar extends StatelessWidget {
     required this.onSave,
     required this.onCopy,
     required this.onClearSelection,
+    this.onClearRests,
+    this.hasRests = false,
     // GP-viewer extensions
     this.isPaused = false,
     this.gpLoopMode,
@@ -517,6 +524,21 @@ class PlaybackControlBar extends StatelessWidget {
                     onPressed: onClearSelection,
                   ),
                 ],
+              ),
+            ),
+
+          // --- Secondary clear: shown when there's no selection but rests remain ---
+          if (!hasSelection && hasRests)
+            Padding(
+              padding: const EdgeInsets.only(top: 2.0),
+              child: Tooltip(
+                message: 'Clear resting sections',
+                child: IconButton(
+                  constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.cancel, size: 22, color: Colors.redAccent),
+                  onPressed: onClearRests,
+                ),
               ),
             ),
           if (hasSelection && selectionStart == selectionEnd)

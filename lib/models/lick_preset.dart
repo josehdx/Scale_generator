@@ -34,6 +34,15 @@ class LickPreset {
     patternMultiplier: patternMultiplier ?? this.patternMultiplier, createdAt: createdAt ?? this.createdAt,
   );
 
+  static const int minTempo = 40;
+  static const int maxTempo = 300;
+
+  /// Returns a copy of this preset with an updated [tempo].
+  LickPreset updateTempo(int newTempo) => copyWith(tempo: newTempo);
+
+  /// Returns a copy of this preset with an updated [tempo].
+  LickPreset copyWithTempo(int newTempo) => copyWith(tempo: newTempo);
+
   Map<String, dynamic> toJson() => {
     'id': id, 'name': name, 'key': key, 'scale': scale, 'tuning': tuning, 'system': system,
     'fragment': fragment, 'customNps': customNps, 'startFret': startFret, 'pathway': pathway, 'direction': direction,

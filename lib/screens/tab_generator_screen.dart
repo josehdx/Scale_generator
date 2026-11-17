@@ -655,6 +655,14 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> with WidgetsBin
     });
   }
 
+  /// Second-tap on the red cross: resets resting sections back to zero and
+  /// regenerates the tab so the rests disappear from the display.
+  void _clearRests() {
+    if (_endRests == 0) return;
+    setState(() => _endRests = 0);
+    _generateTab();
+  }
+
   // --- Manual Handlers ---
   int _tokenAt(int seqIndex) {
     if (seqIndex < 0 || seqIndex >= _currentSequence.length) return -1;
@@ -872,6 +880,8 @@ class _TabGeneratorScreenState extends State<TabGeneratorScreen> with WidgetsBin
                     _showMessage('Tab copied to clipboard');
                   },
                   onClearSelection: _clearSelection,
+                  onClearRests: _clearRests,
+                  hasRests: _endRests > 0,
                 ),
                 const SizedBox(height: 4),
                 Expanded(

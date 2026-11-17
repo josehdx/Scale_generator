@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/lick_preset.dart';
 import '../models/preset_sanitizer.dart';
+import '../services/preset_storage_service.dart';
 
 class SavedPresetsScreen extends StatefulWidget {
   final List<LickPreset> savedPresets;
@@ -16,6 +17,10 @@ class SavedPresetsScreen extends StatefulWidget {
   final Function(List<LickPreset>) onExportPresets;
   final Function(int, int) onReorderPresets;
   final VoidCallback onImport;
+  final void Function(String, int)? onUpdateTempo;
+  final PresetStorageService? storageService;
+  final String initialSortBy;
+  final bool initialSortAscending;
 
   const SavedPresetsScreen({
     super.key,
@@ -32,6 +37,10 @@ class SavedPresetsScreen extends StatefulWidget {
     required this.onExportPresets,
     required this.onReorderPresets,
     required this.onImport,
+    this.onUpdateTempo,
+    this.storageService,
+    this.initialSortBy = 'Creation Date',
+    this.initialSortAscending = true,
   });
 
   @override
@@ -42,6 +51,17 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
   final Set<String> _selectedIds = {};
   final Map<String, GlobalKey> _itemKeys = {};
   final Map<String, bool> _validationCache = {};
+  late PresetStorageService _storageService;
+  late String _sortBy;
+  late bool _isAscending;
+
+  List<LickPreset> get _sortedPresets {
+    return PresetStorageService.sortPresets(
+      widget.savedPresets,
+      sortBy: _sortBy,
+      ascending: _isAscending,
+    );
+  }
 
   @override
   bool get wantKeepAlive => true;
@@ -49,12 +69,18 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
   @override
   void initState() {
     super.initState();
+    _sortBy = widget.initialSortBy;
+    _isAscending = widget.initialSortAscending;
+    _storageService = widget.storageService ?? PresetStorageService();
     _rebuildValidationCache();
   }
 
   @override
   void didUpdateWidget(covariant SavedPresetsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.storageService != null) {
+      _storageService = widget.storageService!;
+    }
     
     if (widget.savedPresets != oldWidget.savedPresets) {
       _rebuildValidationCache();
@@ -108,34 +134,37 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
     if (widget.isPreviewPlaying) {
       widget.onStopPreview();
     } else {
+      final list = _sortedPresets;
       if (widget.activePreviewId != null) {
-        final preset = widget.savedPresets.firstWhere(
+        final preset = list.firstWhere(
             (p) => p.id == widget.activePreviewId,
-            orElse: () => widget.savedPresets.first);
+            orElse: () => list.first);
         widget.onPlayPreview(preset);
-      } else if (widget.savedPresets.isNotEmpty) {
-        widget.onPlayPreview(widget.savedPresets.first);
+      } else if (list.isNotEmpty) {
+        widget.onPlayPreview(list.first);
       }
     }
   }
 
   void _handleNext() {
-    if (widget.savedPresets.isEmpty) return;
-    int idx = widget.savedPresets.indexWhere((p) => p.id == widget.activePreviewId);
-    if (idx == -1 || idx == widget.savedPresets.length - 1) {
-      widget.onPlayPreview(widget.savedPresets.first);
+    final list = _sortedPresets;
+    if (list.isEmpty) return;
+    int idx = list.indexWhere((p) => p.id == widget.activePreviewId);
+    if (idx == -1 || idx == list.length - 1) {
+      widget.onPlayPreview(list.first);
     } else {
-      widget.onPlayPreview(widget.savedPresets[idx + 1]);
+      widget.onPlayPreview(list[idx + 1]);
     }
   }
 
   void _handlePrev() {
-    if (widget.savedPresets.isEmpty) return;
-    int idx = widget.savedPresets.indexWhere((p) => p.id == widget.activePreviewId);
+    final list = _sortedPresets;
+    if (list.isEmpty) return;
+    int idx = list.indexWhere((p) => p.id == widget.activePreviewId);
     if (idx == -1 || idx == 0) {
-      widget.onPlayPreview(widget.savedPresets.last);
+      widget.onPlayPreview(list.last);
     } else {
-      widget.onPlayPreview(widget.savedPresets[idx - 1]);
+      widget.onPlayPreview(list[idx - 1]);
     }
   }
 
@@ -198,6 +227,23 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
     );
   }
 
+  Future<void> _updatePresetTempo(LickPreset preset, int newTempo) async {
+    if (preset.tempo == newTempo) return;
+
+    final index = widget.savedPresets.indexWhere((p) => p.id == preset.id);
+    if (index != -1) {
+      final updated = widget.savedPresets[index].copyWith(tempo: newTempo);
+      setState(() {
+        widget.savedPresets[index] = updated;
+      });
+      await _storageService.savePresets(widget.savedPresets);
+      widget.onUpdateTempo?.call(preset.id, newTempo);
+    } else {
+      await _storageService.updatePresetTempo(preset.id, newTempo);
+      widget.onUpdateTempo?.call(preset.id, newTempo);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -212,11 +258,11 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
               ? Row(
                   children: [
                     Checkbox(
-                      value: _selectedIds.length == widget.savedPresets.length,
+                      value: _selectedIds.length == _sortedPresets.length && _sortedPresets.isNotEmpty,
                       onChanged: (val) {
                         setState(() {
                           if (val == true) {
-                            _selectedIds.addAll(widget.savedPresets.map((e) => e.id));
+                            _selectedIds.addAll(_sortedPresets.map((e) => e.id));
                           } else {
                             _selectedIds.clear();
                           }
@@ -230,7 +276,7 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
                       icon: const Icon(Icons.file_upload, color: Colors.blueAccent),
                       tooltip: "Export Selected",
                       onPressed: () {
-                        final toExport = widget.savedPresets
+                        final toExport = _sortedPresets
                             .where((p) => _selectedIds.contains(p.id))
                             .toList();
                         widget.onExportPresets(toExport);
@@ -254,7 +300,7 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
                         OutlinedButton.icon(
                           icon: const Icon(Icons.file_upload, size: 16),
                           label: const Text("Export All"),
-                          onPressed: () => widget.onExportPresets(widget.savedPresets),
+                          onPressed: () => widget.onExportPresets(_sortedPresets),
                         ),
                         const SizedBox(width: 8),
                         OutlinedButton.icon(
@@ -266,6 +312,56 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
                     )
                   ],
                 ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+          color: Colors.black12,
+          child: Row(
+            children: [
+              const Icon(Icons.sort, size: 18, color: Colors.white70),
+              const SizedBox(width: 8),
+              const Text("Sort by:", style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500)),
+              const SizedBox(width: 8),
+              DropdownButton<String>(
+                key: const Key('sort_presets_dropdown'),
+                value: _sortBy,
+                dropdownColor: Colors.grey.shade900,
+                underline: Container(height: 1, color: Colors.white24),
+                icon: const Icon(Icons.arrow_drop_down, color: Colors.white70),
+                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'Creation Date',
+                    child: Text('Creation Date'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'Name',
+                    child: Text('Name'),
+                  ),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() {
+                      _sortBy = val;
+                    });
+                  }
+                },
+              ),
+              const Spacer(),
+              IconButton(
+                key: const Key('sort_order_toggle_button'),
+                icon: Icon(_isAscending ? Icons.arrow_upward : Icons.arrow_downward, size: 18, color: Colors.white70),
+                tooltip: _isAscending ? 'Ascending' : 'Descending',
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                padding: EdgeInsets.zero,
+                onPressed: () {
+                  setState(() {
+                    _isAscending = !_isAscending;
+                  });
+                },
+              ),
+            ],
+          ),
         ),
         if (!hasSelection && widget.savedPresets.isNotEmpty)
           Container(
@@ -319,11 +415,25 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
                   ),
                 )
               : ReorderableListView.builder(
-                  itemCount: widget.savedPresets.length,
-                  onReorder: widget.onReorderPresets,
+                  itemCount: _sortedPresets.length,
+                  onReorder: (oldIndex, newIndex) {
+                    final sorted = _sortedPresets;
+                    if (newIndex > oldIndex) newIndex--;
+                    final moved = sorted[oldIndex];
+                    final origOld = widget.savedPresets.indexWhere((p) => p.id == moved.id);
+                    int origNew;
+                    if (newIndex < sorted.length) {
+                      origNew = widget.savedPresets.indexWhere((p) => p.id == sorted[newIndex].id);
+                    } else {
+                      origNew = widget.savedPresets.length - 1;
+                    }
+                    if (origOld != -1 && origNew != -1) {
+                      widget.onReorderPresets(origOld, origNew);
+                    }
+                  },
                   buildDefaultDragHandles: false,
                   itemBuilder: (context, index) {
-                    final preset = widget.savedPresets[index];
+                    final preset = _sortedPresets[index];
                     _itemKeys.putIfAbsent(preset.id, () => GlobalKey());
                     
                     bool isSelected = _selectedIds.contains(preset.id);
@@ -385,7 +495,35 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
                               ],
                             ],
                           ),
-                          subtitle: Text("Tempo: ${preset.tempo} BPM | System: ${preset.system}\nGenerated: ${preset.createdAt.toString().split('.')[0]}"),
+                          subtitle: Padding(
+                            padding: const EdgeInsets.only(top: 4.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Wrap(
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  spacing: 4,
+                                  runSpacing: 4,
+                                  children: [
+                                    const Text("Tempo: ", style: TextStyle(color: Colors.white70, fontSize: 13)),
+                                    InlineTempoEditor(
+                                      key: ValueKey('tempo_editor_${preset.id}'),
+                                      tempo: preset.tempo,
+                                      onChanged: (newTempo) => _updatePresetTempo(preset, newTempo),
+                                    ),
+                                    const Text(" BPM | ", style: TextStyle(color: Colors.white70, fontSize: 13)),
+                                    Text("System: ${preset.system}", style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  "Generated: ${preset.createdAt.toString().split('.')[0]}",
+                                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
                           isThreeLine: true,
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -458,6 +596,161 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
                     );
                   },
                 ),
+        ),
+      ],
+    );
+  }
+}
+
+/// An inline editor for tempo with a digital keyboard input and increment/decrement arrow buttons.
+class InlineTempoEditor extends StatefulWidget {
+  final int tempo;
+  final ValueChanged<int> onChanged;
+  final int min;
+  final int max;
+
+  const InlineTempoEditor({
+    super.key,
+    required this.tempo,
+    required this.onChanged,
+    this.min = 1,
+    this.max = 999,
+  });
+
+  @override
+  State<InlineTempoEditor> createState() => _InlineTempoEditorState();
+}
+
+class _InlineTempoEditorState extends State<InlineTempoEditor> {
+  late TextEditingController _controller;
+  late FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.tempo.toString());
+    _focusNode = FocusNode();
+    _focusNode.addListener(_handleFocusChange);
+  }
+
+  @override
+  void didUpdateWidget(covariant InlineTempoEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tempo != widget.tempo && !_focusNode.hasFocus) {
+      _controller.text = widget.tempo.toString();
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_focusNode.hasFocus) {
+      _commitValue();
+    }
+    _focusNode.removeListener(_handleFocusChange);
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _handleFocusChange() {
+    if (!_focusNode.hasFocus) {
+      _commitValue();
+    }
+  }
+
+  void _commitValue() {
+    final int? parsed = int.tryParse(_controller.text);
+    if (parsed != null && parsed > 0) {
+      final clamped = parsed.clamp(widget.min, widget.max);
+      _controller.text = clamped.toString();
+      if (clamped != widget.tempo) {
+        widget.onChanged(clamped);
+      }
+    } else {
+      _controller.text = widget.tempo.toString();
+    }
+  }
+
+  void _adjustTempo(int delta) {
+    if (_focusNode.hasFocus) {
+      _focusNode.removeListener(_handleFocusChange);
+      _focusNode.unfocus();
+      _focusNode.addListener(_handleFocusChange);
+    }
+    final int current = int.tryParse(_controller.text) ?? widget.tempo;
+    final int next = (current + delta).clamp(widget.min, widget.max);
+    _controller.text = next.toString();
+    if (next != widget.tempo) {
+      widget.onChanged(next);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Semantics(
+          button: true,
+          label: 'Decrease tempo',
+          child: IconButton(
+            key: const Key('tempo_decrement_button'),
+            icon: const Icon(Icons.arrow_drop_down, size: 22, color: Colors.white70),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 28),
+            splashRadius: 14,
+            tooltip: 'Decrease tempo',
+            onPressed: () => _adjustTempo(-1),
+          ),
+        ),
+        SizedBox(
+          width: 44,
+          height: 28,
+          child: TextFormField(
+            key: const Key('tempo_text_field'),
+            controller: _controller,
+            focusNode: _focusNode,
+            keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.done,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(4),
+                borderSide: BorderSide(color: Colors.grey.shade600, width: 0.8),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(4),
+                borderSide: BorderSide(color: Colors.grey.shade600, width: 0.8),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(4),
+                borderSide: const BorderSide(color: Colors.greenAccent, width: 1.2),
+              ),
+            ),
+            onTapOutside: (_) => _focusNode.unfocus(),
+            onFieldSubmitted: (_) => _focusNode.unfocus(),
+          ),
+        ),
+        Semantics(
+          button: true,
+          label: 'Increase tempo',
+          child: IconButton(
+            key: const Key('tempo_increment_button'),
+            icon: const Icon(Icons.arrow_drop_up, size: 22, color: Colors.white70),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 28),
+            splashRadius: 14,
+            tooltip: 'Increase tempo',
+            onPressed: () => _adjustTempo(1),
+          ),
         ),
       ],
     );
