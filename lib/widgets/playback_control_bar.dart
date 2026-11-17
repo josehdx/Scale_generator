@@ -75,9 +75,9 @@ class PlaybackControlBar extends StatelessWidget {
       case LoopMode.off:
         return Icons.repeat;
       case LoopMode.all:
-        return Icons.repeat;
+        return Icons.repeat_on;
       case LoopMode.selection:
-        return Icons.repeat_one;
+        return Icons.repeat_one_on;
     }
   }
 
@@ -97,11 +97,11 @@ class PlaybackControlBar extends StatelessWidget {
   String _loopTooltip(LoopMode mode) {
     switch (mode) {
       case LoopMode.off:
-        return 'Loop: OFF  (tap = Loop All)';
+        return 'Loop off (tap: loop the whole song)';
       case LoopMode.all:
-        return 'Loop: ALL  (tap = Loop Selection)';
+        return 'Looping the whole song (tap: loop the selection)';
       case LoopMode.selection:
-        return 'Loop: SELECTION  (tap = Loop Off)';
+        return 'Looping the selection (tap: loop off)';
     }
   }
 
@@ -308,7 +308,7 @@ class PlaybackControlBar extends StatelessWidget {
                 // --- Rewind Button (reset to note 0, double-tap to deselect) ---
                 if (onRewind != null) ...[
                   Tooltip(
-                    message: 'Rewind to Beginning (Double-tap to clear selection)',
+                    message: 'Rewind to the beginning',
                     child: InkWell(
                       onTap: onRewind,
                       onDoubleTap: onClearSelection,
@@ -376,7 +376,7 @@ class PlaybackControlBar extends StatelessWidget {
                   )
                 else
                   IconButton(
-                    icon: Icon(Icons.repeat,
+                    icon: Icon(isLooping ? Icons.repeat_on : Icons.repeat,
                         color: isLooping ? Colors.amberAccent : Colors.grey),
                     tooltip: isLooping ? 'Looping ON' : 'Looping OFF',
                     onPressed: onToggleLoop,
@@ -389,6 +389,8 @@ class PlaybackControlBar extends StatelessWidget {
                     onTap: () => _showSpeedDialog(context),
                     borderRadius: BorderRadius.circular(12),
                     child: Container(
+                      constraints: const BoxConstraints(minHeight: 44, minWidth: 44),
+                      alignment: Alignment.center,
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                       decoration: BoxDecoration(
                         color: Colors.grey.shade800,
@@ -456,69 +458,73 @@ class PlaybackControlBar extends StatelessWidget {
           if (hasSelection)
             Padding(
               padding: const EdgeInsets.only(top: 2.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
                 children: [
                   Text(
-                    'Selected Notes: ${selectionStart + 1} - ${selectionEnd + 1}',
-                    style: const TextStyle(
-                        fontSize: 11, color: Colors.cyanAccent),
+                    selectionStart == selectionEnd
+                        ? 'Note ${selectionStart + 1} selected'
+                        : 'Notes ${selectionStart + 1} - ${selectionEnd + 1}',
+                    style: const TextStyle(fontSize: 11, color: Colors.cyanAccent),
                   ),
-                  if (onEndRestsChanged != null) ...[
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade800,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Text('Rests: ', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                          GestureDetector(
-                            onTap: (endRests ?? 0) > 0
-                                ? () => onEndRestsChanged!((endRests ?? 0) - 1)
-                                : null,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                              child: Icon(
-                                Icons.remove_circle_outline,
-                                size: 16,
-                                color: (endRests ?? 0) > 0 ? Colors.white70 : Colors.white24,
-                              ),
+                  if (onEndRestsChanged != null)
+                    Tooltip(
+                      message: 'Silent 16th-note rests added after the selection / song, '
+                          'so loops have a gap before they repeat',
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade800,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Padding(
+                              padding: EdgeInsets.only(left: 6),
+                              child: Text('Loop gap:', style: TextStyle(fontSize: 11, color: Colors.grey)),
                             ),
-                          ),
-                          Text(
-                            '${endRests ?? 0}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.amberAccent,
+                            IconButton(
+                              tooltip: 'Fewer rests',
+                              constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                              padding: EdgeInsets.zero,
+                              icon: Icon(Icons.remove_circle_outline,
+                                  size: 20, color: (endRests ?? 0) > 0 ? Colors.white70 : Colors.white24),
+                              onPressed: (endRests ?? 0) > 0 ? () => onEndRestsChanged!((endRests ?? 0) - 1) : null,
                             ),
-                          ),
-                          GestureDetector(
-                            onTap: () => onEndRestsChanged!((endRests ?? 0) + 1),
-                            child: const Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                              child: Icon(
-                                Icons.add_circle_outline,
-                                size: 16,
-                                color: Colors.white70,
-                              ),
+                            Text(
+                              '${endRests ?? 0}',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amberAccent),
                             ),
-                          ),
-                        ],
+                            IconButton(
+                              tooltip: 'More rests',
+                              constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                              padding: EdgeInsets.zero,
+                              icon: const Icon(Icons.add_circle_outline, size: 20, color: Colors.white70),
+                              onPressed: () => onEndRestsChanged!((endRests ?? 0) + 1),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ],
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: onClearSelection,
-                    child: const Icon(Icons.cancel,
-                        size: 16, color: Colors.redAccent),
+                  IconButton(
+                    tooltip: 'Clear selection',
+                    constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(Icons.cancel, size: 22, color: Colors.redAccent),
+                    onPressed: onClearSelection,
                   ),
                 ],
+              ),
+            ),
+          if (hasSelection && selectionStart == selectionEnd)
+            const Padding(
+              padding: EdgeInsets.only(top: 2.0),
+              child: Text(
+                'Tap another note to select a range',
+                style: TextStyle(fontSize: 10, color: Colors.grey),
               ),
             ),
         ],

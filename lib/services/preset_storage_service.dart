@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'dart:ui' show Rect;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,18 +16,49 @@ import '../models/lick_preset.dart';
 /// callers are responsible for calling `setState` with returned values.
 class PresetStorageService {
   static const String _storageKey = 'auto_saved_lick_presets';
+  static const String _backupKey = 'auto_saved_lick_presets_corrupt_backup';
   static const String _sessionKey = 'last_session_state';
+
+  /// Number of stored presets that could not be read in the last [loadPresets].
+  int lastSkippedCount = 0;
+
+  /// Decodes a JSON list one element at a time, so a single corrupt preset
+  /// costs only itself and never the whole library.
+  static List<LickPreset> decodePresets(String jsonString, {void Function(int skipped)? onSkipped}) {
+    final dynamic decoded = jsonDecode(jsonString);
+    if (decoded is! List) throw const FormatException('Preset file is not a list');
+    final List<LickPreset> out = [];
+    int skipped = 0;
+    for (final dynamic e in decoded) {
+      try {
+        if (e is! Map) throw const FormatException('not an object');
+        out.add(LickPreset.fromJson(Map<String, dynamic>.from(e)));
+      } catch (_) {
+        skipped++;
+      }
+    }
+    onSkipped?.call(skipped);
+    return out;
+  }
 
   // ── Preset CRUD ────────────────────────────────────────────────────────────
 
   /// Loads the saved preset list from SharedPreferences.
+  ///
+  /// If the stored text cannot be parsed at all, it is copied to a backup key
+  /// BEFORE an empty list is returned, so the next save cannot destroy it.
   Future<List<LickPreset>> loadPresets() async {
+    lastSkippedCount = 0;
     try {
       final prefs = await SharedPreferences.getInstance();
       final jsonString = prefs.getString(_storageKey);
-      if (jsonString != null && jsonString.isNotEmpty) {
-        final List<dynamic> decoded = jsonDecode(jsonString);
-        return decoded.map((e) => LickPreset.fromJson(e as Map<String, dynamic>)).toList();
+      if (jsonString == null || jsonString.isEmpty) return [];
+      try {
+        return decodePresets(jsonString, onSkipped: (n) => lastSkippedCount = n);
+      } catch (e) {
+        debugPrint('PresetStorageService.loadPresets: corrupt data, backing up ($e)');
+        await prefs.setString(_backupKey, jsonString);
+        return [];
       }
     } catch (e) {
       debugPrint('PresetStorageService.loadPresets: $e');
@@ -37,8 +70,7 @@ class PresetStorageService {
   Future<void> savePresets(List<LickPreset> presets) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-          _storageKey, jsonEncode(presets.map((e) => e.toJson()).toList()));
+      await prefs.setString(_storageKey, jsonEncode(presets.map((e) => e.toJson()).toList()));
     } catch (e) {
       debugPrint('PresetStorageService.savePresets: $e');
     }
@@ -52,8 +84,7 @@ class PresetStorageService {
       final prefs = await SharedPreferences.getInstance();
       final jsonString = prefs.getString(_sessionKey);
       if (jsonString != null && jsonString.isNotEmpty) {
-        return LickPreset.fromJson(
-            jsonDecode(jsonString) as Map<String, dynamic>);
+        return LickPreset.fromJson(jsonDecode(jsonString) as Map<String, dynamic>);
       }
     } catch (e) {
       debugPrint('PresetStorageService.loadSession: $e');
@@ -61,11 +92,26 @@ class PresetStorageService {
     return null;
   }
 
-  /// Saves [preset] as the current session snapshot.
+  Timer? _sessionDebounce;
+  LickPreset? _pendingSession;
+
+  /// Saves [preset] as the current session snapshot. Writes are debounced: the
+  /// session used to be rewritten (with the full tab text) on every keystroke.
   Future<void> saveSession(LickPreset preset) async {
+    _pendingSession = preset;
+    _sessionDebounce?.cancel();
+    _sessionDebounce = Timer(const Duration(milliseconds: 800), flushSession);
+  }
+
+  /// Writes a pending session immediately (call from dispose / app pause).
+  Future<void> flushSession() async {
+    _sessionDebounce?.cancel();
+    final LickPreset? p = _pendingSession;
+    if (p == null) return;
+    _pendingSession = null;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_sessionKey, jsonEncode(preset.toJson()));
+      await prefs.setString(_sessionKey, jsonEncode(p.toJson()));
     } catch (e) {
       debugPrint('PresetStorageService.saveSession: $e');
     }
@@ -75,10 +121,11 @@ class PresetStorageService {
 
   /// Exports [presets] as a JSON file via the platform Share sheet.
   /// Throws on error — callers should display a SnackBar on catch.
-  Future<void> exportPresets(List<LickPreset> presets) async {
+  ///
+  /// [sharePositionOrigin] is required on iPad (the share sheet is a popover).
+  Future<void> exportPresets(List<LickPreset> presets, {Rect? sharePositionOrigin}) async {
     if (presets.isEmpty) return;
-    final jsonString =
-        const JsonEncoder.withIndent('  ').convert(presets.map((e) => e.toJson()).toList());
+    final jsonString = const JsonEncoder.withIndent('  ').convert(presets.map((e) => e.toJson()).toList());
     final directory = await getTemporaryDirectory();
     final safeName = presets.length == 1
         ? presets.first.name.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_')
@@ -86,28 +133,27 @@ class PresetStorageService {
     final file = File('${directory.path}/$safeName.json');
     await file.writeAsString(jsonString);
     await Share.shareXFiles(
-        [XFile(file.path)], text: 'Tab Generator Studio Presets');
+      [XFile(file.path)],
+      text: 'Tab Generator Studio Presets',
+      sharePositionOrigin: sharePositionOrigin,
+    );
   }
 
   /// Imports presets from a user-selected JSON file.
   ///
-  /// Returns the parsed list on success, `null` if the user cancelled.
+  /// Returns the parsed list on success, `null` if the user cancelled. Corrupt
+  /// entries are skipped (counted in [lastSkippedCount]).
   /// Throws on parse/read error — callers should display a SnackBar on catch.
   Future<List<LickPreset>?> importPresets() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['json', 'txt'],
     );
-    if (result == null ||
-        result.files.isEmpty ||
-        result.files.first.path == null) {
+    if (result == null || result.files.isEmpty || result.files.first.path == null) {
       return null; // user cancelled
     }
     final jsonString = await File(result.files.first.path!).readAsString();
-    final List<dynamic> decoded = jsonDecode(jsonString);
-    return decoded
-        .map((e) => LickPreset.fromJson(e as Map<String, dynamic>))
-        .toList();
+    lastSkippedCount = 0;
+    return decodePresets(jsonString, onSkipped: (n) => lastSkippedCount = n);
   }
 }
-

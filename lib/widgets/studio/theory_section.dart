@@ -158,6 +158,7 @@ class TheorySection extends StatelessWidget {
               ),
               IconButton(
                 icon: const Icon(Icons.swap_horiz, color: Colors.grey),
+                tooltip: 'Swap start and end string',
                 onPressed: onSwapStrings,
               ),
               Expanded(
@@ -195,7 +196,7 @@ class TheorySection extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                IconButton(icon: const Icon(Icons.arrow_back_ios, size: 18), onPressed: onCursorLeft),
+                IconButton(icon: const Icon(Icons.arrow_back_ios, size: 18), tooltip: "Move cursor left", onPressed: onCursorLeft),
                 DropdownButton<String>(
                   value: manualSelectedDuration,
                   underline: const SizedBox(),
@@ -207,9 +208,9 @@ class TheorySection extends StatelessWidget {
                   ],
                   onChanged: onManualDurationChanged,
                 ),
-                IconButton(icon: const Icon(Icons.space_bar), tooltip: "Insert Rest", onPressed: onInsertRest),
-                IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent), tooltip: "Delete", onPressed: onDeleteMenu),
-                IconButton(icon: const Icon(Icons.arrow_forward_ios, size: 18), onPressed: onCursorRight),
+                IconButton(icon: const Icon(Icons.space_bar), tooltip: "Insert a rest at the cursor", onPressed: onInsertRest),
+                IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent), tooltip: "Delete notes...", onPressed: onDeleteMenu),
+                IconButton(icon: const Icon(Icons.arrow_forward_ios, size: 18), tooltip: "Move cursor right", onPressed: onCursorRight),
               ]
             )
           ),

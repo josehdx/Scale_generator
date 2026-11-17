@@ -4,7 +4,11 @@ enum StrumDirection { none, down, up }
 
 class GpBeat {
   final List<GpNote> notes;
+
+  /// Duration in quarter notes (swing already applied when the bar swings).
   final double duration;
+
+  /// Written duration in quarter notes, before swing.
   final double? unswungDuration;
   final StrumDirection strumDirection;
   final int voiceIndex;

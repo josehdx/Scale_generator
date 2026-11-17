@@ -29,8 +29,13 @@ class ScaleEngine {
     'D Standard': {1: 62, 2: 57, 3: 53, 4: 48, 5: 43, 6: 38},
   };
 
-  void setTuning(String tuningName) {
-    if (tunings.containsKey(tuningName)) openStrings = tunings[tuningName]!;
+  /// Switches the open-string pitches used by every generator below.
+  /// Returns false (and leaves the tuning unchanged) for an unknown name.
+  bool setTuning(String tuningName) {
+    final t = tunings[tuningName];
+    if (t == null) return false;
+    openStrings = t;
+    return true;
   }
 
   Map<int, List<int>> getScaleNotesBox(String key, String scale, int startFret, List<int> targetStrings) {
@@ -258,13 +263,14 @@ class ScaleEngine {
     int measuresPerSystem = 1,
     int beatsPerMeasure = 4,
     int tempo = 120,
+    String? timeSignatureLabel,
   }) {
     int notesPerSystem = notesPerMeasure * (measuresPerSystem <= 0 ? 999 : measuresPerSystem);
     Map<int, String> stringLabels = {1: 'e', 2: 'B', 3: 'G', 4: 'D', 5: 'A', 6: 'E'};
     
     List<String> outputLines = [
       "Tempo: $tempo BPM ($nps Notes/Sec)", 
-      "Time Signature: $beatsPerMeasure/4", 
+      "Time Signature: ${timeSignatureLabel ?? '$beatsPerMeasure/4'}", 
       "Rhythm: $rhythmLabel", 
       ""
     ];

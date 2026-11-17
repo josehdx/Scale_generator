@@ -8,6 +8,7 @@ class FormattingSection extends StatelessWidget {
   final List<String> availableTimeSignatures;
   final int tempo;
   final int measuresPerLine;
+  final int patternMultiplier;
   final String currentNps;
   final TextEditingController customRhythmController;
   final TextEditingController customAccentController;
@@ -16,10 +17,12 @@ class FormattingSection extends StatelessWidget {
   final int breakInterval;
   final int breakLength;
   final int endRests;
+  
   final ValueChanged<String?> onRhythmChanged;
   final ValueChanged<String?> onTimeSignatureChanged;
   final ValueChanged<int> onTempoChanged;
   final ValueChanged<int> onMeasuresChanged;
+  final ValueChanged<int> onPatternMultiplierChanged;
   final ValueChanged<String> onCustomRhythmChanged;
   final ValueChanged<String> onCustomAccentChanged;
   final ValueChanged<String?> onInstrumentChanged;
@@ -35,6 +38,7 @@ class FormattingSection extends StatelessWidget {
     required this.availableTimeSignatures,
     required this.tempo,
     required this.measuresPerLine,
+    required this.patternMultiplier,
     required this.currentNps,
     required this.customRhythmController,
     required this.customAccentController,
@@ -47,6 +51,7 @@ class FormattingSection extends StatelessWidget {
     required this.onTimeSignatureChanged,
     required this.onTempoChanged,
     required this.onMeasuresChanged,
+    required this.onPatternMultiplierChanged,
     required this.onCustomRhythmChanged,
     required this.onCustomAccentChanged,
     required this.onInstrumentChanged,
@@ -63,9 +68,9 @@ class FormattingSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
-              flex: 5, // Increased flex to give the rhythm dropdown more breathing room
+              flex: 5, 
               child: StudioDropdown(
-                label: 'Rhythm', // Shortened label to prevent horizontal clipping
+                label: 'Rhythm', 
                 value: selectedRhythmPattern, 
                 items: availableRhythmPatterns, 
                 onChanged: onRhythmChanged,
@@ -75,7 +80,7 @@ class FormattingSection extends StatelessWidget {
             Expanded(
               flex: 3,
               child: StudioDropdown(
-                label: 'Time Sig.', // Shortened label to prevent horizontal clipping
+                label: 'Time Sig.', 
                 value: selectedTimeSignature, 
                 items: availableTimeSignatures, 
                 onChanged: onTimeSignatureChanged,
@@ -88,7 +93,7 @@ class FormattingSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
-              flex: 5,
+              flex: 4,
               child: StudioStepperField(
                 label: 'Tempo', 
                 value: tempo, 
@@ -99,11 +104,20 @@ class FormattingSection extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Expanded(
-              flex: 3,
+              flex: 2,
               child: StudioNumberField(
                 label: 'Bars/Row', 
                 value: measuresPerLine, 
                 onChanged: onMeasuresChanged
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 2,
+              child: StudioNumberField(
+                label: 'X Pattern', 
+                value: patternMultiplier, 
+                onChanged: onPatternMultiplierChanged
               ),
             ),
           ],
@@ -156,7 +170,6 @@ class FormattingSection extends StatelessWidget {
               child: StudioDropdown(label: 'Guitar Sound', value: selectedInstrumentKey, items: availableInstruments, onChanged: onInstrumentChanged),
             ),
             const SizedBox(width: 8),
-            // Visually Grouped Interval Break Parameters
             Expanded(
               flex: 5,
               child: Container(

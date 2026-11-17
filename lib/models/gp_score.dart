@@ -5,26 +5,30 @@ import 'master_bar_event.dart';
 class GpScore {
   /// The original file name of the parsed file.
   final String fileName;
-  
+
   /// The permanent local file path to the copied .gp file
-  final String filePath; 
-  
+  final String filePath;
+
   /// Song title from the GPIF `<Title>` element.
   final String title;
-  
+
   /// Artist name from the GPIF `<Artist>` element.
   final String artist;
-  
-  /// Initial or global tempo in BPM.
+
+  /// Initial tempo in BPM.
   final int tempo;
-  
-  /// Notes per measure derived from the initial `<MasterBar><Time>` element.
+
+  /// Sixteenth notes in the first measure.
   final int notesPerMeasure;
-  
-  /// Timeline of all measures in the score, including tempo and time signature automations.
+
+  /// One entry per written master bar (tempo map, time signatures, repeats).
   final List<MasterBarEvent> masterBars;
-  
-  /// Ordered list of parsed tracks. 
+
+  /// Master-bar indices in PLAYBACK order, with repeats and alternate endings
+  /// unrolled. Equal to 0..n-1 when the song has no repeats.
+  final List<int> playOrder;
+
+  /// Ordered list of parsed tracks.
   final List<GpTrack> tracks;
 
   const GpScore({
@@ -35,9 +39,14 @@ class GpScore {
     required this.tempo,
     required this.notesPerMeasure,
     this.masterBars = const [],
+    this.playOrder = const [],
     required this.tracks,
   });
 
   /// Cleanly formats the title and artist for the UI
-  String get songTitleFormatted => title.isNotEmpty ? '$title -$artist' : artist;
+  String get songTitleFormatted {
+    if (title.isEmpty) return artist;
+    if (artist.isEmpty) return title;
+    return '$title - $artist';
+  }
 }

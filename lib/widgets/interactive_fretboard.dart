@@ -12,6 +12,15 @@ class InteractiveFretboard extends StatelessWidget {
   final ScrollController? scrollController;
   final Function(String newKey, int stringNum, int fretNum) onNoteTapped;
 
+  /// Called with the MIDI pitch of a tapped cell so the app can play it.
+  final void Function(int pitch)? onPlayNote;
+
+  /// Show flats (Db, Eb ...) instead of sharps (C#, D# ...).
+  final bool useFlats;
+
+  static const List<String> _sharpNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  static const List<String> _flatNames = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+
   const InteractiveFretboard({
     super.key,
     required this.engine,
@@ -23,6 +32,8 @@ class InteractiveFretboard extends StatelessWidget {
     this.isManualMode = false,
     this.scrollController,
     required this.onNoteTapped,
+    this.onPlayNote,
+    this.useFlats = false,
   });
 
   @override
@@ -58,14 +69,15 @@ class InteractiveFretboard extends StatelessWidget {
                   bool isInScale = isManualMode ? true : scaleFormula.contains(interval);
                   bool isRoot = isManualMode ? false : interval == 0;
 
-                  String noteName = engine.noteMap.entries
-                      .firstWhere((e) => e.value == notePitch,
-                          orElse: () => const MapEntry("", -1))
-                      .key;
+                  // sharp name for callbacks, display name honours useFlats
+                  final String noteName = _sharpNames[notePitch];
+                  final String shownName = useFlats ? _flatNames[notePitch] : noteName;
 
                   // [FIX] Push ValueListenableBuilder down to individual cells for O(1) repaints
                   return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
                     onTap: () {
+                      onPlayNote?.call(openPitch + fretNum);
                       onNoteTapped(noteName, stringNum, fretNum);
                     },
                     child: Container(
@@ -85,7 +97,7 @@ class InteractiveFretboard extends StatelessWidget {
                       ),
                       child: Center(
                         child: activeNoteNotifier == null 
-                          ? _buildFretNote(isInScale, isRoot, false, false, false, noteName)
+                          ? _buildFretNote(isInScale, isRoot, false, false, false, shownName)
                           : ValueListenableBuilder<Map<String, dynamic>?>(
                               valueListenable: activeNoteNotifier!,
                               builder: (context, noteData, _) {
@@ -106,7 +118,7 @@ class InteractiveFretboard extends StatelessWidget {
                                   isThisAccent = noteData['isAccent'] ?? false;
                                 }
 
-                                return _buildFretNote(isInScale, isRoot, isActive, isPreview, isThisAccent, noteName);
+                                return _buildFretNote(isInScale, isRoot, isActive, isPreview, isThisAccent, shownName);
                               },
                             ),
                       ),

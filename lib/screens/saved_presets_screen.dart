@@ -139,6 +139,30 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
     }
   }
 
+  /// Deleting presets cannot be undone, so ask first.
+  Future<void> _confirmDelete(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(ids.length == 1 ? 'Delete this preset?' : 'Delete ${ids.length} presets?'),
+        content: const Text('This cannot be undone. Export them first if you want a backup.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      widget.onDeletePresets(ids);
+      _clearSelection();
+    }
+  }
+
   void _showRenameDialog(BuildContext context, LickPreset preset) {
     TextEditingController controller = TextEditingController(text: preset.name);
     showDialog(
@@ -216,10 +240,7 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
                     IconButton(
                       icon: const Icon(Icons.delete, color: Colors.redAccent),
                       tooltip: "Delete Selected",
-                      onPressed: () {
-                        widget.onDeletePresets(_selectedIds.toList());
-                        _clearSelection();
-                      },
+                      onPressed: () => _confirmDelete(_selectedIds.toList()),
                     ),
                   ],
                 )
@@ -353,8 +374,13 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
                               if (hasMisalignment) ...[
                                 const SizedBox(width: 8),
                                 const Tooltip(
-                                  message: "Sequence length mismatch detected.",
-                                  child: Icon(Icons.warning_amber_rounded, size: 18, color: Colors.amberAccent),
+                                  triggerMode: TooltipTriggerMode.tap,
+                                  message: "The accent pattern did not match this lick's length. "
+                                      "It is adjusted automatically when you play or load the preset - nothing to fix.",
+                                  child: Padding(
+                                    padding: EdgeInsets.all(8),
+                                    child: Icon(Icons.info_outline, size: 18, color: Colors.amberAccent),
+                                  ),
                                 ),
                               ],
                             ],
@@ -374,7 +400,7 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
                                   onSelected: (value) {
                                     if (value == 'load') widget.onLoadPreset(preset);
                                     if (value == 'rename') _showRenameDialog(context, preset);
-                                    if (value == 'delete') widget.onDeletePresets([preset.id]);
+                                    if (value == 'delete') _confirmDelete([preset.id]);
                                   },
                                   itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
                                     const PopupMenuItem<String>(
@@ -407,7 +433,13 @@ class _SavedPresetsScreenState extends State<SavedPresetsScreen> with AutomaticK
                               const SizedBox(width: 8),
                               ReorderableDragStartListener(
                                 index: index,
-                                child: const Icon(Icons.drag_handle, color: Colors.white54, size: 28),
+                                child: const Tooltip(
+                                  message: 'Drag to reorder',
+                                  child: Padding(
+                                    padding: EdgeInsets.all(8),
+                                    child: Icon(Icons.drag_handle, color: Colors.white54, size: 28),
+                                  ),
+                                ),
                               ),
                             ],
                           ),

@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_midi_pro/flutter_midi_pro.dart';
 
+import 'playback_scheduler.dart';
+
 /// Centralized, thread-safe MIDI manager that prevents duplicate JNI initializations.
 class MidiService {
   static final MidiService _instance = MidiService._internal();
@@ -87,9 +89,39 @@ class MidiService {
     }
   }
 
+  /// CC 123 (All Notes Off) on one channel.
+  void allNotesOff({int channel = 0}) {
+    if (!_isReady || _soundfontId == null) return;
+    midiPro.sendMidiEvent(
+      status: 0xB0 | (channel & 0x0F),
+      data1: 123,
+      data2: 0,
+      sfId: _soundfontId!,
+    );
+  }
+
   Future<void> selectInstrument(int program, {int channel = 0}) async {
     if (_isReady && _soundfontId != null) {
       await midiPro.selectInstrument(sfId: _soundfontId!, program: program);
     }
   }
+}
+
+/// Adapts [MidiService] to the scheduler's [MidiSink].
+class MidiServiceSink extends MidiSink {
+  MidiServiceSink(this._service);
+  final MidiService _service;
+
+  @override
+  void noteOn(int key, int velocity, int channel) =>
+      _service.playNote(key: key, velocity: velocity, channel: channel);
+
+  @override
+  void noteOff(int key, int channel) => _service.stopNote(key: key, channel: channel);
+
+  @override
+  void pitchBend(int value, int channel) => _service.sendPitchBend(value, channel: channel);
+
+  @override
+  void allNotesOff(int channel) => _service.allNotesOff(channel: channel);
 }

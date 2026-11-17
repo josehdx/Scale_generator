@@ -37,6 +37,15 @@ class PathwaysSection extends StatelessWidget {
     required this.onCustomSequenceChanged,
   });
 
+  /// "L2" -> "Low 2", "H1" -> "High 1". The stored token stays "L2" (the engine
+  /// and saved presets use it); only the label changes.
+  static String _pretty(String v) {
+    if (v.length >= 2 && (v[0] == 'L' || v[0] == 'H') && int.tryParse(v.substring(1)) != null) {
+      return '${v[0] == 'L' ? 'Low' : 'High'} ${v.substring(1)}';
+    }
+    return v;
+  }
+
   Widget _buildMotifChipBuilder() {
     int maxNotes = 4;
     if (selectedSystem == "3-Note-Per-String (3NPS)") maxNotes = 6;
@@ -57,7 +66,14 @@ class PathwaysSection extends StatelessWidget {
       children: [
         const Padding(
           padding: EdgeInsets.only(top: 12.0, bottom: 4.0),
-          child: Text("Motif Timeline (Drag to reorder):", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          child: Text("Motif timeline", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+        ),
+        const Padding(
+          padding: EdgeInsets.only(bottom: 6.0),
+          child: Text(
+            "Press and hold a note, then drag it to reorder. Tap x to remove.",
+            style: TextStyle(fontSize: 11, color: Colors.grey),
+          ),
         ),
         Container(
           height: 60,
@@ -84,9 +100,10 @@ class PathwaysSection extends StatelessWidget {
                       key: ValueKey(token.id),
                       padding: const EdgeInsets.only(right: 8.0),
                       child: InputChip(
-                        label: Text(token.value, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        label: Text(_pretty(token.value), style: const TextStyle(fontWeight: FontWeight.bold)),
                         backgroundColor: chipColor,
-                        deleteIcon: const Icon(Icons.cancel, size: 16, color: Colors.white70),
+                        deleteButtonTooltipMessage: 'Remove',
+                        deleteIcon: const Icon(Icons.cancel, size: 20, color: Colors.white70),
                         onDeleted: () => onMotifRemoved(index),
                       ),
                     );
@@ -96,7 +113,18 @@ class PathwaysSection extends StatelessWidget {
         ),
         const Padding(
           padding: EdgeInsets.only(top: 12.0, bottom: 4.0),
-          child: Text("Available Notes Bank (Tap to add):", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          child: Text("Notes to add (tap)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6.0),
+          child: Text(
+            selectedSystem == "Single String Horizontal"
+                ? "The number is the position of the note along the string (1 = lowest fret)."
+                : "Strings are taken in pairs. Low = a note on the lower-pitched string of the pair, "
+                    "High = a note on the higher-pitched one. The number is which note of that string "
+                    "(1 = lowest fret in the position).",
+            style: const TextStyle(fontSize: 11, color: Colors.grey),
+          ),
         ),
         Wrap(
           spacing: 8.0,
@@ -109,7 +137,7 @@ class PathwaysSection extends StatelessWidget {
                 : (isLower ? Colors.blue.shade700 : Colors.teal.shade700);
 
             return ActionChip(
-              label: Text(note),
+              label: Text(_pretty(note)),
               backgroundColor: Colors.grey.shade900,
               side: BorderSide(color: borderColor),
               onPressed: () => onMotifAdded(note),

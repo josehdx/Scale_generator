@@ -18,9 +18,10 @@ class GpxRecentFilesView extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const Padding(
-          padding: EdgeInsets.symmetric(vertical: 24.0),
+          padding: EdgeInsets.symmetric(vertical: 24.0, horizontal: 16.0),
           child: Text(
-            'No GP file loaded yet.\nTap "Open .gp File" to start.',
+            'No Guitar Pro file loaded yet.\nTap "Open .gp File" to start.\n'
+            '(Guitar Pro 7/8 .gp files; older .gpx / .gp5 files must be re-saved as .gp)',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.grey, fontSize: 14),
           ),
@@ -47,15 +48,12 @@ class GpxRecentFilesView extends StatelessWidget {
                 final path = recent['path'] ?? '';
                 return ListTile(
                   leading: const Icon(Icons.history, color: Colors.grey),
-                  title: Text(name, style: const TextStyle(color: Colors.white)),
-                  subtitle: Text(
-                    path,
-                    style: const TextStyle(color: Colors.white54, fontSize: 11),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  // the absolute path is meaningless to the user (and goes stale)
+                  title: Text(name, style: const TextStyle(color: Colors.white), maxLines: 2, overflow: TextOverflow.ellipsis),
                   trailing: IconButton(
-                    icon: const Icon(Icons.close, size: 16, color: Colors.grey),
+                    tooltip: 'Remove from recent files',
+                    constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                    icon: const Icon(Icons.close, size: 20, color: Colors.grey),
                     onPressed: () => onRemove(path),
                   ),
                   onTap: () => onOpen(name, path),

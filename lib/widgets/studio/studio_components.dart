@@ -84,6 +84,7 @@ class _StudioNumberFieldState extends State<StudioNumberField> {
     if (!_focusNode.hasFocus) {
       _commitValue();
     }
+    if (mounted) setState(() {}); // shows / hides the "done" button
   }
 
   @override
@@ -92,7 +93,9 @@ class _StudioNumberFieldState extends State<StudioNumberField> {
     _controller = TextEditingController(text: widget.value.toString());
     _focusNode = FocusNode();
     
-    // Defer state update until user is completely done typing
+    // The value is committed when the field loses focus. The iOS number pad
+    // has no Done key and iOS does not unfocus on outside taps, so both are
+    // provided below: a check button and onTapOutside.
     _focusNode.addListener(_onFocusChange);
   }
 
@@ -132,8 +135,20 @@ class _StudioNumberFieldState extends State<StudioNumberField> {
       controller: _controller,
       focusNode: _focusNode,
       keyboardType: TextInputType.number,
+      textInputAction: TextInputAction.done,
       textAlign: TextAlign.center,
+      onTapOutside: (_) => _focusNode.unfocus(),
       decoration: InputDecoration(
+        suffixIcon: _focusNode.hasFocus
+            ? IconButton(
+                tooltip: 'Done',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                icon: const Icon(Icons.check_circle, size: 20, color: Colors.greenAccent),
+                onPressed: () => _focusNode.unfocus(),
+              )
+            : null,
+        suffixIconConstraints: const BoxConstraints(minWidth: 36, minHeight: 36),
         labelText: widget.label,
         labelStyle: const TextStyle(fontSize: 11, height: 1.1),
         floatingLabelAlignment: FloatingLabelAlignment.center,
@@ -231,9 +246,10 @@ class _StudioStepperFieldState extends State<StudioStepperField> {
   }
 
   void _startHold(int delta) {
-    // Drop focus from text input safely
-    FocusManager.instance.primaryFocus?.unfocus(); 
-    
+    // Drop focus from text input safely (this also commits a typed value)
+    FocusManager.instance.primaryFocus?.unfocus();
+    _stopHold();
+
     _updateValue(delta); 
     
     _delayTimer = Timer(const Duration(milliseconds: 400), () {
@@ -266,9 +282,14 @@ class _StudioStepperFieldState extends State<StudioStepperField> {
                 onTapDown: (_) => _startHold(-1),
                 onTapUp: (_) => _stopHold(),
                 onTapCancel: () => _stopHold(),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4.0, vertical: 6.0),
-                  child: Icon(Icons.arrow_drop_down, size: 24),
+                child: Semantics(
+                  button: true,
+                  label: 'Decrease ${widget.label}',
+                  child: const SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Icon(Icons.arrow_drop_down, size: 28),
+                  ),
                 ),
               ),
               Expanded(
@@ -276,7 +297,9 @@ class _StudioStepperFieldState extends State<StudioStepperField> {
                   controller: _controller,
                   focusNode: _focusNode,
                   keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.done,
                   textAlign: TextAlign.center,
+                  onTapOutside: (_) => _focusNode.unfocus(),
                   style: const TextStyle(fontSize: 16),
                   decoration: const InputDecoration(
                     isDense: true,
@@ -291,9 +314,14 @@ class _StudioStepperFieldState extends State<StudioStepperField> {
                 onTapDown: (_) => _startHold(1),
                 onTapUp: (_) => _stopHold(),
                 onTapCancel: () => _stopHold(),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4.0, vertical: 6.0),
-                  child: Icon(Icons.arrow_drop_up, size: 24),
+                child: Semantics(
+                  button: true,
+                  label: 'Increase ${widget.label}',
+                  child: const SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Icon(Icons.arrow_drop_up, size: 28),
+                  ),
                 ),
               ),
             ],

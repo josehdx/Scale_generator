@@ -4,6 +4,20 @@ import '../models/gp_beat.dart';
 import '../models/gp_note.dart';
 import '../models/master_bar_event.dart';
 
+const String _monoFont = 'Menlo';
+const List<String> _monoFallback = ['Courier', 'RobotoMono', 'monospace'];
+
+/// Labels for the tab lines, highest string first ("e B G D A E" for standard
+/// guitar). [tuning] is lowest string first.
+List<String> tuningLabels(List<int> tuning) {
+  const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  if (tuning.isEmpty) return const ['e', 'B', 'G', 'D', 'A', 'E'];
+  final labels = tuning.reversed.map((p) => names[p % 12]).toList();
+  // Convention: the highest string of a guitar is written in lower case.
+  if (tuning.length >= 6 && labels.first == 'E') labels[0] = 'e';
+  return labels;
+}
+
 class BeatRenderData {
   final String topText;
   final List<String> strings;
@@ -117,6 +131,13 @@ class InteractiveTabDisplay extends StatefulWidget {
   final List<int>? measureEndIndices;
   final List<MasterBarEvent>? masterBars;
 
+  /// Number of tab lines (4 = bass, 7 / 8 = extended range guitars).
+  final int stringCount;
+
+  /// Labels from the top (highest) line to the bottom one. Defaults to the
+  /// standard guitar names.
+  final List<String>? stringLabels;
+
   const InteractiveTabDisplay({
     super.key,
     required this.sequence,
@@ -130,6 +151,8 @@ class InteractiveTabDisplay extends StatefulWidget {
     required this.onBeatTapped,
     this.measureEndIndices,
     this.masterBars,
+    this.stringCount = 6,
+    this.stringLabels,
   });
 
   @override
@@ -137,7 +160,7 @@ class InteractiveTabDisplay extends StatefulWidget {
 }
 
 class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
-  static final RegExp _noteRegex = RegExp(r'[0-9x<>()/\\=]');
+  static final RegExp _noteRegex = RegExp(r'[0-9xo<>()/\\=]');
   
   final ScrollController _verticalController = ScrollController();
   late List<ScrollController> _horizontalControllers;
@@ -151,8 +174,10 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
   int _lastScrolledIndex = -1;
   int _lastActiveIndex = -1;
 
-  // Telemetry variables
-  DateTime? _lastScrollTime;
+  Map<int, int> _barStartNumbers = {};
+
+  int get _lines => widget.stringCount < 1 ? 6 : widget.stringCount;
+  double get _systemHeight => 36.0 + 18.0 + _lines * 18.0 + 28.0;
 
   @override
   void initState() {
@@ -183,6 +208,14 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
   void _rebuildCache() {
     _measureEndSet = widget.measureEndIndices?.toSet() ?? {};
+    _barStartNumbers = {};
+    final ends = widget.measureEndIndices;
+    if (ends != null && ends.isNotEmpty) {
+      _barStartNumbers[0] = 1;
+      for (int b = 0; b + 1 < ends.length; b++) {
+        _barStartNumbers[ends[b] + 1] = b + 2;
+      }
+    }
     _cachedSystems = _calculateSystems();
     _effectiveSelectionEnd = _calculateEffectiveSelectionEnd();
     
@@ -208,11 +241,16 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
   BeatRenderData _buildViewModelForBeat(int beatIndex) {
     final beat = widget.sequence[beatIndex];
-    final bool isMeasureEnd = _measureEndSet.contains(beatIndex) || (beatIndex + 1) % widget.notesPerMeasure == 0;
+    // Real bar ends win. The fixed grid is only a fallback for sequences
+    // without bar information (studio output).
+    final bool hasBarInfo = widget.measureEndIndices != null && widget.measureEndIndices!.isNotEmpty;
+    final bool isMeasureEnd = hasBarInfo
+        ? _measureEndSet.contains(beatIndex)
+        : (beatIndex + 1) % widget.notesPerMeasure == 0;
 
     int maxColWidth = 3;
-    List<String> renderedStrings = List.filled(6, "");
-    List<bool> hasNotes = List.filled(6, false);
+    List<String> renderedStrings = List.filled(_lines, "");
+    List<bool> hasNotes = List.filled(_lines, false);
     String topAnnotation = "";
 
     if (beat.strumDirection == StrumDirection.down) {
@@ -221,14 +259,17 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
       topAnnotation += "^";
     }
 
-    for (int strIdx = 0; strIdx < 6; strIdx++) {
+    for (int strIdx = 0; strIdx < _lines; strIdx++) {
       final int strNum = strIdx + 1;
       final noteOnString = beat.noteOnString(strNum);
 
       if (noteOnString != null && !noteOnString.isRest) {
         String val = noteOnString.fretNum.toString();
 
-        if (noteOnString.isMuted) {
+        if (noteOnString.isPercussion) {
+          // lanes 1-2 are cymbals / hi-hat ("x"), the rest are drums ("o")
+          val = noteOnString.isGhost ? "(o)" : (strNum <= 2 ? "x" : "o");
+        } else if (noteOnString.isMuted) {
           val = "x";
         } else if (noteOnString.harmonicType != HarmonicType.none) {
           val = "<$val>";
@@ -291,7 +332,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
       maxColWidth = topText.length;
     }
 
-    for (int strIdx = 0; strIdx < 6; strIdx++) {
+    for (int strIdx = 0; strIdx < _lines; strIdx++) {
       if (renderedStrings[strIdx].isEmpty) {
         renderedStrings[strIdx] = "-" * maxColWidth;
         hasNotes[strIdx] = false;
@@ -385,7 +426,10 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
   void didUpdateWidget(covariant InteractiveTabDisplay oldWidget) {
     super.didUpdateWidget(oldWidget);
     
-    if (widget.sequence != oldWidget.sequence || widget.measuresPerLine != oldWidget.measuresPerLine) {
+    if (!identical(widget.sequence, oldWidget.sequence) ||
+        widget.measuresPerLine != oldWidget.measuresPerLine ||
+        widget.stringCount != oldWidget.stringCount ||
+        !identical(widget.measureEndIndices, oldWidget.measureEndIndices)) {
       for (var controller in _horizontalControllers) {
         controller.dispose();
       }
@@ -429,11 +473,11 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
     if (_verticalController.hasClients) {
       final position = _verticalController.position;
       if (position.hasViewportDimension) {
-        double vertOffset = sysIndex * 190.0;
+        double vertOffset = sysIndex * _systemHeight;
         double currentVOffset = position.pixels;
         double vViewport = position.viewportDimension;
         
-        if (vertOffset < currentVOffset || vertOffset + 190.0 > currentVOffset + vViewport) {
+        if (vertOffset < currentVOffset || vertOffset + _systemHeight > currentVOffset + vViewport) {
           _verticalController.animateTo(
             vertOffset,
             duration: const Duration(milliseconds: 150),
@@ -469,8 +513,11 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
   Widget _buildBeatLayout(bool isPlaying, bool isSelected, BeatRenderData data, int beatIndex) {
     return GestureDetector(
       onTap: () => widget.onBeatTapped(beatIndex),
+      behavior: HitTestBehavior.opaque,
       child: Container(
         padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 30.0),
+        alignment: Alignment.topCenter,
         decoration: BoxDecoration(
           color: isPlaying
               ? Colors.amber.shade400
@@ -484,21 +531,37 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const SizedBox(height: 36.0),
+              SizedBox(
+                height: 36.0,
+                child: _barStartNumbers.containsKey(beatIndex)
+                    ? Align(
+                        alignment: Alignment.bottomLeft,
+                        child: Text(
+                          '${_barStartNumbers[beatIndex]}',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: isPlaying ? Colors.black54 : Colors.blueGrey.shade300,
+                          ),
+                        ),
+                      )
+                    : null,
+              ),
               Container(
                 height: 18.0,
                 alignment: Alignment.center,
                 child: Text(
                   data.topText,
                   style: TextStyle(
-                    fontFamily: 'monospace',
+                    fontFamily: _monoFont,
+                    fontFamilyFallback: _monoFallback,
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                     color: isPlaying ? Colors.black : Colors.orangeAccent,
                   ),
                 ),
               ),
-              ...List.generate(6, (strIdx) {
+              ...List.generate(_lines, (strIdx) {
                 final String textVal = data.strings[strIdx];
                 final bool hasNote = data.hasNotes[strIdx];
                 return Container(
@@ -507,7 +570,8 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                   child: Text(
                     textVal,
                     style: TextStyle(
-                      fontFamily: 'monospace',
+                      fontFamily: _monoFont,
+                    fontFamilyFallback: _monoFallback,
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                       color: isPlaying
@@ -528,24 +592,13 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
 
   @override
   Widget build(BuildContext context) {
-    final List<String> stringLabels = ["e", "B", "G", "D", "A", "E"];
+    final List<String> stringLabels = (widget.stringLabels != null && widget.stringLabels!.length == _lines)
+        ? widget.stringLabels!
+        : List<String>.generate(_lines, (i) => i < 6 ? const ["e", "B", "G", "D", "A", "E"][i] : "${i + 1}");
 
-    return NotificationListener<ScrollNotification>(
-      onNotification: (ScrollNotification notification) {
-        if (notification is ScrollUpdateNotification) {
-          final now = DateTime.now();
-          if (_lastScrollTime != null) {
-            final deltaMs = now.difference(_lastScrollTime!).inMilliseconds;
-            if (deltaMs > 16) {
-              debugPrint('[SCROLL TELEMETRY] Dropped Frame: ${deltaMs}ms | Scroll Delta: ${notification.scrollDelta?.toStringAsFixed(1)}');
-            }
-          }
-          _lastScrollTime = now;
-        } else if (notification is ScrollEndNotification) {
-          _lastScrollTime = null;
-        }
-        return false;
-      },
+    // The tab is fixed-geometry notation (18 dp rows), so system text scaling
+    // must not change the glyph size and break the alignment.
+    return MediaQuery.withNoTextScaling(
       child: Scrollbar(
         controller: _verticalController,
         thumbVisibility: true,
@@ -561,7 +614,7 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
             final int systemBeatCount = sys.end - sys.start;
 
             return SizedBox(
-              height: 190.0,
+              height: _systemHeight,
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 8.0),
                 child: Row(
@@ -578,7 +631,8 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                             child: Text(
                               "$lbl|",
                               style: const TextStyle(
-                                fontFamily: 'monospace',
+                                fontFamily: _monoFont,
+                    fontFamilyFallback: _monoFallback,
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.amberAccent,
@@ -623,14 +677,15 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                                       const SizedBox(height: 36.0),
                                       Container(height: 18.0, alignment: Alignment.center, child: const Text(" ")),
                                       ...List.generate(
-                                        6,
+                                        _lines,
                                         (_) => Container(
                                           height: 18.0,
                                           alignment: Alignment.center,
                                           child: const Text(
                                             "|",
                                             style: TextStyle(
-                                              fontFamily: 'monospace',
+                                              fontFamily: _monoFont,
+                    fontFamilyFallback: _monoFallback,
                                               fontSize: 12,
                                               color: Colors.white54,
                                             ),
@@ -642,19 +697,23 @@ class _InteractiveTabDisplayState extends State<InteractiveTabDisplay> {
                               ],
                             );
                           } else if (horizontalIndex == systemBeatCount) {
+                            if (_cachedRenderData[sys.end - 1].isMeasureEnd) {
+                              return const SizedBox.shrink();
+                            }
                             return Column(
                               children: [
                                 const SizedBox(height: 36.0),
                                 Container(height: 18.0, alignment: Alignment.center, child: const Text(" ")),
                                 ...List.generate(
-                                  6,
+                                  _lines,
                                   (_) => Container(
                                     height: 18.0,
                                     alignment: Alignment.center,
                                     child: const Text(
                                       "|",
                                       style: TextStyle(
-                                        fontFamily: 'monospace',
+                                        fontFamily: _monoFont,
+                    fontFamilyFallback: _monoFallback,
                                         fontSize: 12,
                                         color: Colors.white54,
                                       ),

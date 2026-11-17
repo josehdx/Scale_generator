@@ -47,10 +47,8 @@ class PresetSanitizer {
       // Check if current accents are in auto-generated format (first beat 1, remaining beats 0)
       bool isAuto = currentAccents.isEmpty || 
           (currentAccents.first == "1" && currentAccents.skip(1).every((e) => e == "0"));
-
       // Auto-expand/contract accent length
       sanitizedAccent = List.generate(expectedLength, (i) => i == 0 ? "1" : "0").join(",");
-
       // ONLY report a warning issue if the user had typed a custom non-default accent pattern
       if (!isAuto) {
         issues.add(PresetValidationIssue(
@@ -95,9 +93,64 @@ class PresetSanitizer {
       endRests: preset.endRests,
       tabOutput: preset.tabOutput,
       instrumentIndex: preset.instrumentIndex,
+      patternMultiplier: preset.patternMultiplier,
       createdAt: preset.createdAt,
     );
 
     return (healed, issues);
+  }
+
+  /// Makes a preset that came from disk / import / an old app version safe to
+  /// load: every dropdown value must exist in its option list, numbers are
+  /// clamped to the ranges the UI offers, and string fields cannot crash the
+  /// parsers. Unknown values fall back to the first option / a default.
+  static LickPreset sanitizeFields(
+    LickPreset p, {
+    required Set<String> keys,
+    required Set<String> scales,
+    required Set<String> tunings,
+    required Set<String> systems,
+    required Set<String> pathways,
+    required Set<String> directions,
+    required Set<String> timeSignatures,
+    required Set<String> rhythms,
+    required Set<int> instrumentIndexes,
+  }) {
+    String pick(String v, Set<String> options, String fallback) =>
+        options.contains(v) ? v : (options.contains(fallback) ? fallback : options.first);
+
+    // "start-end" strings (1..6), or a single string number for Single String.
+    String fragment = p.fragment;
+    if (p.system == "Single String Horizontal") {
+      fragment = (int.tryParse(fragment) ?? 1).clamp(1, 6).toString();
+    } else if (fragment.contains('-')) {
+      final parts = fragment.split('-');
+      final a = (int.tryParse(parts[0].trim()) ?? 6).clamp(1, 6);
+      final b = (parts.length > 1 ? (int.tryParse(parts[1].trim()) ?? 1) : 1).clamp(1, 6);
+      fragment = "$a-$b";
+    }
+
+    return p.copyWith(
+      key: pick(p.key, keys, "C"),
+      scale: pick(p.scale, scales, "Minor Pentatonic"),
+      tuning: pick(p.tuning, tunings, "Standard E"),
+      system: pick(p.system, systems, "Box Position / CAGED"),
+      pathway: pick(p.pathway, pathways, "Straight Linear"),
+      direction: pick(p.direction, directions, "Ascend -> Descend"),
+      timeSignature: pick(p.timeSignature, timeSignatures, "Auto"),
+      rhythm: pick(p.rhythm, rhythms, "Straight 16ths"),
+      fragment: fragment,
+      tempo: p.tempo.clamp(40, 300),
+      startFret: p.startFret.clamp(0, 24),
+      measuresPerLine: p.measuresPerLine.clamp(0, 16),
+      breakInterval: p.breakInterval.clamp(0, 64),
+      breakLength: p.breakLength.clamp(0, 32),
+      endRests: p.endRests.clamp(0, 64),
+      patternMultiplier: p.patternMultiplier.clamp(1, 32),
+      instrumentIndex: instrumentIndexes.contains(p.instrumentIndex) ? p.instrumentIndex : instrumentIndexes.first,
+      customNps: p.customNps.trim().isEmpty ? "3,3,3,3,3,3" : p.customNps,
+      customAccentString: p.customAccentString.trim().isEmpty ? "1,0,0,0" : p.customAccentString,
+      customRhythmString: p.customRhythmString.trim().isEmpty ? "16,16,8" : p.customRhythmString,
+    );
   }
 }

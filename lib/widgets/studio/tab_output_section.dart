@@ -68,12 +68,14 @@ class _TabOutputSectionState extends State<TabOutputSection> {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8)),
         width: double.infinity,
-        child: Text(widget.generatedTab, style: const TextStyle(fontFamily: 'monospace', color: Colors.greenAccent)),
+        child: Text(widget.generatedTab, style: const TextStyle(fontFamily: 'Menlo', fontFamilyFallback: ['Courier', 'RobotoMono', 'monospace'], color: Colors.greenAccent)),
       );
     }
     
     return Container(
-      constraints: const BoxConstraints(maxHeight: 350),
+      // Fixed 350 dp was too small on tablets and too tall on small phones;
+      // follow the screen height instead.
+      constraints: BoxConstraints(maxHeight: (MediaQuery.of(context).size.height * 0.45).clamp(220.0, 520.0).toDouble()),
       margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
       decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade800)),
       child: Column(
@@ -88,8 +90,14 @@ class _TabOutputSectionState extends State<TabOutputSection> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text("Time Signature: ${widget.autoTimeSignature} (Driven Automatically)", style: const TextStyle(fontSize: 11, color: Colors.amberAccent, fontWeight: FontWeight.bold)),
-                const Icon(Icons.lock_outline, size: 12, color: Colors.grey),
+                Flexible(
+                  child: Text("Time signature: ${widget.autoTimeSignature}", overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Colors.amberAccent, fontWeight: FontWeight.bold)),
+                ),
+                const Tooltip(
+                  triggerMode: TooltipTriggerMode.tap,
+                  message: "Change it under 'Formatting & Rhythm'. With 'Auto' it follows the motif / pathway length.",
+                  child: Padding(padding: EdgeInsets.all(8), child: Icon(Icons.info_outline, size: 16, color: Colors.grey)),
+                ),
               ],
             ),
           ),
